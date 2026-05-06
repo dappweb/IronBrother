@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Coins,
   Gift,
@@ -19,7 +20,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Address, Hash, Hex } from 'viem';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import {
@@ -40,7 +41,7 @@ import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, tok
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
-type LocaleKey = 'zh-Hant' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
+type LocaleKey = 'zh-CN' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
 
@@ -190,6 +191,11 @@ type DirectReferralRow = {
   isValidToday: boolean;
 };
 
+type TeamSummaryData = {
+  totalDeposited: bigint;
+  totalMembers: number;
+};
+
 type ChainEventRecord = {
   eventName: string;
   args: Record<string, unknown>;
@@ -207,46 +213,48 @@ const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
 const LANGUAGE_STORAGE_KEY = 'ironbrother.locale';
+const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
+const TEAM_SUMMARY_MAX_DEPTH = 40;
 const DEFAULT_TX_ERROR = '交易失败，请检查钱包、余额和链上状态后重试。';
 
 const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
-  { key: 'zh-Hant', label: '中文繁体' },
-  { key: 'en', label: '英文' },
-  { key: 'ja', label: '日语' },
-  { key: 'ko', label: '韩语' },
-  { key: 'vi', label: '越南语' },
-  { key: 'ms', label: '马来语' },
+  { key: 'zh-CN', label: '简体中文' },
+  { key: 'en', label: 'English' },
+  { key: 'ja', label: '日本語' },
+  { key: 'ko', label: '한국어' },
+  { key: 'vi', label: 'Tiếng Việt' },
+  { key: 'ms', label: 'Bahasa Melayu' },
 ];
 
 const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
-  'zh-Hant': {
-    nav: { home: '首頁', stake: '質押', wallet: '錢包', team: '團隊', profile: '我的' },
+  'zh-CN': {
+    nav: { home: '首页', stake: '带单', wallet: '钱包', team: '团队', profile: '我的' },
     shell: {
       greeting: 'Hi',
-      contractMissing: '合約地址未配置，鏈上讀取和真實交易暫不可用。部署後設定 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可啟用。',
-      switchNetwork: '切換到 BSC Testnet',
+      contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可启用。',
+      switchNetwork: '切换到 BSC Testnet',
     },
-    language: { eyebrow: 'Language', title: '語言切換' },
+    language: { eyebrow: 'Language', title: '语言切换' },
     home: {
-      principalWallet: '本金錢包',
-      availableStake: '可質押',
-      rewardWallet: '收益錢包',
+      principalWallet: '本金钱包',
+      availableStake: '可带单',
+      rewardWallet: '收益钱包',
       todaysYield: '今日收益率',
       perTime: '次',
-      maturedUnredeemed: '到期未贖回',
-      maturedTrend: '到期訂單需手動贖回',
-      actions: { deposit: '入金', stake: '質押', reinvest: '復投', withdraw: '提現' },
-      chainTimeEyebrow: 'UTC+8 鏈上時間',
-      stakingSessions: '質押場次',
-      perWalletPerSession: '每錢包每場 1 單',
-      latestOrders: '最新訂單',
-      orderUnit: '筆',
-      noOrdersTitle: '暫無鏈上訂單',
-      noOrdersDetail: '連接錢包後會直接讀取該地址的本金和質押訂單。',
+      maturedUnredeemed: '到期未赎回',
+      maturedTrend: '到期订单需手动赎回',
+      actions: { deposit: '入金', stake: '带单', reinvest: '复投', withdraw: '提现' },
+      chainTimeEyebrow: 'UTC+8 链上时间',
+      stakingSessions: '带单场次',
+      perWalletPerSession: '每钱包每场 1 单',
+      latestOrders: '最新订单',
+      orderUnit: '笔',
+      noOrdersTitle: '暂无链上订单',
+      noOrdersDetail: '连接钱包后会直接读取该地址的本金和带单订单。',
     },
-    session: { morning: '上午場', afternoon: '下午場', closed: '休息中', canStake: '可質押', pending: '待開放' },
-    order: { deposit: '入金訂單', reinvest: '復投訂單', stake: '質押訂單', unlock: '解鎖', settle: '結算' },
-    status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖定中', settled: '已結算', settleable: '可結算', pending: '待結算' },
+    session: { morning: '上午场', afternoon: '下午场', closed: '休息中', canStake: '可带单', pending: '待开放' },
+    order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算' },
+    status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁定中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
   en: {
     nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
@@ -402,9 +410,9 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['owner required', '合约管理员地址未配置。'],
   ['fee receiver required', '手续费接收地址不能为空。'],
   ['principal cap exceeded', '本金钱包已达到上限，请降低金额或先处理现有本金。'],
-  ['staking window closed', '当前不在质押时间段，请在开放场次内提交。'],
-  ['session already used', '当前场次已经质押过，每个钱包每场限 1 单。'],
-  ['insufficient available principal', '可用本金不足，请降低质押金额或先赎回到期本金。'],
+  ['staking window closed', '当前不在带单时间段，请在开放场次内提交。'],
+  ['session already used', '当前场次已经带单过，每个钱包每场限 1 单。'],
+  ['insufficient available principal', '可用本金不足，请降低带单金额或先赎回到期本金。'],
   ['not order owner', '该订单不属于当前钱包。'],
   ['order closed', '该本金订单已关闭或已赎回。'],
   ['order locked', '该本金订单尚未到期，暂不能赎回。'],
@@ -431,9 +439,9 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['offset out of range', '时区偏移必须在 -12 到 +14 小时之间。'],
   ['invalid generation', '代数必须在 1 到 40 之间。'],
   ['rate too high', '代数奖励比例不能超过 1%。'],
-  ['stake missing', '质押订单不存在，请检查订单 ID。'],
-  ['stake settled', '该质押订单已经结算。'],
-  ['settlement pending', '质押订单尚未到结算时间。'],
+  ['stake missing', '带单订单不存在，请检查订单 ID。'],
+  ['stake settled', '该带单订单已经结算。'],
+  ['settlement pending', '带单订单尚未到结算时间。'],
   ['day not closed', '只能结算已结束的本地日期。'],
   ['dynamic settled', '该用户当天动态奖励已经结算。'],
   ['self referrer', '邀请人不能填写当前钱包自己。'],
@@ -468,6 +476,11 @@ const emptyDashboard = {
   totalStaticRewardCredited: 0n,
   totalDynamicRewardCredited: 0n,
   totalWithdrawnAmount: 0n,
+};
+
+const emptyTeamSummary: TeamSummaryData = {
+  totalDeposited: 0n,
+  totalMembers: 0,
 };
 
 function userFromTuple(data: unknown): UserAccountData {
@@ -577,13 +590,13 @@ function isLocaleKey(value: string | null): value is LocaleKey {
 }
 
 function initialLocale(): LocaleKey {
-  if (typeof window === 'undefined') return 'zh-Hant';
+  if (typeof window === 'undefined') return DEFAULT_LOCALE;
 
   try {
     const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLocaleKey(saved) ? saved : 'zh-Hant';
+    return isLocaleKey(saved) ? saved : DEFAULT_LOCALE;
   } catch {
-    return 'zh-Hant';
+    return DEFAULT_LOCALE;
   }
 }
 
@@ -977,6 +990,77 @@ function useDirectReferralRows(rootAddress: Address, day: bigint, enabled = true
   };
 }
 
+function useTeamSummary(rootAddress: Address, enabled = true) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['ironBrother', 'teamSummary', CONTRACT_ADDRESS, rootAddress],
+    enabled: Boolean(isContractConfigured && enabled && publicClient && rootAddress !== zeroAddress),
+    queryFn: async (): Promise<TeamSummaryData> => {
+      if (!publicClient) return emptyTeamSummary;
+
+      const seen = new Set<string>([rootAddress.toLowerCase()]);
+      let frontier: Address[] = [rootAddress];
+      let totalDeposited = 0n;
+      let totalMembers = 0;
+
+      for (let depth = 0; depth < TEAM_SUMMARY_MAX_DEPTH && frontier.length > 0; depth += 1) {
+        const referralGroups = await Promise.all(
+          frontier.map(async (user) => {
+            try {
+              return (await publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'getDirectReferrals',
+                args: [user],
+              })) as readonly Address[];
+            } catch {
+              return [] as Address[];
+            }
+          }),
+        );
+
+        const next: Address[] = [];
+        for (const referrals of referralGroups) {
+          for (const referral of referrals) {
+            const normalized = referral.toLowerCase();
+            if (!seen.has(normalized)) {
+              seen.add(normalized);
+              next.push(referral);
+            }
+          }
+        }
+
+        if (next.length === 0) break;
+
+        totalMembers += next.length;
+        const accounts = await Promise.all(
+          next.map(async (member) => {
+            try {
+              return userFromTuple(
+                await publicClient.readContract({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'users',
+                  args: [member],
+                }),
+              );
+            } catch {
+              return emptyUser;
+            }
+          }),
+        );
+
+        totalDeposited = accounts.reduce((sum, account) => sum + account.totalDeposited, totalDeposited);
+        frontier = next;
+      }
+
+      return { totalDeposited, totalMembers };
+    },
+    staleTime: 30_000,
+  });
+}
+
 function useIronBrotherData() {
   const { address } = useAccount();
   const enabled = isContractConfigured && Boolean(address);
@@ -1051,6 +1135,7 @@ function useIronBrotherData() {
   const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
   const orders = useUserOrders(accountAddress, enabled);
   const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, enabled);
+  const teamSummary = useTeamSummary(accountAddress, enabled);
 
   return {
     account,
@@ -1071,6 +1156,8 @@ function useIronBrotherData() {
     principalOrders: orders.principalOrders,
     stakeOrders: orders.stakeOrders,
     directReferrals: directReferrals.rows,
+    teamSummary: teamSummary.data ?? emptyTeamSummary,
+    isTeamSummaryLoading: teamSummary.isLoading,
   };
 }
 
@@ -1184,7 +1271,10 @@ function CustomerApp() {
             <p className="eyebrow">IronBrother</p>
             <h1>{copy.shell.greeting}, {shortAddress(address)}</h1>
           </div>
-          <WalletConnectButton />
+          <div className="topbar-actions">
+            <TopLanguageSwitcher locale={locale} copy={copy} onChange={setLocale} />
+            <WalletConnectButton />
+          </div>
         </div>
         {!isContractConfigured && (
           <div className="notice warning">
@@ -1199,7 +1289,7 @@ function CustomerApp() {
       </header>
 
       <main className="mobile-frame content-frame">
-        {nav === 'home' && <HomeScreen data={data} locale={locale} copy={copy} onLocaleChange={setLocale} onNavigate={setNav} />}
+        {nav === 'home' && <HomeScreen data={data} copy={copy} onNavigate={setNav} />}
         {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'wallet' && <WalletScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'team' && <TeamScreen data={data} />}
@@ -1219,15 +1309,11 @@ function CustomerApp() {
 
 function HomeScreen({
   data,
-  locale,
   copy,
-  onLocaleChange,
   onNavigate,
 }: {
   data: ReturnType<typeof useIronBrotherData>;
-  locale: LocaleKey;
   copy: LocaleCopy;
-  onLocaleChange: (locale: LocaleKey) => void;
   onNavigate: (nav: NavKey) => void;
 }) {
   const currentSessionLabel = sessionLabelForLocale(data.currentSession, copy);
@@ -1279,8 +1365,6 @@ function HomeScreen({
         <ActionPill icon={<ArrowUpRight />} label={copy.home.actions.withdraw} onClick={() => onNavigate('wallet')} />
       </div>
 
-      <LanguageSwitcher locale={locale} copy={copy} onChange={onLocaleChange} />
-
       <section className="panel">
         <div className="section-title">
           <div>
@@ -1314,7 +1398,18 @@ function HomeScreen({
 
 function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
   const { runTx, tx, writeContractAsync } = useTxRunner();
-  const [amount, setAmount] = useState('400');
+  const [amount, setAmount] = useState(() => tokenInput(data.availablePrincipal));
+  const previousDefaultAmountRef = useRef(amount);
+
+  useEffect(() => {
+    const nextDefaultAmount = tokenInput(data.availablePrincipal);
+    setAmount((currentAmount) => {
+      const shouldUseDefault = currentAmount === previousDefaultAmountRef.current;
+      previousDefaultAmountRef.current = nextDefaultAmount;
+      return shouldUseDefault ? nextDefaultAmount : currentAmount;
+    });
+  }, [data.availablePrincipal]);
+
   const parsedAmount = useMemo(() => {
     try {
       return parseTokenInput(amount);
@@ -1330,13 +1425,13 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
       <section className="panel pay-panel">
         <div className="section-title centered">
           <span />
-          <h2>质押</h2>
+          <h2>带单</h2>
           <Clock3 size={18} />
         </div>
         <label className="amount-field">
-          <span>质押金额</span>
+          <span>带单金额</span>
           <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
-          <small>可质押 {token(data.availablePrincipal)} U</small>
+          <small>可带单 {token(data.availablePrincipal)} U</small>
         </label>
 
         <div className="calc-grid">
@@ -1348,7 +1443,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
           className="primary-button"
           disabled={disabled || parsedAmount <= 0n}
           onClick={() =>
-            runTx('确认质押', () =>
+            runTx('确认带单', () =>
               writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -1358,7 +1453,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
             )
           }
         >
-          确认质押
+          确认带单
         </button>
         <TxStatus tx={tx} />
       </section>
@@ -1494,7 +1589,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
         <strong>{token(data.account.rewardBalance)} U</strong>
       </div>
       <div className="calc-grid">
-        <MetricCard label="静态累计" value={`${token(data.account.totalStaticReward)} U`} trend="质押按次结算" />
+        <MetricCard label="静态累计" value={`${token(data.account.totalStaticReward)} U`} trend="带单按次结算" />
         <MetricCard label="动态累计" value={`${token(data.account.totalDynamicReward)} U`} trend="每日 0 点后可结算" />
       </div>
       <div className="form-grid">
@@ -1548,7 +1643,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           <input value={redeemId} onChange={(event) => setRedeemId(event.target.value)} inputMode="numeric" />
         </label>
         <label>
-          结算质押 ID
+          结算带单 ID
           <input value={stakeId} onChange={(event) => setStakeId(event.target.value)} inputMode="numeric" />
         </label>
       </div>
@@ -1573,7 +1668,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           className="secondary-button"
           disabled={disabled}
           onClick={() =>
-            runTx('结算质押', () =>
+            runTx('结算带单', () =>
               writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -1583,7 +1678,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
             )
           }
         >
-          结算质押
+          结算带单
         </button>
       </div>
       <TxStatus tx={tx} />
@@ -1592,22 +1687,19 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
 }
 
 function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
-  const directDailyVolume = data.directReferrals.reduce((sum, item) => sum + item.dailyStakeVolume, 0n);
-  const validCount = data.directReferrals.filter((item) => item.isValidToday).length;
-
   return (
     <section className="screen-stack">
-      <div className="asset-card">
-        <div className="card-row">
-          <span>当前可拿代数</span>
-          <Gift size={18} />
-        </div>
-        <strong>{data.account.whitelist40 ? '40 代' : '10 代'}</strong>
-        <small>直推人数 {data.account.directCount.toString()}，有效账户按日统计</small>
-      </div>
       <div className="quick-grid">
-        <MetricCard label="今日直推流水" value={`${token(directDailyVolume)} U`} trend={`${validCount} 个今日有效账户`} />
-        <MetricCard label="动态奖励" value={`${token(data.account.totalDynamicReward)} U`} trend="按下级质押流水结算" />
+        <MetricCard
+          label="团队充值总业绩"
+          value={data.isTeamSummaryLoading ? '--' : `${token(data.teamSummary.totalDeposited)} U`}
+          trend="累计下级入金"
+        />
+        <MetricCard
+          label="团队人数"
+          value={data.isTeamSummaryLoading ? '--' : `${data.teamSummary.totalMembers} 人`}
+          trend="含所有下级成员"
+        />
       </div>
       <section className="panel">
         <div className="section-title">
@@ -1663,7 +1755,7 @@ function AdminConsole() {
     { key: 'dashboard', label: '数据看板' },
     { key: 'users', label: '用户管理' },
     { key: 'principal', label: '本金订单' },
-    { key: 'stakes', label: '质押订单' },
+    { key: 'stakes', label: '带单订单' },
     { key: 'rewards', label: '收益流水' },
     { key: 'team', label: '团队关系' },
     { key: 'config', label: '合约配置' },
@@ -1733,7 +1825,7 @@ function AdminDashboardPage({ dashboard }: { dashboard: ReturnType<typeof useAdm
       <AdminCard icon={<ArrowDownToLine />} label="总入金" value={`${token(dashboard.totalDepositedAmount)} U`} />
       <AdminCard icon={<Wallet />} label="当前本金" value={`${token(dashboard.totalPrincipalBalance)} U`} />
       <AdminCard icon={<Gift />} label="当前收益" value={`${token(dashboard.totalRewardBalance)} U`} />
-      <AdminCard icon={<BarChart3 />} label="质押流水" value={`${token(dashboard.totalStakedVolume)} U`} />
+      <AdminCard icon={<BarChart3 />} label="带单流水" value={`${token(dashboard.totalStakedVolume)} U`} />
       <AdminCard icon={<Coins />} label="静态收益" value={`${token(dashboard.totalStaticRewardCredited)} U`} />
       <AdminCard icon={<Users />} label="动态奖励" value={`${token(dashboard.totalDynamicRewardCredited)} U`} />
       <AdminCard icon={<Send />} label="提现总额" value={`${token(dashboard.totalWithdrawnAmount)} U`} />
@@ -1818,7 +1910,7 @@ function AdminStakeOrdersPage() {
       <div className="section-title">
         <div>
           <p className="eyebrow">Stake Orders</p>
-          <h2>质押订单</h2>
+          <h2>带单订单</h2>
         </div>
         <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
       </div>
@@ -1826,7 +1918,7 @@ function AdminStakeOrdersPage() {
         {orderBook.stakeOrders.length > 0 ? (
           orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
         ) : (
-          <EmptyState title="暂无质押订单" detail="订单列表通过 nextStakeOrderId 和 stakeOrders(id) 直接读取链上状态。" />
+          <EmptyState title="暂无带单订单" detail="订单列表通过 nextStakeOrderId 和 stakeOrders(id) 直接读取链上状态。" />
         )}
       </div>
     </section>
@@ -1882,7 +1974,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             <input value={batchUsers} onChange={(event) => setBatchUsers(event.target.value)} placeholder="多个地址用逗号或空格分隔" />
           </label>
           <label>
-            批量质押 ID
+            批量带单 ID
             <input value={stakeIds} onChange={(event) => setStakeIds(event.target.value)} placeholder="多个 ID 用逗号或空格分隔" />
           </label>
         </div>
@@ -1907,7 +1999,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             className="secondary-button"
             disabled={!canWrite || parseIdList(stakeIds).length === 0}
             onClick={() =>
-              runner.runTx('批量结算质押', () =>
+              runner.runTx('批量结算带单', () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -1917,7 +2009,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
               )
             }
           >
-            批量质押结算
+            批量带单结算
           </button>
         </div>
       </section>
@@ -2242,7 +2334,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
           className="secondary-button full-button"
           disabled={!canEdit}
           onClick={() =>
-            runner.runTx('设置质押场次', () =>
+            runner.runTx('设置带单场次', () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -2752,34 +2844,63 @@ function WalletConnectButton() {
   );
 }
 
-function LanguageSwitcher({ locale, copy, onChange }: { locale: LocaleKey; copy: LocaleCopy; onChange: (locale: LocaleKey) => void }) {
+function TopLanguageSwitcher({ locale, copy, onChange }: { locale: LocaleKey; copy: LocaleCopy; onChange: (locale: LocaleKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const activeOption = LANGUAGE_OPTIONS.find((option) => option.key === locale) ?? LANGUAGE_OPTIONS[0];
+
   return (
-    <section className="panel language-panel">
-      <div className="section-title">
-        <div>
-          <p className="eyebrow">{copy.language.eyebrow}</p>
-          <h2>{copy.language.title}</h2>
+    <div
+      className={open ? 'top-language-switcher open' : 'top-language-switcher'}
+      onBlur={(event) => {
+        const nextTarget = event.relatedTarget as HTMLElement | null;
+        if (!nextTarget || !event.currentTarget.contains(nextTarget)) {
+          setOpen(false);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          setOpen(false);
+        }
+      }}
+      title={copy.language.title}
+    >
+      <button
+        className="top-language-trigger"
+        type="button"
+        aria-label={copy.language.title}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Languages size={15} />
+        <span>{activeOption.label}</span>
+        <ChevronDown className="top-language-chevron" size={14} />
+      </button>
+
+      {open && (
+        <div className="top-language-menu" role="listbox" aria-label={copy.language.title}>
+          {LANGUAGE_OPTIONS.map((option) => {
+            const active = option.key === locale;
+            return (
+              <button
+                key={option.key}
+                className={active ? 'top-language-option active' : 'top-language-option'}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(option.key);
+                  setOpen(false);
+                }}
+              >
+                <span>{option.label}</span>
+                {active && <CheckCircle2 size={14} />}
+              </button>
+            );
+          })}
         </div>
-        <Languages size={20} />
-      </div>
-      <div className="language-list">
-        {LANGUAGE_OPTIONS.map((option) => {
-          const active = option.key === locale;
-          return (
-            <button
-              key={option.key}
-              className={active ? 'language-option active' : 'language-option'}
-              type="button"
-              aria-pressed={active}
-              onClick={() => onChange(option.key)}
-            >
-              <span>{option.label}</span>
-              {active && <CheckCircle2 size={16} />}
-            </button>
-          );
-        })}
-      </div>
-    </section>
+      )}
+    </div>
   );
 }
 
@@ -2871,21 +2992,21 @@ function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
   return (
     <section className="panel">
       <div className="section-title">
-        <h2>质押订单</h2>
+        <h2>带单订单</h2>
         <span>{orders.length} 笔</span>
       </div>
       {orders.length > 0 ? (
         orders.map((order) => (
           <OrderRow
             key={order.id.toString()}
-            label={`质押订单 #${order.id.toString()}`}
+            label={`带单订单 #${order.id.toString()}`}
             amount={order.amount}
             status={stakeStatusLabel(order)}
             time={`${sessionLabel(order.session)} / 收益 ${token(order.reward)} U / 结算 ${dateTime(order.settleAt)}`}
           />
         ))
       ) : (
-        <EmptyState title="暂无质押订单" detail="质押后会从 stakeOrders(id) 读取显示。" />
+        <EmptyState title="暂无带单订单" detail="带单后会从 stakeOrders(id) 读取显示。" />
       )}
     </section>
   );
@@ -2928,7 +3049,7 @@ function AdminStakeOrderRow({ order }: { order: StakeOrderData }) {
     <div className="admin-list-row">
       <div className="row-icon"><Coins size={17} /></div>
       <div>
-        <strong>质押订单 #{order.id.toString()}</strong>
+        <strong>带单订单 #{order.id.toString()}</strong>
         <small>{shortAddress(order.user)} / {sessionLabel(order.session)} / Day {order.day.toString()}</small>
       </div>
       <div className="row-metrics">
