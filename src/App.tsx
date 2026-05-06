@@ -249,8 +249,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       perWalletPerSession: '每钱包每场 1 单',
       latestOrders: '最新订单',
       orderUnit: '笔',
-      noOrdersTitle: '暂无链上订单',
-      noOrdersDetail: '连接钱包后会直接读取该地址的本金和带单订单。',
+      noOrdersTitle: '暂无订单',
+      noOrdersDetail: '连接钱包后，将直接读取该地址的本金订单和带单订单。',
     },
     session: { morning: '上午场', afternoon: '下午场', closed: '休息中', canStake: '可带单', pending: '待开放' },
     order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算' },
@@ -445,7 +445,7 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['settlement pending', '带单订单尚未到结算时间。'],
   ['day not closed', '只能结算已结束的本地日期。'],
   ['dynamic settled', '该用户当天动态奖励已经结算。'],
-  ['self referrer', '邀请人不能填写当前钱包自己。'],
+  ['self referrer', '推荐人不能填写当前钱包自己。'],
   ['amount too low', '金额低于合约最低限制。'],
   ['amount too high', '金额高于合约最高限制。'],
   ['max two decimals', '金额最多支持两位小数。'],
@@ -1381,7 +1381,7 @@ function BindReferrerModal({
         <p className="modal-helper">
           {defaultReferrer === zeroAddress
             ? '当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。'
-            : '当前钱包还没有推荐人。系统已填入默认推荐人，绑定后推荐关系将写入链上，确认后不能更换。'}
+            : '当前钱包还没有推荐人。系统已填入默认推荐人，绑定后不可更改。'}
         </p>
         <label>
           推荐人地址
@@ -1657,7 +1657,7 @@ function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaul
         <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
       </label>
       <p className="helper-line">
-        默认推荐人 {defaultReferrer === zeroAddress ? '未设置' : shortAddress(defaultReferrer)}
+        新用户入金时，将使用默认推荐人：{defaultReferrer === zeroAddress ? '未设置' : shortAddress(defaultReferrer)}
       </p>
       <button className="primary-button" disabled={disabled || parsedAmount <= 0n || transactionBusy} onClick={submitDeposit}>
         {depositButtonLabel}
@@ -1919,7 +1919,7 @@ function AdminConsole() {
           </button>
         )}
         {readOnly && <div className="notice">当前钱包是 Manager，只能查看数据，不能修改合约配置。</div>}
-        {noRole && <div className="notice warning">当前钱包没有 Admin/Manager 权限，写操作和受限操作将被禁用。</div>}
+        {noRole && <div className="notice warning">当前钱包没有 Admin/Manager 权限，不能执行写操作。</div>}
 
         {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
         {nav === 'users' && <AdminUsersPage />}
@@ -1977,7 +1977,7 @@ function AdminUsersPage() {
         {users.rows.length > 0 ? (
           users.rows.map((row) => <AdminUserListRow key={row.address} row={row} />)
         ) : (
-          <EmptyState title="暂无用户事件" detail="用户列表来自 UserRegistered 链上事件，搜索地址可直接读取 users(address)。" />
+          <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
         )}
       </div>
     </section>
@@ -2017,7 +2017,7 @@ function AdminPrincipalOrdersPage() {
         {orderBook.principalOrders.length > 0 ? (
           orderBook.principalOrders.map((order) => <AdminPrincipalOrderRow key={order.id.toString()} order={order} />)
         ) : (
-          <EmptyState title="暂无本金订单" detail="订单列表通过 nextPrincipalOrderId 和 principalOrders(id) 直接读取链上状态。" />
+          <EmptyState title="暂无本金订单" detail="用户入金或复投后，本金订单会自动显示在这里。" />
         )}
       </div>
     </section>
@@ -2040,7 +2040,7 @@ function AdminStakeOrdersPage() {
         {orderBook.stakeOrders.length > 0 ? (
           orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
         ) : (
-          <EmptyState title="暂无带单订单" detail="订单列表通过 nextStakeOrderId 和 stakeOrders(id) 直接读取链上状态。" />
+          <EmptyState title="暂无带单订单" detail="用户完成带单后，订单会自动显示在这里。" />
         )}
       </div>
     </section>
@@ -2546,9 +2546,12 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
 }
 
 function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { address } = useAccount();
   const [targetAddress, setTargetAddress] = useState('');
+  const [ownerTransferTarget, setOwnerTransferTarget] = useState<Address>();
   const target = isAddress(targetAddress.trim()) ? (targetAddress.trim() as Address) : undefined;
   const role = useAdminRole(target);
+  const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
   const userQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -2559,144 +2562,199 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
   const account = userFromTuple(userQuery.data);
 
   return (
-    <section className="admin-panel">
-      <div className="section-title">
-        <div>
-          <p className="eyebrow">Roles</p>
-          <h2>权限与白名单</h2>
+    <>
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Roles</p>
+            <h2>权限与白名单</h2>
+          </div>
+          <Shield size={20} />
         </div>
-        <Shield size={20} />
-      </div>
-      <label className="full-field">
-        钱包地址
-        <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
-      </label>
-      <div className="admin-grid compact-grid">
-        <AdminCard icon={<Shield />} label="Admin" value={role.isSuperAdmin ? '是' : '否'} />
-        <AdminCard icon={<Settings />} label="Manager" value={role.isManager ? '是' : '否'} />
-        <AdminCard icon={<Gift />} label="40 代白名单" value={account.whitelist40 ? '是' : '否'} />
-        <AdminCard icon={<Users />} label="直推数" value={account.directCount.toString()} />
-      </div>
-      <div className="button-stack spaced">
-        <button
-          className="secondary-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('开启 40 代白名单', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setWhitelist40',
-                args: [target ?? zeroAddress, true],
-              }),
-            )
-          }
-        >
-          开启 40 代白名单
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('关闭 40 代白名单', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setWhitelist40',
-                args: [target ?? zeroAddress, false],
-              }),
-            )
-          }
-        >
-          关闭 40 代白名单
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('设置 Manager', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setManager',
-                args: [target ?? zeroAddress, true],
-              }),
-            )
-          }
-        >
-          授予 Manager
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('移除 Manager', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setManager',
-                args: [target ?? zeroAddress, false],
-              }),
-            )
-          }
-        >
-          移除 Manager
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('设置 Admin', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setAdmin',
-                args: [target ?? zeroAddress, true],
-              }),
-            )
-          }
-        >
-          授予 Admin
-        </button>
-        <button
-          className="secondary-button danger-button"
-          disabled={!canEdit || !target}
-          onClick={() =>
-            runner.runTx('移除 Admin', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setAdmin',
-                args: [target ?? zeroAddress, false],
-              }),
-            )
-          }
-        >
-          移除 Admin
-        </button>
-        <button
-          className="secondary-button danger-button"
-          disabled={!canEdit || !target}
-          onClick={() => {
-            if (!target) return;
-            const confirmed = window.confirm(`确认将 Owner 转移到 ${target}？当前钱包的 Admin/Manager 权限会被移除。`);
-            if (!confirmed) return;
-            runner.runTx('转移 Owner', () =>
+        <label className="full-field">
+          钱包地址
+          <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
+        </label>
+        <div className="admin-grid compact-grid">
+          <AdminCard icon={<Shield />} label="Admin 权限" value={role.isSuperAdmin ? '是' : '否'} />
+          <AdminCard icon={<Settings />} label="Manager 权限" value={role.isManager ? '是' : '否'} />
+          <AdminCard icon={<Gift />} label="40 代白名单" value={account.whitelist40 ? '是' : '否'} />
+          <AdminCard icon={<Users />} label="直推数" value={account.directCount.toString()} />
+        </div>
+        <div className="button-stack spaced">
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('开启 40 代白名单', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setWhitelist40',
+                  args: [target ?? zeroAddress, true],
+                }),
+              )
+            }
+          >
+            开启 40 代白名单
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('关闭 40 代白名单', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setWhitelist40',
+                  args: [target ?? zeroAddress, false],
+                }),
+              )
+            }
+          >
+            关闭 40 代白名单
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('授予 Manager 权限', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setManager',
+                  args: [target ?? zeroAddress, true],
+                }),
+              )
+            }
+          >
+            授予 Manager 权限
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('撤销 Manager 权限', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setManager',
+                  args: [target ?? zeroAddress, false],
+                }),
+              )
+            }
+          >
+            撤销 Manager 权限
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('授予 Admin 权限', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setAdmin',
+                  args: [target ?? zeroAddress, true],
+                }),
+              )
+            }
+          >
+            授予 Admin 权限
+          </button>
+          <button
+            className="secondary-button danger-button"
+            disabled={!canEdit || !target}
+            onClick={() =>
+              runner.runTx('撤销 Admin 权限', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setAdmin',
+                  args: [target ?? zeroAddress, false],
+                }),
+              )
+            }
+          >
+            撤销 Admin 权限
+          </button>
+          <button
+            className="secondary-button danger-button"
+            disabled={!canEdit || !target}
+            onClick={() => {
+              if (target) setOwnerTransferTarget(target);
+            }}
+          >
+            <Shield size={17} />
+            转移 Owner 权限
+          </button>
+          <p className="helper-line">转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。</p>
+        </div>
+      </section>
+      {ownerTransferTarget && (
+        <OwnerTransferConfirmModal
+          currentOwner={address}
+          newOwner={ownerTransferTarget}
+          busy={transactionBusy}
+          onCancel={() => setOwnerTransferTarget(undefined)}
+          onConfirm={() => {
+            runner.runTx('转移 Owner 权限', () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
                 functionName: 'transferOwner',
-                args: [target],
+                args: [ownerTransferTarget],
               }),
             );
+            setOwnerTransferTarget(undefined);
           }}
-        >
-          <Shield size={17} />
-          转移 Owner
-        </button>
-        <p className="helper-line">转移后，新地址获得 Admin/Manager；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。</p>
-      </div>
-    </section>
+        />
+      )}
+    </>
+  );
+}
+
+function OwnerTransferConfirmModal({
+  currentOwner,
+  newOwner,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  currentOwner?: Address;
+  newOwner: Address;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="referrer-modal danger-modal" role="dialog" aria-modal="true" aria-labelledby="owner-transfer-title">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Owner Transfer</p>
+            <h2 id="owner-transfer-title">转移 Owner 权限</h2>
+          </div>
+          <Shield size={18} />
+        </div>
+        <p className="modal-helper">
+          这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。
+        </p>
+        <div className="confirm-summary">
+          <InfoLine label="当前钱包" value={shortAddress(currentOwner)} />
+          <InfoLine label="新 Owner" value={shortAddress(newOwner)} />
+          <InfoLine label="默认推荐人" value="如仍指向当前钱包，将同步到新 Owner" />
+        </div>
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>
+            取消
+          </button>
+          <button className="primary-button danger-primary-button" type="button" disabled={busy} onClick={onConfirm}>
+            确认转移
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
