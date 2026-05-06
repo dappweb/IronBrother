@@ -66,6 +66,32 @@ describe("IronBrother", function () {
     expect(account.principalStaked).to.equal(0);
   });
 
+  it("uses east-eight session windows and lets admin update morning and afternoon ranges", async function () {
+    const { ironBrother } = await deployFixture();
+
+    expect(await ironBrother.timezoneOffset()).to.equal(8n * 60n * 60n);
+
+    await setNextLocalHour(8);
+    expect((await ironBrother.currentSession())[0]).to.equal(0);
+
+    await setNextLocalHour(10);
+    expect((await ironBrother.currentSession())[0]).to.equal(1);
+
+    await ironBrother.setSessionTimes(8 * 60 * 60, 10 * 60 * 60, 18 * 60 * 60, 20 * 60 * 60);
+
+    await setNextLocalHour(10);
+    expect((await ironBrother.currentSession())[0]).to.equal(0);
+
+    await setNextLocalHour(8);
+    expect((await ironBrother.currentSession())[0]).to.equal(1);
+
+    await setNextLocalHour(19);
+    expect((await ironBrother.currentSession())[0]).to.equal(2);
+
+    await expect(ironBrother.setTimezoneOffset(7 * 60 * 60)).to.be.revertedWith("timezone fixed east8");
+    await expect(ironBrother.setTimezoneOffset(8 * 60 * 60)).to.emit(ironBrother, "ConfigUpdated");
+  });
+
   it("moves matured principal to reward wallet on redemption", async function () {
     const { alice, ironBrother } = await deployFixture();
 

@@ -99,6 +99,66 @@ a {
   font-size: 20px;
 }
 
+.topbar > div:first-child,
+.admin-topbar > div:first-child {
+  min-width: 0;
+}
+
+.topbar h1,
+.admin-topbar h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-connect-button {
+  min-height: 42px;
+  max-width: 156px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  background: #111111;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgba(17, 17, 17, 0.16);
+}
+
+.wallet-connect-button.connected {
+  background: #ffffff;
+  color: #111111;
+}
+
+.wallet-connect-button.danger {
+  background: #ffe8e8;
+  color: #a11818;
+}
+
+.wallet-connect-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-connect-button img,
+.chain-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.chain-dot {
+  display: inline-block;
+  background: #f0b90b;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: #63756e;

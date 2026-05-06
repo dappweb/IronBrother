@@ -37,5 +37,6 @@ export function dateTime(timestamp?: bigint) {
   if (!timestamp || timestamp === 0n) return '--';
   return new Date(Number(timestamp) * 1000).toLocaleString('zh-CN', {
     hour12: false,
+    timeZone: 'Asia/Shanghai',
   });
 }

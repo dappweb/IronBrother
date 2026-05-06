@@ -39,6 +39,34 @@ import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, tok
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
+type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
+type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
+
+type TxState = {
+  label: string;
+  hash?: Hash;
+  status: TxStatusValue;
+  error?: string;
+  errorKind?: TxErrorKind;
+  rawError?: string;
+};
+
+type TxFlowStep = {
+  label: string;
+  request: () => Promise<Hash>;
+};
+
+type ErrorLike = {
+  name?: unknown;
+  message?: unknown;
+  shortMessage?: unknown;
+  details?: unknown;
+  reason?: unknown;
+  code?: unknown;
+  cause?: unknown;
+  data?: unknown;
+  metaMessages?: unknown;
+};
 
 type UserTuple = readonly [
   Address,
@@ -115,6 +143,60 @@ const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 const CONTRACT_ADDRESS = IRONBROTHER_CONTRACT_ADDRESS ?? zeroAddress;
 const EVENT_LOOKBACK_BLOCKS = 200_000n;
 const EVENT_CHUNK_BLOCKS = 20_000n;
+const SESSION_STATUS_REFETCH_MS = 30_000;
+const SECONDS_PER_HOUR = 60 * 60;
+const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
+const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
+const DEFAULT_TX_ERROR = '交易失败，请检查钱包、余额和链上状态后重试。';
+
+const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
+  ['not super admin', '当前钱包没有超级管理员权限，无法执行该操作。'],
+  ['reentrant call', '上一笔交易仍在处理中，请稍后再试。'],
+  ['usdt required', 'USDT 合约地址未配置。'],
+  ['owner required', '合约管理员地址未配置。'],
+  ['fee receiver required', '手续费接收地址不能为空。'],
+  ['principal cap exceeded', '本金钱包已达到上限，请降低金额或先处理现有本金。'],
+  ['staking window closed', '当前不在质押时间段，请在开放场次内提交。'],
+  ['session already used', '当前场次已经质押过，每个钱包每场限 1 单。'],
+  ['insufficient available principal', '可用本金不足，请降低质押金额或先赎回到期本金。'],
+  ['not order owner', '该订单不属于当前钱包。'],
+  ['order closed', '该本金订单已关闭或已赎回。'],
+  ['order locked', '该本金订单尚未到期，暂不能赎回。'],
+  ['not registered', '当前钱包尚未注册，请先完成入金或注册。'],
+  ['insufficient reward balance', '收益钱包余额不足。'],
+  ['amount must exceed fee', '提现金额必须大于手续费。'],
+  ['amount required', '请输入大于 0 的金额。'],
+  ['account required', '请输入有效的钱包地址。'],
+  ['cannot remove self', '不能移除当前登录钱包自己的管理员权限。'],
+  ['yield out of range', '收益率超出后台允许范围。'],
+  ['invalid bounds', '收益率上下限设置不正确。'],
+  ['current yield outside bounds', '当前收益率不在新的上下限内，请先调整当前收益率。'],
+  ['min required', '最低金额必须大于 0。'],
+  ['invalid amount range', '最低金额不能高于最高金额。'],
+  ['max amount over cap', '单笔最高金额不能超过本金上限。'],
+  ['lock too short', '锁定周期不能少于 1 天。'],
+  ['threshold required', '有效流水门槛必须大于 0。'],
+  ['invalid morning', '上午场开始时间必须早于结束时间。'],
+  ['sessions overlap', '上午场和下午场时间不能重叠。'],
+  ['invalid afternoon', '下午场开始时间必须早于结束时间。'],
+  ['invalid day', '场次时间不能超过一天。'],
+  ['invalid session time', '请输入有效的场次时间，例如 09:00 或 13:30。'],
+  ['timezone fixed east8', '场次时区固定为东八区，后台仅可调整上下午时间范围。'],
+  ['offset out of range', '时区偏移必须在 -12 到 +14 小时之间。'],
+  ['invalid generation', '代数必须在 1 到 40 之间。'],
+  ['rate too high', '代数奖励比例不能超过 1%。'],
+  ['stake missing', '质押订单不存在，请检查订单 ID。'],
+  ['stake settled', '该质押订单已经结算。'],
+  ['settlement pending', '质押订单尚未到结算时间。'],
+  ['day not closed', '只能结算已结束的本地日期。'],
+  ['dynamic settled', '该用户当天动态奖励已经结算。'],
+  ['self referrer', '邀请人不能填写当前钱包自己。'],
+  ['amount too low', '金额低于合约最低限制。'],
+  ['amount too high', '金额高于合约最高限制。'],
+  ['max two decimals', '金额最多支持两位小数。'],
+  ['invalid adjusted time', '合约时间配置异常，请联系管理员。'],
+  ['invalid day start', '合约日期配置异常，请联系管理员。'],
+];
 
 const emptyUser: UserAccountData = {
   referrer: zeroAddress,
@@ -260,13 +342,197 @@ function parseBlockEnv(value?: string) {
   }
 }
 
-function secondsToHours(value?: bigint | number) {
-  const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
-  return String(numeric / 3600);
+function stringFromErrorValue(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean') return String(value);
+  return '';
 }
 
-function hoursToSeconds(value: string) {
-  return BigInt(Math.round(Number(value || '0') * 3600));
+function addErrorPart(parts: string[], value: unknown) {
+  const text = stringFromErrorValue(value).trim();
+  if (text) parts.push(text);
+}
+
+function collectDataErrorParts(data: unknown, seen: Set<unknown>) {
+  const parts: string[] = [];
+
+  if (!data) return parts;
+  if (typeof data !== 'object') {
+    addErrorPart(parts, data);
+    return parts;
+  }
+  if (seen.has(data)) return parts;
+  seen.add(data);
+
+  const record = data as Record<string, unknown>;
+  addErrorPart(parts, record.errorName);
+  addErrorPart(parts, record.message);
+  addErrorPart(parts, record.shortMessage);
+  addErrorPart(parts, record.details);
+  addErrorPart(parts, record.reason);
+  parts.push(...collectErrorParts(record.error, seen));
+  parts.push(...collectErrorParts(record.cause, seen));
+
+  return parts;
+}
+
+function collectErrorParts(error: unknown, seen = new Set<unknown>()) {
+  const parts: string[] = [];
+
+  if (!error) return parts;
+  if (typeof error !== 'object') {
+    addErrorPart(parts, error);
+    return parts;
+  }
+  if (seen.has(error)) return parts;
+  seen.add(error);
+
+  const typed = error as ErrorLike;
+  addErrorPart(parts, typed.name);
+  addErrorPart(parts, typed.shortMessage);
+  addErrorPart(parts, typed.message);
+  addErrorPart(parts, typed.details);
+  addErrorPart(parts, typed.reason);
+  addErrorPart(parts, typed.code);
+
+  if (Array.isArray(typed.metaMessages)) {
+    typed.metaMessages.forEach((message) => addErrorPart(parts, message));
+  }
+
+  parts.push(...collectDataErrorParts(typed.data, seen));
+  parts.push(...collectErrorParts(typed.cause, seen));
+
+  return [...new Set(parts)];
+}
+
+function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' | 'rawError'> {
+  const rawError = collectErrorParts(error).join('\n');
+  const lower = rawError.toLowerCase();
+
+  if (
+    lower.includes('4001') ||
+    lower.includes('user rejected') ||
+    lower.includes('user denied') ||
+    lower.includes('rejected the request') ||
+    lower.includes('denied transaction signature')
+  ) {
+    return { error: '你已取消钱包确认，交易未提交。', errorKind: 'userRejected', rawError };
+  }
+
+  for (const [needle, message] of CONTRACT_ERROR_MESSAGES) {
+    if (lower.includes(needle)) {
+      return { error: message, errorKind: 'contract', rawError };
+    }
+  }
+
+  if (lower.includes('enforcedpause')) {
+    return { error: '合约当前已暂停，暂不能执行该操作。', errorKind: 'contract', rawError };
+  }
+
+  if (lower.includes('accesscontrolunauthorizedaccount')) {
+    return { error: '当前钱包没有执行该操作的权限。', errorKind: 'contract', rawError };
+  }
+
+  if (lower.includes('erc20insufficientallowance') || lower.includes('insufficient allowance')) {
+    return { error: 'USDT 授权额度不足，请先完成授权后再入金。', errorKind: 'allowance', rawError };
+  }
+
+  if (
+    lower.includes('erc20insufficientbalance') ||
+    lower.includes('transfer amount exceeds balance') ||
+    lower.includes('exceeds balance')
+  ) {
+    return { error: 'USDT 余额不足，请降低金额或先补充余额。', errorKind: 'balance', rawError };
+  }
+
+  if (lower.includes('insufficient funds for gas') || lower.includes('insufficient funds')) {
+    return { error: '钱包 BNB 余额不足，无法支付 Gas。', errorKind: 'balance', rawError };
+  }
+
+  if (
+    lower.includes('unsupported chain') ||
+    lower.includes('chain mismatch') ||
+    lower.includes('wrong network') ||
+    lower.includes('switch chain') ||
+    lower.includes('not connected to requested chain')
+  ) {
+    return { error: '钱包网络不正确，请切换到 BSC Testnet 后重试。', errorKind: 'network', rawError };
+  }
+
+  if (
+    lower.includes('connector not connected') ||
+    lower.includes('provider not found') ||
+    lower.includes('missing provider') ||
+    lower.includes('wallet is not connected') ||
+    lower.includes('disconnected')
+  ) {
+    return { error: '钱包未连接或已断开，请重新连接钱包。', errorKind: 'wallet', rawError };
+  }
+
+  if (
+    lower.includes('http request failed') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('network error') ||
+    lower.includes('timeout') ||
+    lower.includes('rpc')
+  ) {
+    return { error: '链上网络请求失败，请稍后重试或切换 RPC。', errorKind: 'rpc', rawError };
+  }
+
+  if (lower.includes('execution reverted') || (lower.includes('contract function') && lower.includes('reverted'))) {
+    return { error: '合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。', errorKind: 'contract', rawError };
+  }
+
+  return {
+    error: DEFAULT_TX_ERROR,
+    errorKind: 'unknown',
+    rawError,
+  };
+}
+
+function secondsNumber(value?: bigint | number) {
+  const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function secondsToClock(value?: bigint | number) {
+  const clamped = Math.max(0, Math.min(SECONDS_PER_DAY, Math.round(secondsNumber(value))));
+  if (clamped === SECONDS_PER_DAY) return '24:00';
+
+  const hours = Math.floor(clamped / SECONDS_PER_HOUR);
+  const minutes = Math.floor((clamped % SECONDS_PER_HOUR) / 60);
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function sessionTimeToSeconds(value: string) {
+  const trimmed = value.trim();
+  const clockMatch = trimmed.match(/^(\d{1,2})(?::([0-5]\d))?$/);
+
+  if (clockMatch) {
+    const hours = Number(clockMatch[1]);
+    const minutes = Number(clockMatch[2] ?? '0');
+    if (hours > 24 || (hours === 24 && minutes > 0)) {
+      throw new Error('invalid session time');
+    }
+    return Math.round(hours * SECONDS_PER_HOUR + minutes * 60);
+  }
+
+  const decimalHours = Number(trimmed || '0');
+  if (!Number.isFinite(decimalHours) || decimalHours < 0 || decimalHours > 24) {
+    throw new Error('invalid session time');
+  }
+
+  return Math.round(decimalHours * SECONDS_PER_HOUR);
+}
+
+function sessionTimeRange(start?: bigint | number, end?: bigint | number) {
+  return `${secondsToClock(start)}-${secondsToClock(end)}`;
+}
+
+function currentSessionRange(data: ReturnType<typeof useIronBrotherData>) {
+  if (data.currentSession === 1) return sessionTimeRange(data.morningStart, data.morningEnd);
+  if (data.currentSession === 2) return sessionTimeRange(data.afternoonStart, data.afternoonEnd);
+  return '等待开放';
 }
 
 function daysToSeconds(value: string) {
@@ -463,7 +729,18 @@ function useIronBrotherData() {
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
     functionName: 'currentSession',
-    query: { enabled: isContractConfigured },
+    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
+  });
+
+  const sessionConfigQuery = useReadContracts({
+    contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'timezoneOffset' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningStart' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningEnd' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonStart' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonEnd' },
+    ],
+    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
   });
 
   const yieldQuery = useReadContract({
@@ -484,11 +761,12 @@ function useIronBrotherData() {
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
     functionName: 'currentLocalDay',
-    query: { enabled: isContractConfigured },
+    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
   });
 
   const account = userFromTuple(userQuery.data);
   const sessionTuple = sessionQuery.data as readonly [number, bigint] | undefined;
+  const pickSessionConfig = <T,>(index: number, fallback: T) => readResult(sessionConfigQuery.data?.[index], fallback);
   const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
   const orders = useUserOrders(accountAddress, enabled);
   const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, enabled);
@@ -499,6 +777,11 @@ function useIronBrotherData() {
     maturedUnredeemed: (maturedQuery.data as bigint | undefined) ?? 0n,
     currentSession: Number(sessionTuple?.[0] ?? 0),
     sessionSettleAt: sessionTuple?.[1] ?? 0n,
+    timezoneOffset: pickSessionConfig(0, BigInt(EAST8_TIMEZONE_SECONDS)),
+    morningStart: pickSessionConfig(1, 9 * SECONDS_PER_HOUR),
+    morningEnd: pickSessionConfig(2, 12 * SECONDS_PER_HOUR),
+    afternoonStart: pickSessionConfig(3, 14 * SECONDS_PER_HOUR),
+    afternoonEnd: pickSessionConfig(4, 17 * SECONDS_PER_HOUR),
     yieldBps: (yieldQuery.data as bigint | undefined) ?? 100n,
     withdrawFee: (withdrawFeeQuery.data as bigint | undefined) ?? 10n * 10n ** 18n,
     currentLocalDay,
@@ -514,14 +797,14 @@ function useTxRunner() {
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
   const { writeContractAsync } = useWriteContract();
-  const [tx, setTx] = useState<{ label: string; hash?: Hash; status: 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed'; error?: string }>({
+  const [tx, setTx] = useState<TxState>({
     label: '',
     status: 'idle',
   });
 
   async function runTx(label: string, request: () => Promise<Hash>) {
     if (!publicClient) {
-      setTx({ label, status: 'failed', error: 'RPC 未就绪' });
+      setTx({ label, status: 'failed', error: 'RPC 客户端未初始化，请刷新页面后重试。', errorKind: 'rpc' });
       return;
     }
 
@@ -530,18 +813,68 @@ function useTxRunner() {
       const hash = await request();
       setTx({ label, hash, status: 'pending' });
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      setTx({ label, hash, status: receipt.status === 'success' ? 'confirmed' : 'failed' });
+      setTx(
+        receipt.status === 'success'
+          ? { label, hash, status: 'confirmed' }
+          : {
+              label,
+              hash,
+              status: 'failed',
+              error: '交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。',
+              errorKind: 'contract',
+            },
+      );
       await queryClient.invalidateQueries();
     } catch (error) {
       setTx({
         label,
         status: 'failed',
-        error: error instanceof Error ? error.message : '交易失败',
+        ...normalizeTxError(error),
       });
     }
   }
 
-  return { tx, runTx, writeContractAsync };
+  async function runTxFlow(label: string, steps: TxFlowStep[]) {
+    if (!publicClient) {
+      setTx({ label, status: 'failed', error: 'RPC 客户端未初始化，请刷新页面后重试。', errorKind: 'rpc' });
+      return;
+    }
+
+    try {
+      let lastHash: Hash | undefined;
+
+      for (const [index, step] of steps.entries()) {
+        const stepLabel = steps.length > 1 ? `${label}（${index + 1}/${steps.length} ${step.label}）` : label;
+        setTx({ label: stepLabel, status: 'wallet' });
+        const hash = await step.request();
+        lastHash = hash;
+        setTx({ label: stepLabel, hash, status: 'pending' });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+        if (receipt.status !== 'success') {
+          setTx({
+            label: stepLabel,
+            hash,
+            status: 'failed',
+            error: '交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。',
+            errorKind: 'contract',
+          });
+          return;
+        }
+      }
+
+      setTx({ label, hash: lastHash, status: 'confirmed' });
+      await queryClient.invalidateQueries();
+    } catch (error) {
+      setTx({
+        label,
+        status: 'failed',
+        ...normalizeTxError(error),
+      });
+    }
+  }
+
+  return { tx, runTx, runTxFlow, writeContractAsync };
 }
 
 function CustomerApp() {
@@ -560,7 +893,7 @@ function CustomerApp() {
             <p className="eyebrow">IronBrother</p>
             <h1>Hi, {shortAddress(address)}</h1>
           </div>
-          <ConnectButton accountStatus="avatar" chainStatus="icon" showBalance={false} />
+          <WalletConnectButton />
         </div>
         {!isContractConfigured && (
           <div className="notice warning">
@@ -595,6 +928,8 @@ function CustomerApp() {
 
 function HomeScreen({ data, onNavigate }: { data: ReturnType<typeof useIronBrotherData>; onNavigate: (nav: NavKey) => void }) {
   const currentSessionLabel = sessionLabel(data.currentSession);
+  const morningRange = sessionTimeRange(data.morningStart, data.morningEnd);
+  const afternoonRange = sessionTimeRange(data.afternoonStart, data.afternoonEnd);
   const recentOrders = useMemo(() => {
     const principal = data.principalOrders.map((order) => ({
       id: `principal-${order.id.toString()}`,
@@ -644,14 +979,14 @@ function HomeScreen({ data, onNavigate }: { data: ReturnType<typeof useIronBroth
       <section className="panel">
         <div className="section-title">
           <div>
-            <p className="eyebrow">Today</p>
+            <p className="eyebrow">UTC+8 Chain Time</p>
             <h2>质押场次</h2>
           </div>
           <span className="status-chip">{currentSessionLabel}</span>
         </div>
         <div className="session-list">
-          <SessionRow title="上午场" time="09:00-12:00" state={data.currentSession === 1 ? '可质押' : '待开放'} amount="每钱包每日 1 单" />
-          <SessionRow title="下午场" time="14:00-17:00" state={data.currentSession === 2 ? '可质押' : '待开放'} amount="每钱包每日 1 单" />
+          <SessionRow title="上午场" time={morningRange} state={data.currentSession === 1 ? '可质押' : '待开放'} amount="每钱包每场 1 单" />
+          <SessionRow title="下午场" time={afternoonRange} state={data.currentSession === 2 ? '可质押' : '待开放'} amount="每钱包每场 1 单" />
         </div>
       </section>
 
@@ -683,6 +1018,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
     }
   }, [amount]);
   const estimatedReward = (parsedAmount * data.yieldBps) / 10_000n;
+  const sessionSettleLabel = data.sessionSettleAt > 0n ? dateTime(data.sessionSettleAt) : '未开放';
 
   return (
     <section className="screen-stack">
@@ -699,8 +1035,8 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
         </label>
 
         <div className="calc-grid">
-          <MetricCard label="单次收益率" value={bpsToPercent(data.yieldBps)} trend="后台可调 0.5%-5%" />
-          <MetricCard label="预计收益" value={`+${token(estimatedReward)} U`} trend={`结算时间 ${dateTime(data.sessionSettleAt)}`} />
+          <MetricCard label="链上场次" value={sessionLabel(data.currentSession)} trend={`东八区 ${currentSessionRange(data)}`} />
+          <MetricCard label="预计收益" value={`+${token(estimatedReward)} U`} trend={`${bpsToPercent(data.yieldBps)} / 结算 ${sessionSettleLabel}`} />
         </div>
 
         <button
@@ -739,7 +1075,7 @@ function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBroth
 
 function DepositPanel({ disabled }: { disabled: boolean }) {
   const { address } = useAccount();
-  const { runTx, tx, writeContractAsync } = useTxRunner();
+  const { runTxFlow, tx, writeContractAsync } = useTxRunner();
   const [amount, setAmount] = useState('200');
   const [referrer, setReferrer] = useState('');
   const parsedAmount = useMemo(() => {
@@ -759,6 +1095,39 @@ function DepositPanel({ disabled }: { disabled: boolean }) {
   });
   const allowance = (allowanceQuery.data as bigint | undefined) ?? 0n;
   const needsApproval = parsedAmount > 0n && allowance < parsedAmount;
+  const depositButtonLabel = needsApproval ? '授权并入金' : '确认入金';
+  const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+
+  function submitDeposit() {
+    const depositStep: TxFlowStep = {
+      label: '确认入金',
+      request: () =>
+        writeContractAsync({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'deposit',
+          args: [parsedAmount, safeAddress(referrer)],
+        }),
+    };
+
+    const steps: TxFlowStep[] = needsApproval
+      ? [
+          {
+            label: '授权 USDT',
+            request: () =>
+              writeContractAsync({
+                address: BSC_USDT_ADDRESS,
+                abi: erc20Abi,
+                functionName: 'approve',
+                args: [CONTRACT_ADDRESS, parsedAmount],
+              }),
+          },
+          depositStep,
+        ]
+      : [depositStep];
+
+    runTxFlow(depositButtonLabel, steps);
+  }
 
   return (
     <section className="panel">
@@ -779,40 +1148,9 @@ function DepositPanel({ disabled }: { disabled: boolean }) {
           <input value={referrer} onChange={(event) => setReferrer(event.target.value)} placeholder="可选" />
         </label>
       </div>
-      <div className="split-buttons">
-        <button
-          className="secondary-button"
-          disabled={disabled || !needsApproval}
-          onClick={() =>
-            runTx('授权 USDT', () =>
-              writeContractAsync({
-                address: BSC_USDT_ADDRESS,
-                abi: erc20Abi,
-                functionName: 'approve',
-                args: [CONTRACT_ADDRESS, parsedAmount],
-              }),
-            )
-          }
-        >
-          授权 USDT
-        </button>
-        <button
-          className="primary-button"
-          disabled={disabled || parsedAmount <= 0n || needsApproval}
-          onClick={() =>
-            runTx('确认入金', () =>
-              writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'deposit',
-                args: [parsedAmount, safeAddress(referrer)],
-              }),
-            )
-          }
-        >
-          确认入金
-        </button>
-      </div>
+      <button className="primary-button" disabled={disabled || parsedAmount <= 0n || transactionBusy} onClick={submitDeposit}>
+        {depositButtonLabel}
+      </button>
       <TxStatus tx={tx} />
     </section>
   );
@@ -1052,7 +1390,7 @@ function AdminConsole() {
             <p className="eyebrow">BSC Contract Console</p>
             <h1>链上管理面板</h1>
           </div>
-          <ConnectButton accountStatus="address" chainStatus="full" showBalance={false} />
+          <WalletConnectButton />
         </header>
 
         {!isContractConfigured && <div className="notice warning">未配置合约地址，后台链上读取和写操作已禁用。</div>}
@@ -1347,11 +1685,10 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [lockDays, setLockDays] = useState('30');
   const [threshold, setThreshold] = useState('1000');
   const [feeReceiver, setFeeReceiver] = useState('');
-  const [timezoneHours, setTimezoneHours] = useState('8');
-  const [morningStart, setMorningStart] = useState('9');
-  const [morningEnd, setMorningEnd] = useState('12');
-  const [afternoonStart, setAfternoonStart] = useState('14');
-  const [afternoonEnd, setAfternoonEnd] = useState('17');
+  const [morningStart, setMorningStart] = useState('09:00');
+  const [morningEnd, setMorningEnd] = useState('12:00');
+  const [afternoonStart, setAfternoonStart] = useState('14:00');
+  const [afternoonEnd, setAfternoonEnd] = useState('17:00');
   const [generation, setGeneration] = useState('1');
   const [generationRate, setGenerationRate] = useState('0.2');
 
@@ -1367,11 +1704,10 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
     setLockDays(secondsToDays(config.lockPeriod));
     setThreshold(tokenInput(config.validVolumeThreshold));
     setFeeReceiver(config.feeReceiver === zeroAddress ? '' : config.feeReceiver);
-    setTimezoneHours(secondsToHours(config.timezoneOffset));
-    setMorningStart(secondsToHours(config.morningStart));
-    setMorningEnd(secondsToHours(config.morningEnd));
-    setAfternoonStart(secondsToHours(config.afternoonStart));
-    setAfternoonEnd(secondsToHours(config.afternoonEnd));
+    setMorningStart(secondsToClock(config.morningStart));
+    setMorningEnd(secondsToClock(config.morningEnd));
+    setAfternoonStart(secondsToClock(config.afternoonStart));
+    setAfternoonEnd(secondsToClock(config.afternoonEnd));
   }, [config.loadedKey]);
 
   return (
@@ -1569,24 +1905,24 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         </div>
         <div className="form-grid">
           <label>
-            时区偏移小时
-            <input value={timezoneHours} onChange={(event) => setTimezoneHours(event.target.value)} />
+            场次时区
+            <input value="UTC+8（东八区，链上自动识别）" readOnly />
           </label>
           <label>
-            上午开始小时
-            <input value={morningStart} onChange={(event) => setMorningStart(event.target.value)} />
+            上午开始时间
+            <input value={morningStart} onChange={(event) => setMorningStart(event.target.value)} placeholder="09:00" inputMode="numeric" />
           </label>
           <label>
-            上午结束小时
-            <input value={morningEnd} onChange={(event) => setMorningEnd(event.target.value)} />
+            上午结束时间
+            <input value={morningEnd} onChange={(event) => setMorningEnd(event.target.value)} placeholder="12:00" inputMode="numeric" />
           </label>
           <label>
-            下午开始小时
-            <input value={afternoonStart} onChange={(event) => setAfternoonStart(event.target.value)} />
+            下午开始时间
+            <input value={afternoonStart} onChange={(event) => setAfternoonStart(event.target.value)} placeholder="14:00" inputMode="numeric" />
           </label>
           <label>
-            下午结束小时
-            <input value={afternoonEnd} onChange={(event) => setAfternoonEnd(event.target.value)} />
+            下午结束时间
+            <input value={afternoonEnd} onChange={(event) => setAfternoonEnd(event.target.value)} placeholder="17:00" inputMode="numeric" />
           </label>
           <label>
             代数
@@ -1597,45 +1933,27 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             <input value={generationRate} onChange={(event) => setGenerationRate(event.target.value)} />
           </label>
         </div>
-        <div className="split-buttons">
-          <button
-            className="secondary-button"
-            disabled={!canEdit}
-            onClick={() =>
-              runner.runTx('设置时区', () =>
-                runner.writeContractAsync({
-                  address: CONTRACT_ADDRESS,
-                  abi: ironBrotherAbi,
-                  functionName: 'setTimezoneOffset',
-                  args: [hoursToSeconds(timezoneHours)],
-                }),
-              )
-            }
-          >
-            保存时区
-          </button>
-          <button
-            className="secondary-button"
-            disabled={!canEdit}
-            onClick={() =>
-              runner.runTx('设置质押场次', () =>
-                runner.writeContractAsync({
-                  address: CONTRACT_ADDRESS,
-                  abi: ironBrotherAbi,
-                  functionName: 'setSessionTimes',
-                  args: [
-                    Number(hoursToSeconds(morningStart)),
-                    Number(hoursToSeconds(morningEnd)),
-                    Number(hoursToSeconds(afternoonStart)),
-                    Number(hoursToSeconds(afternoonEnd)),
-                  ],
-                }),
-              )
-            }
-          >
-            保存场次
-          </button>
-        </div>
+        <button
+          className="secondary-button full-button"
+          disabled={!canEdit}
+          onClick={() =>
+            runner.runTx('设置质押场次', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setSessionTimes',
+                args: [
+                  sessionTimeToSeconds(morningStart),
+                  sessionTimeToSeconds(morningEnd),
+                  sessionTimeToSeconds(afternoonStart),
+                  sessionTimeToSeconds(afternoonEnd),
+                ],
+              }),
+            )
+          }
+        >
+          保存上下午时间范围
+        </button>
         <button
           className="secondary-button full-button"
           disabled={!canEdit}
@@ -1884,7 +2202,7 @@ function useContractConfig() {
     withdrawFee: pick(7, 0n),
     validVolumeThreshold: pick(8, 0n),
     feeReceiver: pick(9, zeroAddress),
-    timezoneOffset: pick(10, 0n),
+    timezoneOffset: pick(10, BigInt(EAST8_TIMEZONE_SECONDS)),
     morningStart: pick(11, 0),
     morningEnd: pick(12, 0),
     afternoonStart: pick(13, 0),
@@ -2075,6 +2393,58 @@ function useAdminRole(address?: Address) {
     isSuperAdmin: Boolean(superQuery.data),
     isManager: Boolean(managerQuery.data),
   };
+}
+
+function WalletConnectButton() {
+  return (
+    <ConnectButton.Custom>
+      {({ account, chain, mounted, openAccountModal, openChainModal, openConnectModal }) => {
+        const connected = mounted && account && chain;
+
+        if (!mounted) {
+          return (
+            <button className="wallet-connect-button" type="button" disabled>
+              <Wallet size={17} />
+              <span>钱包</span>
+            </button>
+          );
+        }
+
+        if (!connected) {
+          return (
+            <button className="wallet-connect-button" type="button" onClick={openConnectModal}>
+              <Wallet size={17} />
+              <span>连接钱包</span>
+            </button>
+          );
+        }
+
+        if (chain.unsupported) {
+          return (
+            <button className="wallet-connect-button danger" type="button" onClick={openChainModal}>
+              <Wallet size={17} />
+              <span>网络错误</span>
+            </button>
+          );
+        }
+
+        return (
+          <button className="wallet-connect-button connected" type="button" onClick={openAccountModal}>
+            {chain.hasIcon && chain.iconUrl ? (
+              <img
+                src={chain.iconUrl}
+                alt={chain.name ?? 'BSC'}
+                style={{ background: chain.iconBackground }}
+              />
+            ) : (
+              <span className="chain-dot" />
+            )}
+            <span>{shortAddress(account.address)}</span>
+          </button>
+        );
+      }}
+    </ConnectButton.Custom>
+  );
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
@@ -2282,17 +2652,17 @@ function AdminCard({ icon, label, value }: { icon: React.ReactNode; label: strin
   );
 }
 
-function TxStatus({ tx }: { tx: { label: string; hash?: Hash; status: string; error?: string } }) {
+function TxStatus({ tx }: { tx: TxState }) {
   if (tx.status === 'idle') return null;
 
   return (
     <div className={`tx-status ${tx.status}`}>
       <strong>{tx.label}</strong>
       <span>
-        {tx.status === 'wallet' && '等待钱包签名'}
+        {tx.status === 'wallet' && '等待钱包确认'}
         {tx.status === 'pending' && '交易已提交，等待链上确认'}
         {tx.status === 'confirmed' && '交易已确认'}
-        {tx.status === 'failed' && (tx.error || '交易失败')}
+        {tx.status === 'failed' && (tx.error || DEFAULT_TX_ERROR)}
       </span>
       {tx.hash && (
         <a href={`https://testnet.bscscan.com/tx/${tx.hash}`} target="_blank" rel="noreferrer">

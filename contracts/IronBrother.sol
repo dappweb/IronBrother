@@ -14,6 +14,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
+    int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
 
@@ -166,7 +167,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         maxYieldBps = 500;
         withdrawFee = 10 ether;
         validVolumeThreshold = 1_000 ether;
-        timezoneOffset = 8 hours;
+        timezoneOffset = EAST8_TIMEZONE_OFFSET;
         morningStart = 9 hours;
         morningEnd = 12 hours;
         afternoonStart = 14 hours;
@@ -508,9 +509,9 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function setTimezoneOffset(int256 newTimezoneOffset) external onlySuperAdmin {
-        require(newTimezoneOffset >= -12 hours && newTimezoneOffset <= 14 hours, "offset out of range");
-        timezoneOffset = newTimezoneOffset;
-        emit ConfigUpdated("TIMEZONE_OFFSET", uint256(newTimezoneOffset + 12 hours));
+        require(newTimezoneOffset == EAST8_TIMEZONE_OFFSET, "timezone fixed east8");
+        timezoneOffset = EAST8_TIMEZONE_OFFSET;
+        emit ConfigUpdated("TIMEZONE_OFFSET", uint256(20 hours));
     }
 
     function setGenerationRate(uint8 generation, uint16 rateBps) external onlySuperAdmin {
@@ -615,20 +616,20 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         userPrincipalOrderIds[user].push(orderId);
     }
 
-    function _localDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + timezoneOffset;
+    function _localDay(uint256 timestamp) internal pure returns (uint256) {
+        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
         return uint256(adjusted) / 1 days;
     }
 
-    function _localSecondOfDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + timezoneOffset;
+    function _localSecondOfDay(uint256 timestamp) internal pure returns (uint256) {
+        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
         return uint256(adjusted) % 1 days;
     }
 
-    function _localDayStartUtc(uint256 day) internal view returns (uint256) {
-        int256 timestamp = int256(day * 1 days) - timezoneOffset;
+    function _localDayStartUtc(uint256 day) internal pure returns (uint256) {
+        int256 timestamp = int256(day * 1 days) - EAST8_TIMEZONE_OFFSET;
         require(timestamp >= 0, "invalid day start");
         return uint256(timestamp);
     }
