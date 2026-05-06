@@ -1,5 +1,93 @@
 export const ironBrotherAbi = [
   {
+    type: 'event',
+    name: 'UserRegistered',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'referrer', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Deposited',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'PrincipalRedeemed',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Reinvested',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'orderId', type: 'uint256', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'StakeCreated',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'stakeId', type: 'uint256', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'reward', type: 'uint256', indexed: false },
+      { name: 'day', type: 'uint256', indexed: false },
+      { name: 'session', type: 'uint8', indexed: false },
+      { name: 'settleAt', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'StakeSettled',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'stakeId', type: 'uint256', indexed: true },
+      { name: 'principal', type: 'uint256', indexed: false },
+      { name: 'reward', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'DynamicRewardSettled',
+    inputs: [
+      { name: 'source', type: 'address', indexed: true },
+      { name: 'upline', type: 'address', indexed: true },
+      { name: 'day', type: 'uint256', indexed: false },
+      { name: 'generation', type: 'uint8', indexed: false },
+      { name: 'volume', type: 'uint256', indexed: false },
+      { name: 'reward', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'RewardWithdrawn',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+      { name: 'netAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'Whitelist40Updated',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'enabled', type: 'bool', indexed: false },
+    ],
+  },
+  {
     type: 'function',
     name: 'DEFAULT_ADMIN_ROLE',
     stateMutability: 'view',
@@ -115,6 +203,27 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'lockPeriod',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'minYieldBps',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'maxYieldBps',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'validVolumeThreshold',
     stateMutability: 'view',
     inputs: [],
@@ -126,6 +235,62 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'feeReceiver',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'timezoneOffset',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'int256' }],
+  },
+  {
+    type: 'function',
+    name: 'morningStart',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'morningEnd',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'afternoonStart',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'afternoonEnd',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint32' }],
+  },
+  {
+    type: 'function',
+    name: 'nextPrincipalOrderId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'nextStakeOrderId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
   },
   {
     type: 'function',
@@ -185,6 +350,46 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'dailyStakeVolume',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'isValidOnDay',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+    ],
+    outputs: [{ type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'dailyDirectValidCount',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'dynamicRewardSettled',
+    stateMutability: 'view',
+    inputs: [
+      { name: '', type: 'address' },
+      { name: '', type: 'uint256' },
+    ],
+    outputs: [{ type: 'bool' }],
+  },
+  {
+    type: 'function',
     name: 'hasRole',
     stateMutability: 'view',
     inputs: [
@@ -206,6 +411,13 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [{ name: 'user', type: 'address' }],
     outputs: [{ type: 'uint256[]' }],
+  },
+  {
+    type: 'function',
+    name: 'getDirectReferrals',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ type: 'address[]' }],
   },
   {
     type: 'function',
@@ -266,6 +478,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'settleStakes',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'stakeIds', type: 'uint256[]' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'redeemPrincipal',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'orderId', type: 'uint256' }],
@@ -297,6 +516,16 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'settleDynamicRewardForUsers',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'userList', type: 'address[]' },
+      { name: 'day', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setYieldBps',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newYieldBps', type: 'uint256' }],
@@ -304,9 +533,80 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'setYieldBounds',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'newMinYieldBps', type: 'uint256' },
+      { name: 'newMaxYieldBps', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setAmountRules',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'newMinAmount', type: 'uint256' },
+      { name: 'newMaxAmount', type: 'uint256' },
+      { name: 'newMaxPrincipal', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setLockPeriod',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newLockPeriod', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setWithdrawFee',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newWithdrawFee', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setFeeReceiver',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newFeeReceiver', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setValidVolumeThreshold',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newThreshold', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setSessionTimes',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'newMorningStart', type: 'uint32' },
+      { name: 'newMorningEnd', type: 'uint32' },
+      { name: 'newAfternoonStart', type: 'uint32' },
+      { name: 'newAfternoonEnd', type: 'uint32' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setTimezoneOffset',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newTimezoneOffset', type: 'int256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setGenerationRate',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'generation', type: 'uint8' },
+      { name: 'rateBps', type: 'uint16' },
+    ],
     outputs: [],
   },
   {

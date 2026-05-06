@@ -18,9 +18,9 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Address, Hash, Hex } from 'viem';
-import { zeroAddress } from 'viem';
+import { formatUnits, isAddress, zeroAddress } from 'viem';
 import {
   useAccount,
   useChainId,
@@ -31,14 +31,14 @@ import {
   useWriteContract,
 } from 'wagmi';
 import { bscTestnet } from 'wagmi/chains';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
-import { mockDashboard, mockOrders, mockTeam, mockUser } from './lib/mock';
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
+type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
 
 type UserTuple = readonly [
   Address,
@@ -55,16 +55,97 @@ type UserTuple = readonly [
   boolean,
 ];
 
+type UserAccountData = {
+  referrer: Address;
+  principalBalance: bigint;
+  principalStaked: bigint;
+  rewardBalance: bigint;
+  totalDeposited: bigint;
+  totalStaked: bigint;
+  totalStaticReward: bigint;
+  totalDynamicReward: bigint;
+  totalWithdrawn: bigint;
+  directCount: bigint;
+  registered: boolean;
+  whitelist40: boolean;
+};
+
+type PrincipalOrderTuple = readonly [bigint, Address, bigint, bigint, bigint, number, number];
+type StakeOrderTuple = readonly [bigint, Address, bigint, bigint, bigint, bigint, number, bigint, bigint, boolean];
+
+type PrincipalOrderData = {
+  id: bigint;
+  user: Address;
+  amount: bigint;
+  createdAt: bigint;
+  unlockAt: bigint;
+  source: number;
+  status: number;
+};
+
+type StakeOrderData = {
+  id: bigint;
+  user: Address;
+  amount: bigint;
+  rewardBps: bigint;
+  reward: bigint;
+  day: bigint;
+  session: number;
+  createdAt: bigint;
+  settleAt: bigint;
+  settled: boolean;
+};
+
+type DirectReferralRow = {
+  address: Address;
+  account: UserAccountData;
+  dailyStakeVolume: bigint;
+  isValidToday: boolean;
+};
+
+type ChainEventRecord = {
+  eventName: string;
+  args: Record<string, unknown>;
+  blockNumber: bigint;
+  transactionHash: Hash;
+  logIndex: number;
+};
+
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 const CONTRACT_ADDRESS = IRONBROTHER_CONTRACT_ADDRESS ?? zeroAddress;
+const EVENT_LOOKBACK_BLOCKS = 200_000n;
+const EVENT_CHUNK_BLOCKS = 20_000n;
 
-function userFromTuple(data: unknown) {
+const emptyUser: UserAccountData = {
+  referrer: zeroAddress,
+  principalBalance: 0n,
+  principalStaked: 0n,
+  rewardBalance: 0n,
+  totalDeposited: 0n,
+  totalStaked: 0n,
+  totalStaticReward: 0n,
+  totalDynamicReward: 0n,
+  totalWithdrawn: 0n,
+  directCount: 0n,
+  registered: false,
+  whitelist40: false,
+};
+
+const emptyDashboard = {
+  totalUsers: 0n,
+  totalDepositedAmount: 0n,
+  totalPrincipalBalance: 0n,
+  totalRewardBalance: 0n,
+  totalStakedVolume: 0n,
+  totalStaticRewardCredited: 0n,
+  totalDynamicRewardCredited: 0n,
+  totalWithdrawnAmount: 0n,
+};
+
+function userFromTuple(data: unknown): UserAccountData {
   const tuple = data as UserTuple | undefined;
   if (!tuple) {
-    return {
-      referrer: zeroAddress,
-      ...mockUser,
-    };
+    return emptyUser;
   }
 
   return {
@@ -83,10 +164,270 @@ function userFromTuple(data: unknown) {
   };
 }
 
+function principalOrderFromTuple(data: unknown): PrincipalOrderData | undefined {
+  const tuple = data as PrincipalOrderTuple | undefined;
+  if (!tuple || tuple[0] === 0n || tuple[1] === zeroAddress) return undefined;
+
+  return {
+    id: tuple[0],
+    user: tuple[1],
+    amount: tuple[2],
+    createdAt: tuple[3],
+    unlockAt: tuple[4],
+    source: Number(tuple[5]),
+    status: Number(tuple[6]),
+  };
+}
+
+function stakeOrderFromTuple(data: unknown): StakeOrderData | undefined {
+  const tuple = data as StakeOrderTuple | undefined;
+  if (!tuple || tuple[0] === 0n || tuple[1] === zeroAddress) return undefined;
+
+  return {
+    id: tuple[0],
+    user: tuple[1],
+    amount: tuple[2],
+    rewardBps: tuple[3],
+    reward: tuple[4],
+    day: tuple[5],
+    session: Number(tuple[6]),
+    createdAt: tuple[7],
+    settleAt: tuple[8],
+    settled: tuple[9],
+  };
+}
+
+function readResult<T>(data: unknown, fallback: T): T {
+  const result = data as { status?: string; result?: T } | undefined;
+  return result?.status === 'success' && result.result !== undefined ? result.result : fallback;
+}
+
+function uniqueAddresses(addresses: readonly (Address | string | undefined)[]) {
+  const seen = new Map<string, Address>();
+  for (const address of addresses) {
+    if (address && isAddress(address) && !seen.has(address.toLowerCase())) {
+      seen.set(address.toLowerCase(), address as Address);
+    }
+  }
+  return [...seen.values()];
+}
+
+function recentIds(nextId?: bigint, limit = 40) {
+  if (!nextId || nextId <= 1n) return [] as bigint[];
+
+  const ids: bigint[] = [];
+  const floor = nextId > BigInt(limit) ? nextId - BigInt(limit) : 1n;
+  for (let id = nextId - 1n; id >= floor; id -= 1n) {
+    ids.push(id);
+    if (id === 1n) break;
+  }
+  return ids;
+}
+
+function principalSourceLabel(source: number) {
+  return source === 1 ? '复投订单' : '入金订单';
+}
+
+function principalStatusLabel(order: PrincipalOrderData) {
+  if (order.status === 1) return '已赎回';
+  return BigInt(Math.floor(Date.now() / 1000)) >= order.unlockAt ? '可赎回' : '锁定中';
+}
+
+function stakeStatusLabel(order: StakeOrderData) {
+  if (order.settled) return '已结算';
+  return BigInt(Math.floor(Date.now() / 1000)) >= order.settleAt ? '可结算' : '待结算';
+}
+
+function sessionLabel(session: number) {
+  if (session === 1) return '上午场';
+  if (session === 2) return '下午场';
+  return '休息中';
+}
+
+function parseBigIntInput(value: string) {
+  try {
+    return BigInt(value.trim() || '0');
+  } catch {
+    return 0n;
+  }
+}
+
+function parseBlockEnv(value?: string) {
+  try {
+    return value ? BigInt(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function secondsToHours(value?: bigint | number) {
+  const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
+  return String(numeric / 3600);
+}
+
+function hoursToSeconds(value: string) {
+  return BigInt(Math.round(Number(value || '0') * 3600));
+}
+
+function daysToSeconds(value: string) {
+  return BigInt(Math.round(Number(value || '0') * 24 * 60 * 60));
+}
+
+function secondsToDays(value?: bigint | number) {
+  const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
+  return String(numeric / (24 * 60 * 60));
+}
+
+function tokenInput(value?: bigint) {
+  if (!value) return '0';
+  return formatUnits(value, 18);
+}
+
+function bpsInput(value?: bigint | number) {
+  const raw = typeof value === 'bigint' ? Number(value) : value ?? 0;
+  return String(raw / 100);
+}
+
+function parseAddressList(value: string) {
+  return value
+    .split(/[\s,;]+/)
+    .filter((item) => isAddress(item)) as Address[];
+}
+
+function parseIdList(value: string) {
+  return value
+    .split(/[\s,;]+/)
+    .map((item) => parseBigIntInput(item))
+    .filter((item) => item > 0n);
+}
+
 function App() {
   const isAdminRoute = window.location.pathname.startsWith('/admin');
 
   return isAdminRoute ? <AdminConsole /> : <CustomerApp />;
+}
+
+function useUserOrders(accountAddress: Address, enabled: boolean) {
+  const principalOrderIdsQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getUserPrincipalOrderIds',
+    args: [accountAddress],
+    query: { enabled },
+  });
+
+  const stakeOrderIdsQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getUserStakeOrderIds',
+    args: [accountAddress],
+    query: { enabled },
+  });
+
+  const principalOrderIds = (principalOrderIdsQuery.data as readonly bigint[] | undefined) ?? [];
+  const stakeOrderIds = (stakeOrderIdsQuery.data as readonly bigint[] | undefined) ?? [];
+
+  const principalOrderContracts = useMemo(
+    () =>
+      principalOrderIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'principalOrders',
+        args: [id],
+      })),
+    [principalOrderIds],
+  );
+
+  const stakeOrderContracts = useMemo(
+    () =>
+      stakeOrderIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'stakeOrders',
+        args: [id],
+      })),
+    [stakeOrderIds],
+  );
+
+  const principalOrdersQuery = useReadContracts({
+    contracts: principalOrderContracts as never,
+    query: { enabled: enabled && principalOrderContracts.length > 0 },
+  });
+
+  const stakeOrdersQuery = useReadContracts({
+    contracts: stakeOrderContracts as never,
+    query: { enabled: enabled && stakeOrderContracts.length > 0 },
+  });
+
+  const principalOrders = useMemo(
+    () =>
+      (principalOrdersQuery.data ?? [])
+        .map((result) => principalOrderFromTuple(readResult(result, undefined)))
+        .filter((order): order is PrincipalOrderData => Boolean(order)),
+    [principalOrdersQuery.data],
+  );
+
+  const stakeOrders = useMemo(
+    () =>
+      (stakeOrdersQuery.data ?? [])
+        .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
+        .filter((order): order is StakeOrderData => Boolean(order)),
+    [stakeOrdersQuery.data],
+  );
+
+  return {
+    principalOrderIds,
+    stakeOrderIds,
+    principalOrders,
+    stakeOrders,
+    isLoading: principalOrderIdsQuery.isLoading || stakeOrderIdsQuery.isLoading || principalOrdersQuery.isLoading || stakeOrdersQuery.isLoading,
+  };
+}
+
+function useDirectReferralRows(rootAddress: Address, day: bigint, enabled = true) {
+  const referralsQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getDirectReferrals',
+    args: [rootAddress],
+    query: { enabled: Boolean(isContractConfigured && enabled && rootAddress !== zeroAddress) },
+  });
+
+  const referralAddresses = (referralsQuery.data as readonly Address[] | undefined) ?? [];
+
+  const detailContracts = useMemo(
+    () =>
+      referralAddresses.flatMap((referral) => [
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'users', args: [referral] },
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'dailyStakeVolume', args: [referral, day] },
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'isValidOnDay', args: [referral, day] },
+      ]),
+    [day, referralAddresses],
+  );
+
+  const detailQuery = useReadContracts({
+    contracts: detailContracts as never,
+    query: { enabled: Boolean(isContractConfigured && enabled && referralAddresses.length > 0) },
+  });
+
+  const rows = useMemo(
+    () =>
+      referralAddresses.map((referral, index) => {
+        const base = index * 3;
+        return {
+          address: referral,
+          account: userFromTuple(readResult(detailQuery.data?.[base], undefined)),
+          dailyStakeVolume: readResult(detailQuery.data?.[base + 1], 0n),
+          isValidToday: readResult(detailQuery.data?.[base + 2], false),
+        };
+      }),
+    [detailQuery.data, referralAddresses],
+  );
+
+  return {
+    rows,
+    isLoading: referralsQuery.isLoading || detailQuery.isLoading,
+  };
 }
 
 function useIronBrotherData() {
@@ -139,35 +480,33 @@ function useIronBrotherData() {
     query: { enabled: isContractConfigured },
   });
 
-  const principalOrderIdsQuery = useReadContract({
+  const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
-    functionName: 'getUserPrincipalOrderIds',
-    args: [accountAddress],
-    query: { enabled },
-  });
-
-  const stakeOrderIdsQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'getUserStakeOrderIds',
-    args: [accountAddress],
-    query: { enabled },
+    functionName: 'currentLocalDay',
+    query: { enabled: isContractConfigured },
   });
 
   const account = userFromTuple(userQuery.data);
   const sessionTuple = sessionQuery.data as readonly [number, bigint] | undefined;
+  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
+  const orders = useUserOrders(accountAddress, enabled);
+  const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, enabled);
 
   return {
     account,
-    availablePrincipal: (availableQuery.data as bigint | undefined) ?? 800n * 10n ** 18n,
-    maturedUnredeemed: (maturedQuery.data as bigint | undefined) ?? 200n * 10n ** 18n,
-    currentSession: Number(sessionTuple?.[0] ?? 1),
+    availablePrincipal: (availableQuery.data as bigint | undefined) ?? 0n,
+    maturedUnredeemed: (maturedQuery.data as bigint | undefined) ?? 0n,
+    currentSession: Number(sessionTuple?.[0] ?? 0),
     sessionSettleAt: sessionTuple?.[1] ?? 0n,
     yieldBps: (yieldQuery.data as bigint | undefined) ?? 100n,
     withdrawFee: (withdrawFeeQuery.data as bigint | undefined) ?? 10n * 10n ** 18n,
-    principalOrderIds: (principalOrderIdsQuery.data as readonly bigint[] | undefined) ?? [],
-    stakeOrderIds: (stakeOrderIdsQuery.data as readonly bigint[] | undefined) ?? [],
+    currentLocalDay,
+    principalOrderIds: orders.principalOrderIds,
+    stakeOrderIds: orders.stakeOrderIds,
+    principalOrders: orders.principalOrders,
+    stakeOrders: orders.stakeOrders,
+    directReferrals: directReferrals.rows,
   };
 }
 
@@ -225,7 +564,7 @@ function CustomerApp() {
         </div>
         {!isContractConfigured && (
           <div className="notice warning">
-            合约地址未配置，当前展示 Demo 数据。部署后设置 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可启用真实交易。
+            合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可启用。
           </div>
         )}
         {wrongNetwork && (
@@ -236,7 +575,7 @@ function CustomerApp() {
       </header>
 
       <main className="mobile-frame content-frame">
-        {nav === 'home' && <HomeScreen data={data} />}
+        {nav === 'home' && <HomeScreen data={data} onNavigate={setNav} />}
         {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'wallet' && <WalletScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'team' && <TeamScreen data={data} />}
@@ -254,8 +593,30 @@ function CustomerApp() {
   );
 }
 
-function HomeScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
-  const sessionLabel = data.currentSession === 1 ? '上午场' : data.currentSession === 2 ? '下午场' : '休息中';
+function HomeScreen({ data, onNavigate }: { data: ReturnType<typeof useIronBrotherData>; onNavigate: (nav: NavKey) => void }) {
+  const currentSessionLabel = sessionLabel(data.currentSession);
+  const recentOrders = useMemo(() => {
+    const principal = data.principalOrders.map((order) => ({
+      id: `principal-${order.id.toString()}`,
+      label: `${principalSourceLabel(order.source)} #${order.id.toString()}`,
+      amount: order.amount,
+      status: principalStatusLabel(order),
+      time: `解锁 ${dateTime(order.unlockAt)}`,
+      createdAt: order.createdAt,
+    }));
+    const stakes = data.stakeOrders.map((order) => ({
+      id: `stake-${order.id.toString()}`,
+      label: `质押订单 #${order.id.toString()}`,
+      amount: order.amount,
+      status: stakeStatusLabel(order),
+      time: `${sessionLabel(order.session)} / 结算 ${dateTime(order.settleAt)}`,
+      createdAt: order.createdAt,
+    }));
+
+    return [...principal, ...stakes]
+      .sort((a, b) => Number(b.createdAt - a.createdAt))
+      .slice(0, 5);
+  }, [data.principalOrders, data.stakeOrders]);
 
   return (
     <section className="screen-stack">
@@ -274,10 +635,10 @@ function HomeScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
       </div>
 
       <div className="action-grid">
-        <ActionPill icon={<ArrowDownToLine />} label="入金" />
-        <ActionPill icon={<Coins />} label="质押" />
-        <ActionPill icon={<Repeat2 />} label="复投" />
-        <ActionPill icon={<ArrowUpRight />} label="提现" />
+        <ActionPill icon={<ArrowDownToLine />} label="入金" onClick={() => onNavigate('wallet')} />
+        <ActionPill icon={<Coins />} label="质押" onClick={() => onNavigate('stake')} />
+        <ActionPill icon={<Repeat2 />} label="复投" onClick={() => onNavigate('wallet')} />
+        <ActionPill icon={<ArrowUpRight />} label="提现" onClick={() => onNavigate('wallet')} />
       </div>
 
       <section className="panel">
@@ -286,7 +647,7 @@ function HomeScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
             <p className="eyebrow">Today</p>
             <h2>质押场次</h2>
           </div>
-          <span className="status-chip">{sessionLabel}</span>
+          <span className="status-chip">{currentSessionLabel}</span>
         </div>
         <div className="session-list">
           <SessionRow title="上午场" time="09:00-12:00" state={data.currentSession === 1 ? '可质押' : '待开放'} amount="每钱包每日 1 单" />
@@ -297,11 +658,15 @@ function HomeScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
       <section className="panel">
         <div className="section-title">
           <h2>最新订单</h2>
-          <span>{data.principalOrderIds.length || mockOrders.length} 笔</span>
+          <span>{recentOrders.length} 笔</span>
         </div>
-        {mockOrders.map((order) => (
-          <OrderRow key={String(order.id)} label={order.label} amount={order.amount} status={order.status} time={order.time} />
-        ))}
+        {recentOrders.length > 0 ? (
+          recentOrders.map((order) => (
+            <OrderRow key={order.id} label={order.label} amount={order.amount} status={order.status} time={order.time} />
+          ))
+        ) : (
+          <EmptyState title="暂无链上订单" detail="连接钱包后会直接读取该地址的本金和质押订单。" />
+        )}
       </section>
     </section>
   );
@@ -356,6 +721,8 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
         </button>
         <TxStatus tx={tx} />
       </section>
+
+      <StakeOrderList orders={data.stakeOrders} />
     </section>
   );
 }
@@ -365,15 +732,7 @@ function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBroth
     <section className="screen-stack">
       <DepositPanel disabled={disabled} />
       <WalletActions data={data} disabled={disabled} />
-      <section className="panel">
-        <div className="section-title">
-          <h2>本金订单</h2>
-          <span>{data.principalOrderIds.length || mockOrders.length} 笔</span>
-        </div>
-        {mockOrders.map((order) => (
-          <OrderRow key={String(order.id)} label={order.label} amount={order.amount} status={order.status} time={order.time} />
-        ))}
-      </section>
+      <PrincipalOrderList orders={data.principalOrders} />
     </section>
   );
 }
@@ -590,6 +949,9 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
 }
 
 function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
+  const directDailyVolume = data.directReferrals.reduce((sum, item) => sum + item.dailyStakeVolume, 0n);
+  const validCount = data.directReferrals.filter((item) => item.isValidToday).length;
+
   return (
     <section className="screen-stack">
       <div className="asset-card">
@@ -601,24 +963,19 @@ function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
         <small>直推人数 {data.account.directCount.toString()}，有效账户按日统计</small>
       </div>
       <div className="quick-grid">
-        <MetricCard label="团队业绩" value="18,600 U" trend="入金和复投计入，赎回扣减" />
+        <MetricCard label="今日直推流水" value={`${token(directDailyVolume)} U`} trend={`${validCount} 个今日有效账户`} />
         <MetricCard label="动态奖励" value={`${token(data.account.totalDynamicReward)} U`} trend="按下级质押流水结算" />
       </div>
       <section className="panel">
         <div className="section-title">
           <h2>直推列表</h2>
-          <span>{mockTeam.length} 人</span>
+          <span>{data.directReferrals.length} 人</span>
         </div>
-        {mockTeam.map((item) => (
-          <div className="list-row" key={item.address}>
-            <div className="row-icon"><Users size={17} /></div>
-            <div>
-              <strong>{item.address}</strong>
-              <small>今日流水 {item.volume}</small>
-            </div>
-            <span className={item.status === '有效账户' ? 'amount-positive' : 'amount-muted'}>{item.status}</span>
-          </div>
-        ))}
+        {data.directReferrals.length > 0 ? (
+          data.directReferrals.map((item) => <DirectReferralListRow key={item.address} item={item} />)
+        ) : (
+          <EmptyState title="暂无直推数据" detail="直推关系由合约 getDirectReferrals 直接读取。" />
+        )}
       </section>
     </section>
   );
@@ -636,6 +993,9 @@ function ProfileScreen({ address, data }: { address?: Address; data: ReturnType<
         <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
         <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
         <InfoLine label="网络" value="BSC Testnet" />
+        <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
+        <InfoLine label="累计入金" value={`${token(data.account.totalDeposited)} U`} />
+        <InfoLine label="累计提现" value={`${token(data.account.totalWithdrawn)} U`} />
         <InfoLine label="语言" value="中文繁体 / English / 日本語 / 한국어 / Tiếng Việt / Malay" />
       </section>
     </section>
@@ -647,18 +1007,25 @@ function AdminConsole() {
   const chainId = useChainId();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const { switchChain } = useSwitchChain();
-  const { runTx, tx, writeContractAsync } = useTxRunner();
-  const [yieldPercent, setYieldPercent] = useState('1');
-  const [feeAmount, setFeeAmount] = useState('10');
-  const [targetAddress, setTargetAddress] = useState('');
-  const [dynamicUser, setDynamicUser] = useState('');
-  const [dynamicDay, setDynamicDay] = useState('');
-
+  const runner = useTxRunner();
+  const [nav, setNav] = useState<AdminNavKey>('dashboard');
   const dashboard = useAdminDashboard();
   const role = useAdminRole(address);
 
-  const canEdit = isContractConfigured && role.isSuperAdmin;
+  const canEdit = isContractConfigured && role.isSuperAdmin && !wrongNetwork;
+  const canWrite = isContractConfigured && !wrongNetwork;
   const readOnly = isContractConfigured && role.isManager && !role.isSuperAdmin;
+  const noRole = isConnected && isContractConfigured && !role.isManager && !role.isSuperAdmin;
+  const navItems: { key: AdminNavKey; label: string }[] = [
+    { key: 'dashboard', label: '数据看板' },
+    { key: 'users', label: '用户管理' },
+    { key: 'principal', label: '本金订单' },
+    { key: 'stakes', label: '质押订单' },
+    { key: 'rewards', label: '收益流水' },
+    { key: 'team', label: '团队关系' },
+    { key: 'config', label: '合约配置' },
+    { key: 'roles', label: '权限管理' },
+  ];
 
   return (
     <div className="admin-shell">
@@ -668,14 +1035,16 @@ function AdminConsole() {
           <h1>Admin</h1>
         </div>
         <a href="/">客户页面</a>
-        <span className="side-active">数据看板</span>
-        <span>用户管理</span>
-        <span>本金订单</span>
-        <span>质押订单</span>
-        <span>收益流水</span>
-        <span>团队关系</span>
-        <span>合约配置</span>
-        <span>权限管理</span>
+        {navItems.map((item) => (
+          <button
+            key={item.key}
+            className={nav === item.key ? 'side-active' : ''}
+            onClick={() => setNav(item.key)}
+            type="button"
+          >
+            {item.label}
+          </button>
+        ))}
       </aside>
       <main className="admin-main">
         <header className="admin-topbar">
@@ -686,217 +1055,765 @@ function AdminConsole() {
           <ConnectButton accountStatus="address" chainStatus="full" showBalance={false} />
         </header>
 
-        {!isContractConfigured && <div className="notice warning">未配置合约地址，后台展示 Demo 数据，写操作已禁用。</div>}
+        {!isContractConfigured && <div className="notice warning">未配置合约地址，后台链上读取和写操作已禁用。</div>}
         {wrongNetwork && (
           <button className="notice danger action-notice" onClick={() => switchChain({ chainId: bscTestnet.id })}>
             切换到 BSC Testnet
           </button>
         )}
         {readOnly && <div className="notice">当前钱包是 Manager，只能查看数据，不能修改合约配置。</div>}
+        {noRole && <div className="notice warning">当前钱包没有 Admin/Manager 权限，写操作和受限操作将被禁用。</div>}
 
-        <section className="admin-grid">
-          <AdminCard icon={<Users />} label="总用户" value={dashboard.totalUsers.toString()} />
-          <AdminCard icon={<ArrowDownToLine />} label="总入金" value={`${token(dashboard.totalDepositedAmount)} U`} />
-          <AdminCard icon={<Wallet />} label="当前本金" value={`${token(dashboard.totalPrincipalBalance)} U`} />
-          <AdminCard icon={<Gift />} label="当前收益" value={`${token(dashboard.totalRewardBalance)} U`} />
-          <AdminCard icon={<BarChart3 />} label="质押流水" value={`${token(dashboard.totalStakedVolume)} U`} />
-          <AdminCard icon={<Coins />} label="静态收益" value={`${token(dashboard.totalStaticRewardCredited)} U`} />
-          <AdminCard icon={<Users />} label="动态奖励" value={`${token(dashboard.totalDynamicRewardCredited)} U`} />
-          <AdminCard icon={<Send />} label="提现总额" value={`${token(dashboard.totalWithdrawnAmount)} U`} />
-        </section>
+        {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
+        {nav === 'users' && <AdminUsersPage />}
+        {nav === 'principal' && <AdminPrincipalOrdersPage />}
+        {nav === 'stakes' && <AdminStakeOrdersPage />}
+        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
+        {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
+        {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
+        {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
 
-        <section className="admin-columns">
-          <div className="admin-panel">
-            <div className="section-title">
-              <div>
-                <p className="eyebrow">Owner / Admin</p>
-                <h2>合约配置</h2>
-              </div>
-              <Settings size={20} />
-            </div>
-            <div className="form-grid">
-              <label>
-                单次收益率 %
-                <input value={yieldPercent} onChange={(event) => setYieldPercent(event.target.value)} />
-              </label>
-              <label>
-                提现手续费 U
-                <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} />
-              </label>
-            </div>
-            <div className="split-buttons">
-              <button
-                className="primary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('设置收益率', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'setYieldBps',
-                      args: [BigInt(Math.round(Number(yieldPercent) * 100))],
-                    }),
-                  )
-                }
-              >
-                保存收益率
-              </button>
-              <button
-                className="secondary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('设置提现手续费', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'setWithdrawFee',
-                      args: [parseTokenInput(feeAmount)],
-                    }),
-                  )
-                }
-              >
-                保存手续费
-              </button>
-            </div>
-            <div className="split-buttons">
-              <button
-                className="secondary-button danger-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('暂停合约', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'pause',
-                    }),
-                  )
-                }
-              >
-                <PauseCircle size={17} />
-                暂停
-              </button>
-              <button
-                className="secondary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('恢复合约', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'unpause',
-                    }),
-                  )
-                }
-              >
-                <CheckCircle2 size={17} />
-                恢复
-              </button>
-            </div>
-          </div>
+        {runner.tx.status !== 'idle' && (
+          <section className="admin-panel tx-panel">
+            <TxStatus tx={runner.tx} />
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
 
-          <div className="admin-panel">
-            <div className="section-title">
-              <div>
-                <p className="eyebrow">Roles</p>
-                <h2>权限与白名单</h2>
-              </div>
-              <Shield size={20} />
-            </div>
-            <label>
-              钱包地址
-              <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
-            </label>
-            <div className="button-stack">
-              <button
-                className="secondary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('设置 40 代白名单', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'setWhitelist40',
-                      args: [safeAddress(targetAddress), true],
-                    }),
-                  )
-                }
-              >
-                设为 40 代白名单
-              </button>
-              <button
-                className="secondary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('设置 Manager', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'setManager',
-                      args: [safeAddress(targetAddress), true],
-                    }),
-                  )
-                }
-              >
-                设为 Manager
-              </button>
-              <button
-                className="secondary-button"
-                disabled={!canEdit}
-                onClick={() =>
-                  runTx('设置 Admin', () =>
-                    writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'setAdmin',
-                      args: [safeAddress(targetAddress), true],
-                    }),
-                  )
-                }
-              >
-                设为 Admin
-              </button>
-            </div>
-          </div>
-        </section>
+function AdminDashboardPage({ dashboard }: { dashboard: ReturnType<typeof useAdminDashboard> }) {
+  return (
+    <section className="admin-grid">
+      <AdminCard icon={<Users />} label="总用户" value={dashboard.totalUsers.toString()} />
+      <AdminCard icon={<ArrowDownToLine />} label="总入金" value={`${token(dashboard.totalDepositedAmount)} U`} />
+      <AdminCard icon={<Wallet />} label="当前本金" value={`${token(dashboard.totalPrincipalBalance)} U`} />
+      <AdminCard icon={<Gift />} label="当前收益" value={`${token(dashboard.totalRewardBalance)} U`} />
+      <AdminCard icon={<BarChart3 />} label="质押流水" value={`${token(dashboard.totalStakedVolume)} U`} />
+      <AdminCard icon={<Coins />} label="静态收益" value={`${token(dashboard.totalStaticRewardCredited)} U`} />
+      <AdminCard icon={<Users />} label="动态奖励" value={`${token(dashboard.totalDynamicRewardCredited)} U`} />
+      <AdminCard icon={<Send />} label="提现总额" value={`${token(dashboard.totalWithdrawnAmount)} U`} />
+    </section>
+  );
+}
 
-        <section className="admin-panel">
-          <div className="section-title">
-            <div>
-              <p className="eyebrow">Daily settlement</p>
-              <h2>动态奖励结算</h2>
-            </div>
-            <Clock3 size={20} />
+function AdminUsersPage() {
+  const [search, setSearch] = useState('');
+  const lookupAddress = isAddress(search.trim()) ? (search.trim() as Address) : undefined;
+  const users = useAdminUsers(lookupAddress);
+
+  return (
+    <section className="admin-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Users</p>
+          <h2>用户管理</h2>
+        </div>
+        <span className="status-chip">{users.rows.length} 人</span>
+      </div>
+      <label className="full-field">
+        搜索钱包地址
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
+      </label>
+      <div className="list-stack">
+        {users.rows.length > 0 ? (
+          users.rows.map((row) => <AdminUserListRow key={row.address} row={row} />)
+        ) : (
+          <EmptyState title="暂无用户事件" detail="用户列表来自 UserRegistered 链上事件，搜索地址可直接读取 users(address)。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminUserListRow({ row }: { row: { address: Address; account: UserAccountData; blockNumber?: bigint } }) {
+  return (
+    <div className="admin-list-row wide">
+      <div className="row-icon"><UserRound size={17} /></div>
+      <div>
+        <strong>{shortAddress(row.address)}</strong>
+        <small>上级 {shortAddress(row.account.referrer)} / 直推 {row.account.directCount.toString()}</small>
+      </div>
+      <div className="row-metrics">
+        <span>本金 {token(row.account.principalBalance)} U</span>
+        <span>收益 {token(row.account.rewardBalance)} U</span>
+        <span>{row.account.whitelist40 ? '40 代白名单' : row.account.registered ? '已注册' : '未注册'}</span>
+      </div>
+    </div>
+  );
+}
+
+function AdminPrincipalOrdersPage() {
+  const orderBook = useAdminOrderBook();
+
+  return (
+    <section className="admin-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Principal Orders</p>
+          <h2>本金订单</h2>
+        </div>
+        <span className="status-chip">{orderBook.principalOrders.length} 笔</span>
+      </div>
+      <div className="list-stack">
+        {orderBook.principalOrders.length > 0 ? (
+          orderBook.principalOrders.map((order) => <AdminPrincipalOrderRow key={order.id.toString()} order={order} />)
+        ) : (
+          <EmptyState title="暂无本金订单" detail="订单列表通过 nextPrincipalOrderId 和 principalOrders(id) 直接读取链上状态。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminStakeOrdersPage() {
+  const orderBook = useAdminOrderBook();
+
+  return (
+    <section className="admin-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Stake Orders</p>
+          <h2>质押订单</h2>
+        </div>
+        <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
+      </div>
+      <div className="list-stack">
+        {orderBook.stakeOrders.length > 0 ? (
+          orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
+        ) : (
+          <EmptyState title="暂无质押订单" detail="订单列表通过 nextStakeOrderId 和 stakeOrders(id) 直接读取链上状态。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const [dynamicUser, setDynamicUser] = useState('');
+  const [dynamicDay, setDynamicDay] = useState('');
+  const [batchUsers, setBatchUsers] = useState('');
+  const [stakeIds, setStakeIds] = useState('');
+  const events = useChainEvents(['StakeSettled', 'DynamicRewardSettled', 'RewardWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
+
+  return (
+    <section className="screen-stack">
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Daily settlement</p>
+            <h2>收益结算</h2>
           </div>
-          <div className="form-grid">
-            <label>
-              用户地址
-              <input value={dynamicUser} onChange={(event) => setDynamicUser(event.target.value)} placeholder="0x..." />
-            </label>
-            <label>
-              本地日编号
-              <input value={dynamicDay} onChange={(event) => setDynamicDay(event.target.value)} placeholder="例如 20579" />
-            </label>
-          </div>
+          <Clock3 size={20} />
+        </div>
+        <div className="form-grid">
+          <label>
+            用户地址
+            <input value={dynamicUser} onChange={(event) => setDynamicUser(event.target.value)} placeholder="0x..." />
+          </label>
+          <label>
+            本地日编号
+            <input value={dynamicDay} onChange={(event) => setDynamicDay(event.target.value)} placeholder="例如 20579" />
+          </label>
+        </div>
+        <button
+          className="primary-button compact"
+          disabled={!canWrite || !dynamicDay || !isAddress(dynamicUser)}
+          onClick={() =>
+            runner.runTx('结算动态奖励', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'settleDynamicRewardForUser',
+                args: [safeAddress(dynamicUser), parseBigIntInput(dynamicDay)],
+              }),
+            )
+          }
+        >
+          结算该用户动态奖励
+        </button>
+        <div className="form-grid spaced">
+          <label>
+            批量用户地址
+            <input value={batchUsers} onChange={(event) => setBatchUsers(event.target.value)} placeholder="多个地址用逗号或空格分隔" />
+          </label>
+          <label>
+            批量质押 ID
+            <input value={stakeIds} onChange={(event) => setStakeIds(event.target.value)} placeholder="多个 ID 用逗号或空格分隔" />
+          </label>
+        </div>
+        <div className="split-buttons">
           <button
-            className="primary-button compact"
-            disabled={!isContractConfigured || wrongNetwork || !dynamicDay}
+            className="secondary-button"
+            disabled={!canWrite || parseAddressList(batchUsers).length === 0 || !dynamicDay}
             onClick={() =>
-              runTx('结算动态奖励', () =>
-                writeContractAsync({
+              runner.runTx('批量结算动态奖励', () =>
+                runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
-                  functionName: 'settleDynamicRewardForUser',
-                  args: [safeAddress(dynamicUser), BigInt(dynamicDay || '0')],
+                  functionName: 'settleDynamicRewardForUsers',
+                  args: [parseAddressList(batchUsers), parseBigIntInput(dynamicDay)],
                 }),
               )
             }
           >
-            结算该用户动态奖励
+            批量动态结算
           </button>
-          <TxStatus tx={tx} />
-        </section>
-      </main>
-    </div>
+          <button
+            className="secondary-button"
+            disabled={!canWrite || parseIdList(stakeIds).length === 0}
+            onClick={() =>
+              runner.runTx('批量结算质押', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'settleStakes',
+                  args: [parseIdList(stakeIds)],
+                }),
+              )
+            }
+          >
+            批量质押结算
+          </button>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Events</p>
+            <h2>收益流水</h2>
+          </div>
+          <span className="status-chip">{events.data?.length ?? 0} 条</span>
+        </div>
+        <div className="list-stack">
+          {(events.data ?? []).length > 0 ? (
+            events.data?.map((event) => <EventRow key={`${event.transactionHash}-${event.logIndex}`} event={event} />)
+          ) : (
+            <EmptyState title="暂无流水事件" detail="流水来自合约事件日志，会按区块倒序读取最近链上记录。" />
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function AdminTeamPage({ defaultAddress }: { defaultAddress?: Address }) {
+  const [rootInput, setRootInput] = useState('');
+  const currentDayQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'currentLocalDay',
+    query: { enabled: isContractConfigured },
+  });
+  const day = (currentDayQuery.data as bigint | undefined) ?? 0n;
+  const root = isAddress(rootInput.trim()) ? (rootInput.trim() as Address) : defaultAddress ?? zeroAddress;
+  const referrals = useDirectReferralRows(root, day, root !== zeroAddress);
+
+  return (
+    <section className="admin-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Referrals</p>
+          <h2>团队关系</h2>
+        </div>
+        <span className="status-chip">{referrals.rows.length} 人</span>
+      </div>
+      <label className="full-field">
+        上级钱包地址
+        <input value={rootInput} onChange={(event) => setRootInput(event.target.value)} placeholder="留空默认读取当前钱包的直推" />
+      </label>
+      <div className="list-stack">
+        {referrals.rows.length > 0 ? (
+          referrals.rows.map((item) => <DirectReferralListRow key={item.address} item={item} />)
+        ) : (
+          <EmptyState title="暂无直推关系" detail="团队关系通过 getDirectReferrals(root) 和 users(address) 读取。" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const config = useContractConfig();
+  const [yieldPercent, setYieldPercent] = useState('1');
+  const [minYieldPercent, setMinYieldPercent] = useState('0.5');
+  const [maxYieldPercent, setMaxYieldPercent] = useState('5');
+  const [feeAmount, setFeeAmount] = useState('10');
+  const [minAmount, setMinAmount] = useState('100');
+  const [maxAmount, setMaxAmount] = useState('1000');
+  const [maxPrincipal, setMaxPrincipal] = useState('1000');
+  const [lockDays, setLockDays] = useState('30');
+  const [threshold, setThreshold] = useState('1000');
+  const [feeReceiver, setFeeReceiver] = useState('');
+  const [timezoneHours, setTimezoneHours] = useState('8');
+  const [morningStart, setMorningStart] = useState('9');
+  const [morningEnd, setMorningEnd] = useState('12');
+  const [afternoonStart, setAfternoonStart] = useState('14');
+  const [afternoonEnd, setAfternoonEnd] = useState('17');
+  const [generation, setGeneration] = useState('1');
+  const [generationRate, setGenerationRate] = useState('0.2');
+
+  useEffect(() => {
+    if (!isContractConfigured) return;
+    setYieldPercent(bpsInput(config.yieldBps));
+    setMinYieldPercent(bpsInput(config.minYieldBps));
+    setMaxYieldPercent(bpsInput(config.maxYieldBps));
+    setFeeAmount(tokenInput(config.withdrawFee));
+    setMinAmount(tokenInput(config.minAmount));
+    setMaxAmount(tokenInput(config.maxAmount));
+    setMaxPrincipal(tokenInput(config.maxPrincipal));
+    setLockDays(secondsToDays(config.lockPeriod));
+    setThreshold(tokenInput(config.validVolumeThreshold));
+    setFeeReceiver(config.feeReceiver === zeroAddress ? '' : config.feeReceiver);
+    setTimezoneHours(secondsToHours(config.timezoneOffset));
+    setMorningStart(secondsToHours(config.morningStart));
+    setMorningEnd(secondsToHours(config.morningEnd));
+    setAfternoonStart(secondsToHours(config.afternoonStart));
+    setAfternoonEnd(secondsToHours(config.afternoonEnd));
+  }, [config.loadedKey]);
+
+  return (
+    <section className="screen-stack">
+      <section className="admin-grid">
+        <AdminCard icon={<Settings />} label="当前收益率" value={bpsToPercent(config.yieldBps)} />
+        <AdminCard icon={<Send />} label="提现手续费" value={`${token(config.withdrawFee)} U`} />
+        <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
+        <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Owner / Admin</p>
+            <h2>合约配置</h2>
+          </div>
+          <Settings size={20} />
+        </div>
+        <div className="form-grid">
+          <label>
+            单次收益率 %
+            <input value={yieldPercent} onChange={(event) => setYieldPercent(event.target.value)} />
+          </label>
+          <label>
+            提现手续费 U
+            <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} />
+          </label>
+          <label>
+            最低收益率 %
+            <input value={minYieldPercent} onChange={(event) => setMinYieldPercent(event.target.value)} />
+          </label>
+          <label>
+            最高收益率 %
+            <input value={maxYieldPercent} onChange={(event) => setMaxYieldPercent(event.target.value)} />
+          </label>
+        </div>
+        <div className="split-buttons">
+          <button
+            className="primary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置收益率', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setYieldBps',
+                  args: [BigInt(Math.round(Number(yieldPercent) * 100))],
+                }),
+              )
+            }
+          >
+            保存收益率
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置提现手续费', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setWithdrawFee',
+                  args: [parseTokenInput(feeAmount)],
+                }),
+              )
+            }
+          >
+            保存手续费
+          </button>
+        </div>
+        <button
+          className="secondary-button full-button"
+          disabled={!canEdit}
+          onClick={() =>
+            runner.runTx('设置收益率上下限', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setYieldBounds',
+                args: [BigInt(Math.round(Number(minYieldPercent) * 100)), BigInt(Math.round(Number(maxYieldPercent) * 100))],
+              }),
+            )
+          }
+        >
+          保存收益率范围
+        </button>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <h2>金额与时间规则</h2>
+          <Clock3 size={20} />
+        </div>
+        <div className="form-grid">
+          <label>
+            单笔最小 U
+            <input value={minAmount} onChange={(event) => setMinAmount(event.target.value)} />
+          </label>
+          <label>
+            单笔最大 U
+            <input value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} />
+          </label>
+          <label>
+            本金上限 U
+            <input value={maxPrincipal} onChange={(event) => setMaxPrincipal(event.target.value)} />
+          </label>
+          <label>
+            锁仓天数
+            <input value={lockDays} onChange={(event) => setLockDays(event.target.value)} />
+          </label>
+          <label>
+            有效流水门槛 U
+            <input value={threshold} onChange={(event) => setThreshold(event.target.value)} />
+          </label>
+          <label>
+            手续费接收地址
+            <input value={feeReceiver} onChange={(event) => setFeeReceiver(event.target.value)} placeholder="0x..." />
+          </label>
+        </div>
+        <div className="split-buttons">
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置金额规则', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setAmountRules',
+                  args: [parseTokenInput(minAmount), parseTokenInput(maxAmount), parseTokenInput(maxPrincipal)],
+                }),
+              )
+            }
+          >
+            保存金额规则
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置锁仓周期', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setLockPeriod',
+                  args: [daysToSeconds(lockDays)],
+                }),
+              )
+            }
+          >
+            保存锁仓周期
+          </button>
+        </div>
+        <div className="split-buttons">
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置有效流水门槛', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setValidVolumeThreshold',
+                  args: [parseTokenInput(threshold)],
+                }),
+              )
+            }
+          >
+            保存有效门槛
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit || !isAddress(feeReceiver)}
+            onClick={() =>
+              runner.runTx('设置手续费接收地址', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setFeeReceiver',
+                  args: [safeAddress(feeReceiver)],
+                }),
+              )
+            }
+          >
+            保存手续费地址
+          </button>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <h2>场次与代数</h2>
+          <Users size={20} />
+        </div>
+        <div className="form-grid">
+          <label>
+            时区偏移小时
+            <input value={timezoneHours} onChange={(event) => setTimezoneHours(event.target.value)} />
+          </label>
+          <label>
+            上午开始小时
+            <input value={morningStart} onChange={(event) => setMorningStart(event.target.value)} />
+          </label>
+          <label>
+            上午结束小时
+            <input value={morningEnd} onChange={(event) => setMorningEnd(event.target.value)} />
+          </label>
+          <label>
+            下午开始小时
+            <input value={afternoonStart} onChange={(event) => setAfternoonStart(event.target.value)} />
+          </label>
+          <label>
+            下午结束小时
+            <input value={afternoonEnd} onChange={(event) => setAfternoonEnd(event.target.value)} />
+          </label>
+          <label>
+            代数
+            <input value={generation} onChange={(event) => setGeneration(event.target.value)} />
+          </label>
+          <label>
+            代数奖励 %
+            <input value={generationRate} onChange={(event) => setGenerationRate(event.target.value)} />
+          </label>
+        </div>
+        <div className="split-buttons">
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置时区', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setTimezoneOffset',
+                  args: [hoursToSeconds(timezoneHours)],
+                }),
+              )
+            }
+          >
+            保存时区
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置质押场次', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setSessionTimes',
+                  args: [
+                    Number(hoursToSeconds(morningStart)),
+                    Number(hoursToSeconds(morningEnd)),
+                    Number(hoursToSeconds(afternoonStart)),
+                    Number(hoursToSeconds(afternoonEnd)),
+                  ],
+                }),
+              )
+            }
+          >
+            保存场次
+          </button>
+        </div>
+        <button
+          className="secondary-button full-button"
+          disabled={!canEdit}
+          onClick={() =>
+            runner.runTx('设置代数奖励比例', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setGenerationRate',
+                args: [Number(generation || '0'), Math.round(Number(generationRate) * 100)],
+              }),
+            )
+          }
+        >
+          保存代数奖励比例
+        </button>
+        <div className="split-buttons">
+          <button
+            className="secondary-button danger-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('暂停合约', () =>
+                runner.writeContractAsync({ address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'pause' }),
+              )
+            }
+          >
+            <PauseCircle size={17} />
+            暂停
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('恢复合约', () =>
+                runner.writeContractAsync({ address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'unpause' }),
+              )
+            }
+          >
+            <CheckCircle2 size={17} />
+            恢复
+          </button>
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const [targetAddress, setTargetAddress] = useState('');
+  const target = isAddress(targetAddress.trim()) ? (targetAddress.trim() as Address) : undefined;
+  const role = useAdminRole(target);
+  const userQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'users',
+    args: [target ?? zeroAddress],
+    query: { enabled: Boolean(isContractConfigured && target) },
+  });
+  const account = userFromTuple(userQuery.data);
+
+  return (
+    <section className="admin-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Roles</p>
+          <h2>权限与白名单</h2>
+        </div>
+        <Shield size={20} />
+      </div>
+      <label className="full-field">
+        钱包地址
+        <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
+      </label>
+      <div className="admin-grid compact-grid">
+        <AdminCard icon={<Shield />} label="Admin" value={role.isSuperAdmin ? '是' : '否'} />
+        <AdminCard icon={<Settings />} label="Manager" value={role.isManager ? '是' : '否'} />
+        <AdminCard icon={<Gift />} label="40 代白名单" value={account.whitelist40 ? '是' : '否'} />
+        <AdminCard icon={<Users />} label="直推数" value={account.directCount.toString()} />
+      </div>
+      <div className="button-stack spaced">
+        <button
+          className="secondary-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('开启 40 代白名单', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setWhitelist40',
+                args: [target ?? zeroAddress, true],
+              }),
+            )
+          }
+        >
+          开启 40 代白名单
+        </button>
+        <button
+          className="secondary-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('关闭 40 代白名单', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setWhitelist40',
+                args: [target ?? zeroAddress, false],
+              }),
+            )
+          }
+        >
+          关闭 40 代白名单
+        </button>
+        <button
+          className="secondary-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('设置 Manager', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setManager',
+                args: [target ?? zeroAddress, true],
+              }),
+            )
+          }
+        >
+          授予 Manager
+        </button>
+        <button
+          className="secondary-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('移除 Manager', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setManager',
+                args: [target ?? zeroAddress, false],
+              }),
+            )
+          }
+        >
+          移除 Manager
+        </button>
+        <button
+          className="secondary-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('设置 Admin', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setAdmin',
+                args: [target ?? zeroAddress, true],
+              }),
+            )
+          }
+        >
+          授予 Admin
+        </button>
+        <button
+          className="secondary-button danger-button"
+          disabled={!canEdit || !target}
+          onClick={() =>
+            runner.runTx('移除 Admin', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setAdmin',
+                args: [target ?? zeroAddress, false],
+              }),
+            )
+          }
+        >
+          移除 Admin
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -921,15 +1838,213 @@ function useAdminDashboard() {
   };
 
   return {
-    totalUsers: pick(0, mockDashboard.totalUsers),
-    totalDepositedAmount: pick(1, mockDashboard.totalDepositedAmount),
-    totalPrincipalBalance: pick(2, mockDashboard.totalPrincipalBalance),
-    totalRewardBalance: pick(3, mockDashboard.totalRewardBalance),
-    totalStakedVolume: pick(4, mockDashboard.totalStakedVolume),
-    totalStaticRewardCredited: pick(5, mockDashboard.totalStaticRewardCredited),
-    totalDynamicRewardCredited: pick(6, mockDashboard.totalDynamicRewardCredited),
-    totalWithdrawnAmount: pick(7, mockDashboard.totalWithdrawnAmount),
+    totalUsers: pick(0, emptyDashboard.totalUsers),
+    totalDepositedAmount: pick(1, emptyDashboard.totalDepositedAmount),
+    totalPrincipalBalance: pick(2, emptyDashboard.totalPrincipalBalance),
+    totalRewardBalance: pick(3, emptyDashboard.totalRewardBalance),
+    totalStakedVolume: pick(4, emptyDashboard.totalStakedVolume),
+    totalStaticRewardCredited: pick(5, emptyDashboard.totalStaticRewardCredited),
+    totalDynamicRewardCredited: pick(6, emptyDashboard.totalDynamicRewardCredited),
+    totalWithdrawnAmount: pick(7, emptyDashboard.totalWithdrawnAmount),
   };
+}
+
+function useContractConfig() {
+  const query = useReadContracts({
+    contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'minAmount' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'maxAmount' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'maxPrincipal' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'lockPeriod' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'yieldBps' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'minYieldBps' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'maxYieldBps' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawFee' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'validVolumeThreshold' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'feeReceiver' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'timezoneOffset' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningStart' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningEnd' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonStart' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonEnd' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'paused' },
+    ],
+    query: { enabled: isContractConfigured },
+  });
+
+  const pick = <T,>(index: number, fallback: T) => readResult(query.data?.[index], fallback);
+  const config = {
+    minAmount: pick(0, 0n),
+    maxAmount: pick(1, 0n),
+    maxPrincipal: pick(2, 0n),
+    lockPeriod: pick(3, 0n),
+    yieldBps: pick(4, 0n),
+    minYieldBps: pick(5, 0n),
+    maxYieldBps: pick(6, 0n),
+    withdrawFee: pick(7, 0n),
+    validVolumeThreshold: pick(8, 0n),
+    feeReceiver: pick(9, zeroAddress),
+    timezoneOffset: pick(10, 0n),
+    morningStart: pick(11, 0),
+    morningEnd: pick(12, 0),
+    afternoonStart: pick(13, 0),
+    afternoonEnd: pick(14, 0),
+    paused: pick(15, false),
+  };
+
+  return {
+    ...config,
+    loadedKey: [
+      config.minAmount,
+      config.maxAmount,
+      config.maxPrincipal,
+      config.lockPeriod,
+      config.yieldBps,
+      config.minYieldBps,
+      config.maxYieldBps,
+      config.withdrawFee,
+      config.validVolumeThreshold,
+      config.feeReceiver,
+      config.timezoneOffset,
+      config.morningStart,
+      config.morningEnd,
+      config.afternoonStart,
+      config.afternoonEnd,
+      config.paused,
+    ].join('|'),
+  };
+}
+
+function useAdminOrderBook() {
+  const nextIdsQuery = useReadContracts({
+    contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'nextPrincipalOrderId' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'nextStakeOrderId' },
+    ],
+    query: { enabled: isContractConfigured },
+  });
+
+  const nextPrincipalOrderId = readResult(nextIdsQuery.data?.[0], 1n);
+  const nextStakeOrderId = readResult(nextIdsQuery.data?.[1], 1n);
+  const principalIds = useMemo(() => recentIds(nextPrincipalOrderId), [nextPrincipalOrderId]);
+  const stakeIds = useMemo(() => recentIds(nextStakeOrderId), [nextStakeOrderId]);
+
+  const principalOrderContracts = useMemo(
+    () =>
+      principalIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'principalOrders',
+        args: [id],
+      })),
+    [principalIds],
+  );
+
+  const stakeOrderContracts = useMemo(
+    () =>
+      stakeIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'stakeOrders',
+        args: [id],
+      })),
+    [stakeIds],
+  );
+
+  const principalOrdersQuery = useReadContracts({
+    contracts: principalOrderContracts as never,
+    query: { enabled: principalOrderContracts.length > 0 },
+  });
+  const stakeOrdersQuery = useReadContracts({
+    contracts: stakeOrderContracts as never,
+    query: { enabled: stakeOrderContracts.length > 0 },
+  });
+
+  return {
+    principalOrders: (principalOrdersQuery.data ?? [])
+      .map((result) => principalOrderFromTuple(readResult(result, undefined)))
+      .filter((order): order is PrincipalOrderData => Boolean(order)),
+    stakeOrders: (stakeOrdersQuery.data ?? [])
+      .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
+      .filter((order): order is StakeOrderData => Boolean(order)),
+  };
+}
+
+function useChainEvents(eventNames: readonly string[]) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['ironBrotherEvents', CONTRACT_ADDRESS, eventNames.join('|')],
+    enabled: Boolean(isContractConfigured && publicClient),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    queryFn: async () => {
+      if (!publicClient) return [] as ChainEventRecord[];
+
+      const client = publicClient as unknown as {
+        getBlockNumber: () => Promise<bigint>;
+        getContractEvents: (args: Record<string, unknown>) => Promise<ChainEventRecord[]>;
+      };
+      const latest = await client.getBlockNumber();
+      const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
+      const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
+      const logs: ChainEventRecord[] = [];
+
+      for (const eventName of eventNames) {
+        for (let start = fromBlock; start <= latest; start += EVENT_CHUNK_BLOCKS + 1n) {
+          const end = start + EVENT_CHUNK_BLOCKS > latest ? latest : start + EVENT_CHUNK_BLOCKS;
+          const chunk = await client.getContractEvents({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            eventName,
+            fromBlock: start,
+            toBlock: end,
+          });
+          logs.push(...chunk);
+        }
+      }
+
+      return logs.sort((a, b) => {
+        const blockDiff = Number(b.blockNumber - a.blockNumber);
+        return blockDiff === 0 ? Number(b.logIndex - a.logIndex) : blockDiff;
+      });
+    },
+  });
+}
+
+function useAdminUsers(extraAddress?: Address) {
+  const events = useChainEvents(['UserRegistered']);
+  const addresses = useMemo(() => {
+    const eventAddresses = (events.data ?? []).map((event) => event.args.user as Address | undefined);
+    return uniqueAddresses(extraAddress ? [extraAddress, ...eventAddresses] : eventAddresses);
+  }, [events.data, extraAddress]);
+
+  const userContracts = useMemo(
+    () =>
+      addresses.map((address) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'users',
+        args: [address],
+      })),
+    [addresses],
+  );
+
+  const usersQuery = useReadContracts({
+    contracts: userContracts as never,
+    query: { enabled: isContractConfigured && userContracts.length > 0 },
+  });
+
+  const rows = useMemo(
+    () =>
+      addresses.map((address, index) => ({
+        address,
+        account: userFromTuple(readResult(usersQuery.data?.[index], undefined)),
+      })),
+    [addresses, usersQuery.data],
+  );
+
+  return { rows };
 }
 
 function useAdminRole(address?: Address) {
@@ -981,12 +2096,12 @@ function MetricCard({ label, value, trend }: { label: string; value: string; tre
   );
 }
 
-function ActionPill({ icon, label }: { icon: React.ReactNode; label: string }) {
+function ActionPill({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
-    <div className="action-pill">
+    <button className="action-pill" type="button" onClick={onClick}>
       {icon}
       <span>{label}</span>
-    </div>
+    </button>
   );
 }
 
@@ -1018,6 +2133,132 @@ function OrderRow({ label, amount, status, time }: { label: string; amount: bigi
         <span>{token(amount)} U</span>
         <small>{status}</small>
       </div>
+    </div>
+  );
+}
+
+function PrincipalOrderList({ orders }: { orders: PrincipalOrderData[] }) {
+  return (
+    <section className="panel">
+      <div className="section-title">
+        <h2>本金订单</h2>
+        <span>{orders.length} 笔</span>
+      </div>
+      {orders.length > 0 ? (
+        orders.map((order) => (
+          <OrderRow
+            key={order.id.toString()}
+            label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
+            amount={order.amount}
+            status={principalStatusLabel(order)}
+            time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
+          />
+        ))
+      ) : (
+        <EmptyState title="暂无本金订单" detail="入金和复投后会从 principalOrders(id) 读取显示。" />
+      )}
+    </section>
+  );
+}
+
+function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
+  return (
+    <section className="panel">
+      <div className="section-title">
+        <h2>质押订单</h2>
+        <span>{orders.length} 笔</span>
+      </div>
+      {orders.length > 0 ? (
+        orders.map((order) => (
+          <OrderRow
+            key={order.id.toString()}
+            label={`质押订单 #${order.id.toString()}`}
+            amount={order.amount}
+            status={stakeStatusLabel(order)}
+            time={`${sessionLabel(order.session)} / 收益 ${token(order.reward)} U / 结算 ${dateTime(order.settleAt)}`}
+          />
+        ))
+      ) : (
+        <EmptyState title="暂无质押订单" detail="质押后会从 stakeOrders(id) 读取显示。" />
+      )}
+    </section>
+  );
+}
+
+function DirectReferralListRow({ item }: { item: DirectReferralRow }) {
+  return (
+    <div className="list-row">
+      <div className="row-icon"><Users size={17} /></div>
+      <div>
+        <strong>{shortAddress(item.address)}</strong>
+        <small>今日流水 {token(item.dailyStakeVolume)} U / 本金 {token(item.account.principalBalance)} U</small>
+      </div>
+      <span className={item.isValidToday ? 'amount-positive' : 'amount-muted'}>
+        {item.isValidToday ? '今日有效' : '未达标'}
+      </span>
+    </div>
+  );
+}
+
+function AdminPrincipalOrderRow({ order }: { order: PrincipalOrderData }) {
+  return (
+    <div className="admin-list-row">
+      <div className="row-icon"><Landmark size={17} /></div>
+      <div>
+        <strong>{principalSourceLabel(order.source)} #{order.id.toString()}</strong>
+        <small>{shortAddress(order.user)} / 创建 {dateTime(order.createdAt)}</small>
+      </div>
+      <div className="row-metrics">
+        <span>{token(order.amount)} U</span>
+        <span>{principalStatusLabel(order)}</span>
+        <span>解锁 {dateTime(order.unlockAt)}</span>
+      </div>
+    </div>
+  );
+}
+
+function AdminStakeOrderRow({ order }: { order: StakeOrderData }) {
+  return (
+    <div className="admin-list-row">
+      <div className="row-icon"><Coins size={17} /></div>
+      <div>
+        <strong>质押订单 #{order.id.toString()}</strong>
+        <small>{shortAddress(order.user)} / {sessionLabel(order.session)} / Day {order.day.toString()}</small>
+      </div>
+      <div className="row-metrics">
+        <span>本金 {token(order.amount)} U</span>
+        <span>收益 {token(order.reward)} U</span>
+        <span>{stakeStatusLabel(order)}</span>
+      </div>
+    </div>
+  );
+}
+
+function EventRow({ event }: { event: ChainEventRecord }) {
+  const args = event.args ?? {};
+  const primaryAddress = (args.user || args.source || args.upline || args.funder) as string | undefined;
+  const amount = (args.amount || args.reward || args.netAmount || args.principal) as bigint | undefined;
+
+  return (
+    <div className="admin-list-row">
+      <div className="row-icon"><BarChart3 size={17} /></div>
+      <div>
+        <strong>{event.eventName}</strong>
+        <small>区块 {event.blockNumber.toString()} / {primaryAddress ? shortAddress(primaryAddress) : shortAddress(event.transactionHash)}</small>
+      </div>
+      <div className="row-metrics">
+        <span>{amount !== undefined ? `${token(amount)} U` : '链上事件'}</span>
+        <a href={`https://testnet.bscscan.com/tx/${event.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      <span>{detail}</span>
     </div>
   );
 }
@@ -1054,7 +2295,7 @@ function TxStatus({ tx }: { tx: { label: string; hash?: Hash; status: string; er
         {tx.status === 'failed' && (tx.error || '交易失败')}
       </span>
       {tx.hash && (
-        <a href={`https://bscscan.com/tx/${tx.hash}`} target="_blank" rel="noreferrer">
+        <a href={`https://testnet.bscscan.com/tx/${tx.hash}`} target="_blank" rel="noreferrer">
           查看交易
         </a>
       )}

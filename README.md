@@ -23,7 +23,7 @@ Set these values in `.env.local` for BSC Testnet:
 ```bash
 VITE_BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 VITE_WALLETCONNECT_PROJECT_ID=your-walletconnect-project-id
-VITE_USDT_ADDRESS=
+VITE_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
 VITE_IRONBROTHER_CONTRACT_ADDRESS=
 ```
 
@@ -54,6 +54,7 @@ Deploy upgradeable proxy to BSC Testnet:
 ```bash
 set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 set PRIVATE_KEY=your-deployer-private-key
+set TEST_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
 npm run deploy:testnet
 ```
 
