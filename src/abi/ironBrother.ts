@@ -31,6 +31,21 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'DepositRouted',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'receiver', type: 'address', indexed: true },
+      { name: 'receiverIndex', type: 'uint8', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'DepositReceiversUpdated',
+    inputs: [{ name: 'receivers', type: 'address[5]', indexed: false }],
+  },
+  {
+    type: 'event',
     name: 'PrincipalRedeemed',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
@@ -84,12 +99,35 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
-    name: 'RewardWithdrawn',
+    name: 'WithdrawalRequested',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
       { name: 'fee', type: 'uint256', indexed: false },
       { name: 'netAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'WithdrawalApproved',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
+      { name: 'payer', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+      { name: 'netAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'WithdrawalRejected',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -113,6 +151,13 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'bytes32' }],
+  },
+  {
+    type: 'function',
+    name: 'DEPOSIT_RECEIVER_COUNT',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint8' }],
   },
   {
     type: 'function',
@@ -314,6 +359,20 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'nextDepositReceiverIndex',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'nextWithdrawalRequestId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'totalUsers',
     stateMutability: 'view',
     inputs: [],
@@ -364,6 +423,13 @@ export const ironBrotherAbi = [
   {
     type: 'function',
     name: 'totalWithdrawnAmount',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'totalPendingWithdrawalAmount',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint256' }],
@@ -434,10 +500,24 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'getUserWithdrawalRequestIds',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ type: 'uint256[]' }],
+  },
+  {
+    type: 'function',
     name: 'getDirectReferrals',
     stateMutability: 'view',
     inputs: [{ name: 'user', type: 'address' }],
     outputs: [{ type: 'address[]' }],
+  },
+  {
+    type: 'function',
+    name: 'getDepositReceivers',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address[5]' }],
   },
   {
     type: 'function',
@@ -470,6 +550,24 @@ export const ironBrotherAbi = [
       { name: 'createdAt', type: 'uint256' },
       { name: 'settleAt', type: 'uint256' },
       { name: 'settled', type: 'bool' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalRequests',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'id', type: 'uint256' },
+      { name: 'user', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'fee', type: 'uint256' },
+      { name: 'netAmount', type: 'uint256' },
+      { name: 'requestedAt', type: 'uint256' },
+      { name: 'processedAt', type: 'uint256' },
+      { name: 'status', type: 'uint8' },
+      { name: 'operator', type: 'address' },
+      { name: 'payer', type: 'address' },
     ],
   },
   {
@@ -526,9 +624,23 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
-    name: 'withdrawRewards',
+    name: 'requestWithdrawRewards',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'approveWithdrawal',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'requestId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'rejectWithdrawal',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'requestId', type: 'uint256' }],
     outputs: [],
   },
   {
@@ -598,6 +710,13 @@ export const ironBrotherAbi = [
     name: 'setFeeReceiver',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newFeeReceiver', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setDepositReceivers',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newDepositReceivers', type: 'address[5]' }],
     outputs: [],
   },
   {

@@ -15,7 +15,20 @@ async function setNextLocalHour(hour) {
 
 describe("IronBrother", function () {
   async function deployFixture() {
-    const [owner, alice, bob, carol, feeReceiver] = await ethers.getSigners();
+    const [
+      owner,
+      alice,
+      bob,
+      carol,
+      dave,
+      erin,
+      feeReceiver,
+      receiver1,
+      receiver2,
+      receiver3,
+      receiver4,
+      receiver5,
+    ] = await ethers.getSigners();
 
     const MockUSDT = await ethers.getContractFactory("MockUSDT");
     const usdt = await MockUSDT.deploy();
@@ -29,16 +42,19 @@ describe("IronBrother", function () {
     );
     await ironBrother.waitForDeployment();
 
-    for (const account of [alice, bob, carol, owner]) {
+    const depositReceivers = [receiver1, receiver2, receiver3, receiver4, receiver5];
+    await ironBrother.setDepositReceivers(depositReceivers.map((account) => account.address));
+
+    for (const account of [alice, bob, carol, dave, erin, owner]) {
       await usdt.mint(account.address, U("10000"));
       await usdt.connect(account).approve(await ironBrother.getAddress(), U("10000"));
     }
 
-    return { owner, alice, bob, carol, feeReceiver, usdt, ironBrother };
+    return { owner, alice, bob, carol, dave, erin, feeReceiver, depositReceivers, usdt, ironBrother };
   }
 
   it("creates a principal order on deposit", async function () {
-    const { owner, alice, ironBrother } = await deployFixture();
+    const { owner, alice, depositReceivers, usdt, ironBrother } = await deployFixture();
 
     await expect(ironBrother.connect(alice).deposit(U("200"), ethers.ZeroAddress))
       .to.emit(ironBrother, "Deposited")
@@ -48,6 +64,23 @@ describe("IronBrother", function () {
     expect(account.principalBalance).to.equal(U("200"));
     expect(account.referrer).to.equal(owner.address);
     expect(await ironBrother.availablePrincipal(alice.address)).to.equal(U("200"));
+    expect(await usdt.balanceOf(depositReceivers[0].address)).to.equal(U("200"));
+    expect(await usdt.balanceOf(await ironBrother.getAddress())).to.equal(0);
+  });
+
+  it("routes deposits across the five configured receiver wallets", async function () {
+    const { alice, bob, carol, dave, erin, depositReceivers, usdt, ironBrother } = await deployFixture();
+
+    for (const account of [alice, bob, carol, dave, erin]) {
+      await ironBrother.connect(account).deposit(U("100"), ethers.ZeroAddress);
+    }
+
+    for (const receiver of depositReceivers) {
+      expect(await usdt.balanceOf(receiver.address)).to.equal(U("100"));
+    }
+
+    await ironBrother.connect(alice).deposit(U("100"), ethers.ZeroAddress);
+    expect(await usdt.balanceOf(depositReceivers[0].address)).to.equal(U("200"));
   });
 
   it("lets the super admin manage the default referrer", async function () {
@@ -185,8 +218,8 @@ describe("IronBrother", function () {
     expect((await ironBrother.users(carol.address)).directCount).to.equal(0);
   });
 
-  it("allows reward withdrawal with fee", async function () {
-    const { alice, feeReceiver, usdt, ironBrother } = await deployFixture();
+  it("requires admin approval to pay a reward withdrawal with fee", async function () {
+    const { owner, alice, feeReceiver, usdt, ironBrother } = await deployFixture();
 
     await ironBrother.setYieldBps(500);
     await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
@@ -195,10 +228,20 @@ describe("IronBrother", function () {
     await setNextLocalHour(12);
     await ironBrother.settleStake(1);
 
-    await usdt.mint(await ironBrother.getAddress(), U("100"));
-    await ironBrother.connect(alice).withdrawRewards(U("50"));
+    await expect(ironBrother.connect(alice).requestWithdrawRewards(U("50")))
+      .to.emit(ironBrother, "WithdrawalRequested")
+      .withArgs(alice.address, 1, U("50"), U("10"), U("40"));
+
+    expect((await ironBrother.users(alice.address)).rewardBalance).to.equal(0);
+    expect(await ironBrother.totalPendingWithdrawalAmount()).to.equal(U("50"));
+
+    await expect(ironBrother.approveWithdrawal(1))
+      .to.emit(ironBrother, "WithdrawalApproved")
+      .withArgs(alice.address, 1, owner.address, U("50"), U("10"), U("40"));
 
     expect(await usdt.balanceOf(feeReceiver.address)).to.equal(U("10"));
     expect(await usdt.balanceOf(alice.address)).to.equal(U("9040"));
+    expect(await ironBrother.totalPendingWithdrawalAmount()).to.equal(0);
+    expect((await ironBrother.withdrawalRequests(1)).status).to.equal(1);
   });
 });

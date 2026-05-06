@@ -744,6 +744,17 @@ input {
   margin-top: 10px;
 }
 
+.inline-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.danger-action {
+  color: #9f2525;
+  border-color: #f1c7c7;
+}
+
 .tx-status {
   margin-top: 12px;
   display: grid;

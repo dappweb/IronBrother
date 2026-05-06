@@ -1,6 +1,6 @@
 # IronBrother
 
-Pure on-chain BSC USDT staking DApp with a customer mobile UI, a simplified Admin console, and Cloudflare Pages deployment.
+BSC USDT staking DApp with on-chain accounting, five rotating project deposit wallets, Admin-approved withdrawals, a customer mobile UI, a simplified Admin console, and Cloudflare Pages deployment.
 
 ## Stack
 
@@ -29,6 +29,14 @@ VITE_IRONBROTHER_CONTRACT_ADDRESS=
 
 On BSC Testnet, use `TEST_USDT_ADDRESS` if you already have a test USDT token. If not set, the testnet deployment script deploys `MockUSDT` and writes the address to `deployments/bsc-testnet.json`.
 
+## Business Flow
+
+- User deposits call `deposit(amount, referrer)`. The contract transfers USDT directly from the user to one of five configured project deposit wallets in round-robin order, then records principal and the deposit order on-chain.
+- Staking, static rewards, dynamic rewards, principal redemption, and reinvestment are accounting operations in the contract.
+- User withdrawals call `requestWithdrawRewards(amount)` and create a pending withdrawal request. The reward balance is reserved until Admin approves or rejects it.
+- Admin approval calls `approveWithdrawal(requestId)`. The Admin/payout wallet first approves USDT to the contract, then the approval transaction transfers the net amount to the user and the fee to `feeReceiver`.
+- Admin rejection calls `rejectWithdrawal(requestId)` and restores the reserved reward balance.
+
 The BSC mainnet BEP-20 USDT address for production is:
 
 ```text
@@ -55,6 +63,9 @@ Deploy upgradeable proxy to BSC Testnet:
 set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 set PRIVATE_KEY=your-deployer-private-key
 set TEST_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
+set FEE_RECEIVER=fee-receiver-address
+set DEFAULT_REFERRER=default-referrer-address
+set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
 npm run deploy:testnet
 ```
 
@@ -66,6 +77,7 @@ Upgrade the BSC Testnet proxy:
 set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 set PRIVATE_KEY=your-upgrader-private-key
 set IRONBROTHER_PROXY=deployed-proxy-address
+set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
 npm run upgrade:testnet
 ```
 

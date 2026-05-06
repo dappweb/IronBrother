@@ -160,6 +160,7 @@ type UserAccountData = {
 
 type PrincipalOrderTuple = readonly [bigint, Address, bigint, bigint, bigint, number, number];
 type StakeOrderTuple = readonly [bigint, Address, bigint, bigint, bigint, bigint, number, bigint, bigint, boolean];
+type WithdrawalRequestTuple = readonly [bigint, Address, bigint, bigint, bigint, bigint, bigint, number, Address, Address];
 
 type PrincipalOrderData = {
   id: bigint;
@@ -210,6 +211,19 @@ type DynamicSettlementRow = AdminUserRow & {
   dailyStakeVolume: bigint;
   isValidOnDay: boolean;
   settled: boolean;
+};
+
+type WithdrawalRequestData = {
+  id: bigint;
+  user: Address;
+  amount: bigint;
+  fee: bigint;
+  netAmount: bigint;
+  requestedAt: bigint;
+  processedAt: bigint;
+  status: number;
+  operator: Address;
+  payer: Address;
 };
 
 type ChainEventRecord = {
@@ -493,6 +507,7 @@ const emptyDashboard = {
   totalStaticRewardCredited: 0n,
   totalDynamicRewardCredited: 0n,
   totalWithdrawnAmount: 0n,
+  totalPendingWithdrawalAmount: 0n,
 };
 
 const emptyTeamSummary: TeamSummaryData = {
@@ -555,6 +570,24 @@ function stakeOrderFromTuple(data: unknown): StakeOrderData | undefined {
   };
 }
 
+function withdrawalRequestFromTuple(data: unknown): WithdrawalRequestData | undefined {
+  const tuple = data as WithdrawalRequestTuple | undefined;
+  if (!tuple || tuple[0] === 0n || tuple[1] === zeroAddress) return undefined;
+
+  return {
+    id: tuple[0],
+    user: tuple[1],
+    amount: tuple[2],
+    fee: tuple[3],
+    netAmount: tuple[4],
+    requestedAt: tuple[5],
+    processedAt: tuple[6],
+    status: Number(tuple[7]),
+    operator: tuple[8],
+    payer: tuple[9],
+  };
+}
+
 function readResult<T>(data: unknown, fallback: T): T {
   const result = data as { status?: string; result?: T } | undefined;
   return result?.status === 'success' && result.result !== undefined ? result.result : fallback;
@@ -594,6 +627,12 @@ function principalStatusLabel(order: PrincipalOrderData) {
 function stakeStatusLabel(order: StakeOrderData) {
   if (order.settled) return '已结算';
   return BigInt(Math.floor(Date.now() / 1000)) >= order.settleAt ? '可结算' : '待结算';
+}
+
+function withdrawalStatusLabel(request: WithdrawalRequestData) {
+  if (request.status === 1) return '已打款';
+  if (request.status === 2) return '已驳回';
+  return '待审核';
 }
 
 function sessionLabel(session: number) {
@@ -940,8 +979,17 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
     query: { enabled },
   });
 
+  const withdrawalRequestIdsQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getUserWithdrawalRequestIds',
+    args: [accountAddress],
+    query: { enabled },
+  });
+
   const principalOrderIds = (principalOrderIdsQuery.data as readonly bigint[] | undefined) ?? [];
   const stakeOrderIds = (stakeOrderIdsQuery.data as readonly bigint[] | undefined) ?? [];
+  const withdrawalRequestIds = (withdrawalRequestIdsQuery.data as readonly bigint[] | undefined) ?? [];
 
   const principalOrderContracts = useMemo(
     () =>
@@ -965,6 +1013,17 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
     [stakeOrderIds],
   );
 
+  const withdrawalRequestContracts = useMemo(
+    () =>
+      withdrawalRequestIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'withdrawalRequests',
+        args: [id],
+      })),
+    [withdrawalRequestIds],
+  );
+
   const principalOrdersQuery = useReadContracts({
     contracts: principalOrderContracts as never,
     query: { enabled: enabled && principalOrderContracts.length > 0 },
@@ -973,6 +1032,10 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
   const stakeOrdersQuery = useReadContracts({
     contracts: stakeOrderContracts as never,
     query: { enabled: enabled && stakeOrderContracts.length > 0 },
+  });
+  const withdrawalRequestsQuery = useReadContracts({
+    contracts: withdrawalRequestContracts as never,
+    query: { enabled: enabled && withdrawalRequestContracts.length > 0 },
   });
 
   const principalOrders = useMemo(
@@ -990,13 +1053,28 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
         .filter((order): order is StakeOrderData => Boolean(order)),
     [stakeOrdersQuery.data],
   );
+  const withdrawalRequests = useMemo(
+    () =>
+      (withdrawalRequestsQuery.data ?? [])
+        .map((result) => withdrawalRequestFromTuple(readResult(result, undefined)))
+        .filter((request): request is WithdrawalRequestData => Boolean(request)),
+    [withdrawalRequestsQuery.data],
+  );
 
   return {
     principalOrderIds,
     stakeOrderIds,
+    withdrawalRequestIds,
     principalOrders,
     stakeOrders,
-    isLoading: principalOrderIdsQuery.isLoading || stakeOrderIdsQuery.isLoading || principalOrdersQuery.isLoading || stakeOrdersQuery.isLoading,
+    withdrawalRequests,
+    isLoading:
+      principalOrderIdsQuery.isLoading ||
+      stakeOrderIdsQuery.isLoading ||
+      withdrawalRequestIdsQuery.isLoading ||
+      principalOrdersQuery.isLoading ||
+      stakeOrdersQuery.isLoading ||
+      withdrawalRequestsQuery.isLoading,
   };
 }
 
@@ -1217,8 +1295,10 @@ function useIronBrotherData() {
     currentLocalDay,
     principalOrderIds: orders.principalOrderIds,
     stakeOrderIds: orders.stakeOrderIds,
+    withdrawalRequestIds: orders.withdrawalRequestIds,
     principalOrders: orders.principalOrders,
     stakeOrders: orders.stakeOrders,
+    withdrawalRequests: orders.withdrawalRequests,
     directReferrals: directReferrals.rows,
     teamSummary: teamSummary.data ?? emptyTeamSummary,
     isTeamSummaryLoading: teamSummary.isLoading,
@@ -1638,6 +1718,7 @@ function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBroth
     <section className="screen-stack">
       <DepositPanel disabled={disabled} defaultReferrer={data.defaultReferrer} />
       <WalletActions data={data} disabled={disabled} />
+      <WithdrawalRequestList requests={data.withdrawalRequests} />
       <PrincipalOrderList orders={data.principalOrders} />
     </section>
   );
@@ -1790,17 +1871,17 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           className="primary-button"
           disabled={disabled || withdrawParsed <= 0n}
           onClick={() =>
-            runTx('收益提现', () =>
+            runTx('申请提现', () =>
               writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
-                functionName: 'withdrawRewards',
+                functionName: 'requestWithdrawRewards',
                 args: [withdrawParsed],
               }),
             )
           }
         >
-          提现
+          申请提现
         </button>
       </div>
       <div className="form-grid">
@@ -1980,7 +2061,7 @@ function AdminConsole() {
         {nav === 'users' && <AdminUsersPage />}
         {nav === 'principal' && <AdminPrincipalOrdersPage />}
         {nav === 'stakes' && <AdminStakeOrdersPage />}
-        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
+        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
         {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
         {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
         {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
@@ -2006,6 +2087,7 @@ function AdminDashboardPage({ dashboard }: { dashboard: ReturnType<typeof useAdm
       <AdminCard icon={<Coins />} label="静态收益" value={`${token(dashboard.totalStaticRewardCredited)} U`} />
       <AdminCard icon={<Users />} label="动态奖励" value={`${token(dashboard.totalDynamicRewardCredited)} U`} />
       <AdminCard icon={<Send />} label="提现总额" value={`${token(dashboard.totalWithdrawnAmount)} U`} />
+      <AdminCard icon={<Clock3 />} label="待审提现" value={`${token(dashboard.totalPendingWithdrawalAmount)} U`} />
     </section>
   );
 }
@@ -2163,7 +2245,7 @@ function AdminStakeOrdersPage() {
   );
 }
 
-function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
+function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean; canApprove: boolean; runner: ReturnType<typeof useTxRunner> }) {
   const [dynamicUser, setDynamicUser] = useState('');
   const [dynamicDay, setDynamicDay] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
@@ -2181,7 +2263,9 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
   const settlement = useDynamicSettlementRows(users.rows, settlementDay, settlementDay > 0n);
   const oneClickAddresses = settlement.pendingRows.map((row) => row.address);
   const validPendingCount = settlement.pendingRows.filter((row) => row.isValidOnDay).length;
-  const events = useChainEvents(['StakeSettled', 'DynamicRewardSettled', 'RewardWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
+  const withdrawals = useAdminWithdrawalRequests();
+  const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
+  const events = useChainEvents(['StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
     if (!dynamicDay && currentLocalDay > 0n) {
@@ -2326,6 +2410,26 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
       <section className="admin-panel">
         <div className="section-title">
           <div>
+            <p className="eyebrow">Withdrawals</p>
+            <h2>提现审批</h2>
+          </div>
+          <span className="status-chip">{withdrawals.pendingRequests.length} 待审 / {token(pendingWithdrawalAmount)} U</span>
+        </div>
+        <p className="helper-line">审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。</p>
+        <div className="list-stack">
+          {withdrawals.requests.length > 0 ? (
+            withdrawals.requests.map((request) => (
+              <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
+            ))
+          ) : (
+            <EmptyState title="暂无提现申请" detail="用户提交提现后，会在这里等待 Admin 审批。" />
+          )}
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
             <p className="eyebrow">Events</p>
             <h2>收益流水</h2>
           </div>
@@ -2392,6 +2496,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [threshold, setThreshold] = useState('1000');
   const [feeReceiver, setFeeReceiver] = useState('');
   const [defaultReferrer, setDefaultReferrer] = useState('');
+  const [depositReceivers, setDepositReceivers] = useState<string[]>(['', '', '', '', '']);
   const [morningStart, setMorningStart] = useState('09:00');
   const [morningEnd, setMorningEnd] = useState('12:00');
   const [afternoonStart, setAfternoonStart] = useState('14:00');
@@ -2400,6 +2505,8 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [generationRate, setGenerationRate] = useState('0.2');
   const defaultReferrerInput = defaultReferrer.trim();
   const canSaveDefaultReferrer = canEdit && (defaultReferrerInput === '' || isAddress(defaultReferrerInput));
+  const depositReceiverInputs = depositReceivers.map((receiver) => receiver.trim());
+  const canSaveDepositReceivers = canEdit && depositReceiverInputs.length === 5 && depositReceiverInputs.every((receiver) => isAddress(receiver));
 
   useEffect(() => {
     if (!isContractConfigured) return;
@@ -2414,6 +2521,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
     setThreshold(tokenInput(config.validVolumeThreshold));
     setFeeReceiver(config.feeReceiver === zeroAddress ? '' : config.feeReceiver);
     setDefaultReferrer(config.defaultReferrer === zeroAddress ? '' : config.defaultReferrer);
+    setDepositReceivers([0, 1, 2, 3, 4].map((index) => config.depositReceivers[index] ?? ''));
     setMorningStart(secondsToClock(config.morningStart));
     setMorningEnd(secondsToClock(config.morningEnd));
     setAfternoonStart(secondsToClock(config.afternoonStart));
@@ -2428,6 +2536,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
         <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
         <AdminCard icon={<Users />} label="默认推荐人" value={config.defaultReferrer === zeroAddress ? '未设置' : shortAddress(config.defaultReferrer)} />
+        <AdminCard icon={<Wallet />} label="下个入金钱包" value={`#${Number(config.nextDepositReceiverIndex) + 1}`} />
       </section>
 
       <section className="admin-panel">
@@ -2542,6 +2651,18 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             默认推荐人地址
             <input value={defaultReferrer} onChange={(event) => setDefaultReferrer(event.target.value)} placeholder="留空则关闭默认推荐人" />
           </label>
+          {depositReceivers.map((receiver, index) => (
+            <label key={`deposit-receiver-${index}`}>
+              入金收款钱包 {index + 1}
+              <input
+                value={receiver}
+                onChange={(event) =>
+                  setDepositReceivers((current) => current.map((item, itemIndex) => (itemIndex === index ? event.target.value : item)))
+                }
+                placeholder="0x..."
+              />
+            </label>
+          ))}
         </div>
         <div className="split-buttons">
           <button
@@ -2625,6 +2746,22 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             }
           >
             保存默认推荐人
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canSaveDepositReceivers}
+            onClick={() =>
+              runner.runTx('设置入金收款钱包', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setDepositReceivers',
+                  args: [depositReceiverInputs.map((receiver) => safeAddress(receiver)) as [Address, Address, Address, Address, Address]],
+                }),
+              )
+            }
+          >
+            保存5个收款钱包
           </button>
         </div>
       </section>
@@ -2956,6 +3093,7 @@ function useAdminDashboard() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalStaticRewardCredited' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalDynamicRewardCredited' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalWithdrawnAmount' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalPendingWithdrawalAmount' },
     ],
     query: { enabled: isContractConfigured },
   });
@@ -2974,6 +3112,7 @@ function useAdminDashboard() {
     totalStaticRewardCredited: pick(5, emptyDashboard.totalStaticRewardCredited),
     totalDynamicRewardCredited: pick(6, emptyDashboard.totalDynamicRewardCredited),
     totalWithdrawnAmount: pick(7, emptyDashboard.totalWithdrawnAmount),
+    totalPendingWithdrawalAmount: pick(8, emptyDashboard.totalPendingWithdrawalAmount),
   };
 }
 
@@ -2991,6 +3130,8 @@ function useContractConfig() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'validVolumeThreshold' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'feeReceiver' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'defaultReferrer' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'getDepositReceivers' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'nextDepositReceiverIndex' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'timezoneOffset' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningStart' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningEnd' },
@@ -3014,12 +3155,14 @@ function useContractConfig() {
     validVolumeThreshold: pick(8, 0n),
     feeReceiver: pick(9, zeroAddress),
     defaultReferrer: pick(10, zeroAddress),
-    timezoneOffset: pick(11, BigInt(EAST8_TIMEZONE_SECONDS)),
-    morningStart: pick(12, 0),
-    morningEnd: pick(13, 0),
-    afternoonStart: pick(14, 0),
-    afternoonEnd: pick(15, 0),
-    paused: pick(16, false),
+    depositReceivers: pick(11, [] as readonly Address[]),
+    nextDepositReceiverIndex: pick(12, 0),
+    timezoneOffset: pick(13, BigInt(EAST8_TIMEZONE_SECONDS)),
+    morningStart: pick(14, 0),
+    morningEnd: pick(15, 0),
+    afternoonStart: pick(16, 0),
+    afternoonEnd: pick(17, 0),
+    paused: pick(18, false),
   };
 
   return {
@@ -3036,6 +3179,8 @@ function useContractConfig() {
       config.validVolumeThreshold,
       config.feeReceiver,
       config.defaultReferrer,
+      config.depositReceivers.join(','),
+      config.nextDepositReceiverIndex,
       config.timezoneOffset,
       config.morningStart,
       config.morningEnd,
@@ -3098,6 +3243,46 @@ function useAdminOrderBook() {
     stakeOrders: (stakeOrdersQuery.data ?? [])
       .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
       .filter((order): order is StakeOrderData => Boolean(order)),
+  };
+}
+
+function useAdminWithdrawalRequests() {
+  const nextIdQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'nextWithdrawalRequestId',
+    query: { enabled: isContractConfigured },
+  });
+
+  const requestIds = useMemo(() => recentIds(nextIdQuery.data as bigint | undefined, 80), [nextIdQuery.data]);
+  const requestContracts = useMemo(
+    () =>
+      requestIds.map((id) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'withdrawalRequests',
+        args: [id],
+      })),
+    [requestIds],
+  );
+
+  const requestsQuery = useReadContracts({
+    contracts: requestContracts as never,
+    query: { enabled: requestContracts.length > 0 },
+  });
+
+  const requests = useMemo(
+    () =>
+      (requestsQuery.data ?? [])
+        .map((result) => withdrawalRequestFromTuple(readResult(result, undefined)))
+        .filter((request): request is WithdrawalRequestData => Boolean(request)),
+    [requestsQuery.data],
+  );
+
+  return {
+    requests,
+    pendingRequests: requests.filter((request) => request.status === 0),
+    isLoading: nextIdQuery.isLoading || requestsQuery.isLoading,
   };
 }
 
@@ -3420,6 +3605,30 @@ function OrderRow({ label, amount, status, time }: { label: string; amount: bigi
   );
 }
 
+function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[] }) {
+  return (
+    <section className="panel">
+      <div className="section-title">
+        <h2>提现申请</h2>
+        <span>{requests.length} 笔</span>
+      </div>
+      {requests.length > 0 ? (
+        requests.map((request) => (
+          <OrderRow
+            key={request.id.toString()}
+            label={`提现申请 #${request.id.toString()}`}
+            amount={request.amount}
+            status={withdrawalStatusLabel(request)}
+            time={`到账 ${token(request.netAmount)} U / 手续费 ${token(request.fee)} U / 申请 ${dateTime(request.requestedAt)}`}
+          />
+        ))
+      ) : (
+        <EmptyState title="暂无提现申请" detail="提交提现后，需要后台审核并从出款钱包打款。" />
+      )}
+    </section>
+  );
+}
+
 function PrincipalOrderList({ orders }: { orders: PrincipalOrderData[] }) {
   return (
     <section className="panel">
@@ -3513,6 +3722,85 @@ function AdminStakeOrderRow({ order }: { order: StakeOrderData }) {
         <span>收益 {token(order.reward)} U</span>
         <span>{stakeStatusLabel(order)}</span>
       </div>
+    </div>
+  );
+}
+
+function AdminWithdrawalRequestRow({
+  request,
+  canWrite,
+  runner,
+}: {
+  request: WithdrawalRequestData;
+  canWrite: boolean;
+  runner: ReturnType<typeof useTxRunner>;
+}) {
+  const pending = request.status === 0;
+
+  return (
+    <div className="admin-list-row wide">
+      <div className="row-icon"><Send size={17} /></div>
+      <div>
+        <strong>提现申请 #{request.id.toString()}</strong>
+        <small>
+          {shortAddress(request.user)} / 申请 {dateTime(request.requestedAt)} / {withdrawalStatusLabel(request)}
+        </small>
+      </div>
+      <div className="row-metrics">
+        <span>申请 {token(request.amount)} U</span>
+        <span>到账 {token(request.netAmount)} U</span>
+        <span>手续费 {token(request.fee)} U</span>
+      </div>
+      {pending && (
+        <div className="split-buttons inline-actions">
+          <button
+            className="secondary-button"
+            disabled={!canWrite}
+            onClick={() =>
+              runner.runTxFlow('审批提现', [
+                {
+                  label: '授权出款 USDT',
+                  request: () =>
+                    runner.writeContractAsync({
+                      address: BSC_USDT_ADDRESS,
+                      abi: erc20Abi,
+                      functionName: 'approve',
+                      args: [CONTRACT_ADDRESS, request.amount],
+                    }),
+                },
+                {
+                  label: '审批并打款',
+                  request: () =>
+                    runner.writeContractAsync({
+                      address: CONTRACT_ADDRESS,
+                      abi: ironBrotherAbi,
+                      functionName: 'approveWithdrawal',
+                      args: [request.id],
+                    }),
+                },
+              ])
+            }
+          >
+            审批打款
+          </button>
+          <button
+            className="secondary-button danger-action"
+            disabled={!canWrite}
+            onClick={() =>
+              runner.runTx('驳回提现', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'rejectWithdrawal',
+                  args: [request.id],
+                }),
+              )
+            }
+          >
+            驳回
+          </button>
+        </div>
+      )}
     </div>
   );
 }

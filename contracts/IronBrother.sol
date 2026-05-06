@@ -14,6 +14,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
+    uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
     int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
@@ -58,6 +59,12 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         Redeemed
     }
 
+    enum WithdrawalStatus {
+        Pending,
+        Paid,
+        Rejected
+    }
+
     struct UserAccount {
         address referrer;
         uint256 principalBalance;
@@ -96,6 +103,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         bool settled;
     }
 
+    struct WithdrawalRequest {
+        uint256 id;
+        address user;
+        uint256 amount;
+        uint256 fee;
+        uint256 netAmount;
+        uint256 requestedAt;
+        uint256 processedAt;
+        WithdrawalStatus status;
+        address operator;
+        address payer;
+    }
+
     mapping(address => UserAccount) public users;
     mapping(uint256 => PrincipalOrder) public principalOrders;
     mapping(uint256 => StakeOrder) public stakeOrders;
@@ -110,11 +130,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     mapping(address => mapping(uint256 => bool)) public dynamicRewardSettled;
     mapping(uint8 => uint16) public generationRateBps;
     address public defaultReferrer;
+    address[DEPOSIT_RECEIVER_COUNT] private depositReceivers;
+    uint8 public nextDepositReceiverIndex;
+    uint256 public nextWithdrawalRequestId;
+    uint256 public totalPendingWithdrawalAmount;
+    mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
+    mapping(address => uint256[]) private userWithdrawalRequestIds;
 
     event UserRegistered(address indexed user, address indexed referrer);
     event DefaultReferrerUpdated(address indexed defaultReferrer);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
     event Deposited(address indexed user, uint256 indexed orderId, uint256 amount);
+    event DepositRouted(address indexed user, address indexed receiver, uint8 indexed receiverIndex, uint256 amount);
+    event DepositReceiversUpdated(address[DEPOSIT_RECEIVER_COUNT] receivers);
     event PrincipalRedeemed(address indexed user, uint256 indexed orderId, uint256 amount);
     event Reinvested(address indexed user, uint256 indexed orderId, uint256 amount);
     event StakeCreated(
@@ -128,7 +156,9 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     );
     event StakeSettled(address indexed user, uint256 indexed stakeId, uint256 principal, uint256 reward);
     event DynamicRewardSettled(address indexed source, address indexed upline, uint256 day, uint8 generation, uint256 volume, uint256 reward);
-    event RewardWithdrawn(address indexed user, uint256 amount, uint256 fee, uint256 netAmount);
+    event WithdrawalRequested(address indexed user, uint256 indexed requestId, uint256 amount, uint256 fee, uint256 netAmount);
+    event WithdrawalApproved(address indexed user, uint256 indexed requestId, address indexed payer, uint256 amount, uint256 fee, uint256 netAmount);
+    event WithdrawalRejected(address indexed user, uint256 indexed requestId, address indexed operator, uint256 amount);
     event RewardsFunded(address indexed funder, uint256 amount);
     event ConfigUpdated(bytes32 indexed key, uint256 value);
     event AddressConfigUpdated(bytes32 indexed key, address value);
@@ -177,8 +207,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         afternoonEnd = 17 hours;
         nextPrincipalOrderId = 1;
         nextStakeOrderId = 1;
+        nextWithdrawalRequestId = 1;
         _reentrancyStatus = 1;
         defaultReferrer = owner_;
+        _setDepositReceivers([owner_, owner_, owner_, owner_, owner_]);
 
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
         _grantRole(MANAGER_ROLE, owner_);
@@ -212,7 +244,8 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         UserAccount storage account = users[msg.sender];
         require(account.principalBalance + amount <= maxPrincipal, "principal cap exceeded");
 
-        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        (address receiver, uint8 receiverIndex) = _nextDepositReceiver();
+        usdt.safeTransferFrom(msg.sender, receiver, amount);
 
         account.principalBalance += amount;
         account.totalDeposited += amount;
@@ -221,6 +254,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         uint256 orderId = _createPrincipalOrder(msg.sender, amount, PrincipalSource.Deposit);
 
         emit Deposited(msg.sender, orderId, amount);
+        emit DepositRouted(msg.sender, receiver, receiverIndex, amount);
     }
 
     function stake(uint256 amount) external nonReentrant whenNotPaused {
@@ -313,23 +347,76 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit Reinvested(msg.sender, orderId, amount);
     }
 
-    function withdrawRewards(uint256 amount) external nonReentrant whenNotPaused {
+    function requestWithdrawRewards(uint256 amount) external nonReentrant whenNotPaused {
+        _requestWithdrawal(amount);
+    }
+
+    function approveWithdrawal(uint256 requestId) external nonReentrant whenNotPaused onlySuperAdmin {
+        WithdrawalRequest storage request = withdrawalRequests[requestId];
+        require(request.user != address(0), "no withdrawal");
+        require(request.status == WithdrawalStatus.Pending, "closed");
+
+        request.status = WithdrawalStatus.Paid;
+        request.processedAt = block.timestamp;
+        request.operator = msg.sender;
+        request.payer = msg.sender;
+        totalPendingWithdrawalAmount -= request.amount;
+
+        UserAccount storage account = users[request.user];
+        account.totalWithdrawn += request.netAmount;
+        totalWithdrawnAmount += request.amount;
+
+        usdt.safeTransferFrom(msg.sender, request.user, request.netAmount);
+        if (request.fee > 0) {
+            usdt.safeTransferFrom(msg.sender, feeReceiver, request.fee);
+        }
+
+        emit WithdrawalApproved(request.user, requestId, msg.sender, request.amount, request.fee, request.netAmount);
+    }
+
+    function rejectWithdrawal(uint256 requestId) external nonReentrant whenNotPaused onlySuperAdmin {
+        WithdrawalRequest storage request = withdrawalRequests[requestId];
+        require(request.user != address(0), "no withdrawal");
+        require(request.status == WithdrawalStatus.Pending, "closed");
+
+        request.status = WithdrawalStatus.Rejected;
+        request.processedAt = block.timestamp;
+        request.operator = msg.sender;
+        totalPendingWithdrawalAmount -= request.amount;
+
+        UserAccount storage account = users[request.user];
+        account.rewardBalance += request.amount;
+        totalRewardBalance += request.amount;
+
+        emit WithdrawalRejected(request.user, requestId, msg.sender, request.amount);
+    }
+
+    function _requestWithdrawal(uint256 amount) internal {
         UserAccount storage account = users[msg.sender];
         require(account.rewardBalance >= amount, "insufficient reward balance");
         require(amount > withdrawFee, "amount must exceed fee");
 
         account.rewardBalance -= amount;
         uint256 netAmount = amount - withdrawFee;
-        account.totalWithdrawn += netAmount;
         totalRewardBalance -= amount;
-        totalWithdrawnAmount += amount;
+        totalPendingWithdrawalAmount += amount;
 
-        usdt.safeTransfer(msg.sender, netAmount);
-        if (withdrawFee > 0) {
-            usdt.safeTransfer(feeReceiver, withdrawFee);
-        }
+        uint256 requestId = _nextWithdrawalId();
+        withdrawalRequests[requestId] = WithdrawalRequest({
+            id: requestId,
+            user: msg.sender,
+            amount: amount,
+            fee: withdrawFee,
+            netAmount: netAmount,
+            requestedAt: block.timestamp,
+            processedAt: 0,
+            status: WithdrawalStatus.Pending,
+            operator: address(0),
+            payer: address(0)
+        });
+        userWithdrawalRequestIds[msg.sender].push(requestId);
 
-        emit RewardWithdrawn(msg.sender, amount, withdrawFee, netAmount);
+        emit WithdrawalRequested(msg.sender, requestId, amount, withdrawFee, netAmount);
     }
 
     function fundRewards(uint256 amount) external nonReentrant {
@@ -420,8 +507,16 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return userStakeOrderIds[user];
     }
 
+    function getUserWithdrawalRequestIds(address user) external view returns (uint256[] memory) {
+        return userWithdrawalRequestIds[user];
+    }
+
     function getDirectReferrals(address user) external view returns (address[] memory) {
         return directReferrals[user];
+    }
+
+    function getDepositReceivers() external view returns (address[DEPOSIT_RECEIVER_COUNT] memory) {
+        return depositReceivers;
     }
 
     function setAdmin(address account, bool enabled) external onlySuperAdmin {
@@ -509,6 +604,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         require(newFeeReceiver != address(0), "fee receiver required");
         feeReceiver = newFeeReceiver;
         emit AddressConfigUpdated("FEE_RECEIVER", newFeeReceiver);
+    }
+
+    function setDepositReceivers(address[DEPOSIT_RECEIVER_COUNT] calldata newDepositReceivers) external onlySuperAdmin {
+        _setDepositReceivers(newDepositReceivers);
     }
 
     function setValidVolumeThreshold(uint256 newThreshold) external onlySuperAdmin {
@@ -641,6 +740,31 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         account.referrer = referrer;
         directReferrals[referrer].push(user);
         users[referrer].directCount += 1;
+    }
+
+    function _setDepositReceivers(address[DEPOSIT_RECEIVER_COUNT] memory newDepositReceivers) internal {
+        for (uint8 i = 0; i < DEPOSIT_RECEIVER_COUNT; i++) {
+            require(newDepositReceivers[i] != address(0), "receiver required");
+            depositReceivers[i] = newDepositReceivers[i];
+        }
+        if (nextDepositReceiverIndex >= DEPOSIT_RECEIVER_COUNT) {
+            nextDepositReceiverIndex = 0;
+        }
+        emit DepositReceiversUpdated(newDepositReceivers);
+    }
+
+    function _nextDepositReceiver() internal returns (address receiver, uint8 receiverIndex) {
+        receiverIndex = nextDepositReceiverIndex;
+        receiver = depositReceivers[receiverIndex];
+        require(receiver != address(0), "receiver missing");
+        nextDepositReceiverIndex = uint8((uint256(receiverIndex) + 1) % DEPOSIT_RECEIVER_COUNT);
+    }
+
+    function _nextWithdrawalId() internal returns (uint256 requestId) {
+        if (nextWithdrawalRequestId == 0) {
+            nextWithdrawalRequestId = 1;
+        }
+        requestId = nextWithdrawalRequestId++;
     }
 
     function _validateAmount(uint256 amount) internal view {
