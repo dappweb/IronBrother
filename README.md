@@ -71,6 +71,23 @@ npm run upgrade:testnet
 
 ## Cloudflare Pages
 
+Cloudflare Pages should build from the repository root. The failed log below means Pages built the old `main` commit that only contained `README.md`, so `/opt/buildhome/repo/package.json` did not exist. Push a full project commit to `main`, then configure two branch environments:
+
+- Production environment: branch `main`
+- Preview/test environment: branch `test`
+- Root directory: `/`
+- Build command: `npm run build`
+- Build output directory: `dist`
+
+Set these environment variables in both Cloudflare environments. Use production values for `main` and testnet values for `test`:
+
+```text
+VITE_BSC_TESTNET_RPC_URL
+VITE_WALLETCONNECT_PROJECT_ID
+VITE_USDT_ADDRESS
+VITE_IRONBROTHER_CONTRACT_ADDRESS
+```
+
 Build command:
 
 ```bash
@@ -87,6 +104,13 @@ Deploy from CLI:
 
 ```bash
 npm run deploy:pages
+```
+
+Deploy a specific branch environment from CLI:
+
+```bash
+npm run deploy:pages:main
+npm run deploy:pages:test
 ```
 
 ## Notes
