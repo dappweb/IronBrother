@@ -38,7 +38,7 @@ describe("IronBrother", function () {
   }
 
   it("creates a principal order on deposit", async function () {
-    const { alice, ironBrother } = await deployFixture();
+    const { owner, alice, ironBrother } = await deployFixture();
 
     await expect(ironBrother.connect(alice).deposit(U("200"), ethers.ZeroAddress))
       .to.emit(ironBrother, "Deposited")
@@ -46,7 +46,46 @@ describe("IronBrother", function () {
 
     const account = await ironBrother.users(alice.address);
     expect(account.principalBalance).to.equal(U("200"));
+    expect(account.referrer).to.equal(owner.address);
     expect(await ironBrother.availablePrincipal(alice.address)).to.equal(U("200"));
+  });
+
+  it("lets the super admin manage the default referrer", async function () {
+    const { owner, alice, bob, carol, ironBrother } = await deployFixture();
+
+    expect(await ironBrother.defaultReferrer()).to.equal(owner.address);
+    await expect(ironBrother.connect(alice).setDefaultReferrer(bob.address)).to.be.revertedWith("not super admin");
+    await expect(ironBrother.setDefaultReferrer(bob.address))
+      .to.emit(ironBrother, "DefaultReferrerUpdated")
+      .withArgs(bob.address);
+
+    await ironBrother.connect(alice).deposit(U("200"), carol.address);
+    const account = await ironBrother.users(alice.address);
+    expect(account.referrer).to.equal(carol.address);
+    expect((await ironBrother.users(bob.address)).directCount).to.equal(0);
+  });
+
+  it("transfers owner permissions and default referrer to a new owner", async function () {
+    const { owner, alice, ironBrother } = await deployFixture();
+    const adminRole = await ironBrother.DEFAULT_ADMIN_ROLE();
+    const managerRole = await ironBrother.MANAGER_ROLE();
+
+    await expect(ironBrother.connect(alice).transferOwner(owner.address)).to.be.revertedWith("not super admin");
+    await expect(ironBrother.transferOwner(ethers.ZeroAddress)).to.be.revertedWith("owner required");
+    await expect(ironBrother.transferOwner(owner.address)).to.be.revertedWith("owner unchanged");
+
+    await expect(ironBrother.transferOwner(alice.address))
+      .to.emit(ironBrother, "OwnerTransferred")
+      .withArgs(owner.address, alice.address);
+
+    expect(await ironBrother.hasRole(adminRole, alice.address)).to.equal(true);
+    expect(await ironBrother.hasRole(managerRole, alice.address)).to.equal(true);
+    expect(await ironBrother.hasRole(adminRole, owner.address)).to.equal(false);
+    expect(await ironBrother.hasRole(managerRole, owner.address)).to.equal(false);
+    expect(await ironBrother.defaultReferrer()).to.equal(alice.address);
+
+    await expect(ironBrother.setYieldBps(200)).to.be.revertedWith("not super admin");
+    await expect(ironBrother.connect(alice).setYieldBps(200)).to.emit(ironBrother, "ConfigUpdated");
   });
 
   it("limits staking to one order per wallet per session and pays static reward", async function () {
@@ -131,10 +170,12 @@ describe("IronBrother", function () {
   it("allows a registered user without referrer to bind one later", async function () {
     const { alice, bob, carol, ironBrother } = await deployFixture();
 
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
     expect((await ironBrother.users(alice.address)).referrer).to.equal(ethers.ZeroAddress);
 
-    await ironBrother.connect(alice).register(bob.address);
+    await ironBrother.setDefaultReferrer(bob.address);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
     expect((await ironBrother.users(alice.address)).referrer).to.equal(bob.address);
     expect((await ironBrother.users(bob.address)).directCount).to.equal(1);
     expect(await ironBrother.getDirectReferrals(bob.address)).to.deep.equal([alice.address]);

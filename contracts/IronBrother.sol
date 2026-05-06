@@ -109,8 +109,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     mapping(address => mapping(uint256 => uint256)) public dailyDirectValidCount;
     mapping(address => mapping(uint256 => bool)) public dynamicRewardSettled;
     mapping(uint8 => uint16) public generationRateBps;
+    address public defaultReferrer;
 
     event UserRegistered(address indexed user, address indexed referrer);
+    event DefaultReferrerUpdated(address indexed defaultReferrer);
+    event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
     event Deposited(address indexed user, uint256 indexed orderId, uint256 amount);
     event PrincipalRedeemed(address indexed user, uint256 indexed orderId, uint256 amount);
     event Reinvested(address indexed user, uint256 indexed orderId, uint256 amount);
@@ -175,6 +178,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         nextPrincipalOrderId = 1;
         nextStakeOrderId = 1;
         _reentrancyStatus = 1;
+        defaultReferrer = owner_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
         _grantRole(MANAGER_ROLE, owner_);
@@ -194,6 +198,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
     function register(address referrer) external whenNotPaused {
         _register(msg.sender, referrer);
+    }
+
+    function setDefaultReferrer(address newDefaultReferrer) external onlySuperAdmin {
+        defaultReferrer = newDefaultReferrer;
+        emit DefaultReferrerUpdated(newDefaultReferrer);
     }
 
     function deposit(uint256 amount, address referrer) external nonReentrant whenNotPaused {
@@ -427,6 +436,23 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         }
     }
 
+    function transferOwner(address newOwner) external onlySuperAdmin {
+        require(newOwner != address(0), "owner required");
+        require(newOwner != msg.sender, "owner unchanged");
+
+        _grantRole(DEFAULT_ADMIN_ROLE, newOwner);
+        _grantRole(MANAGER_ROLE, newOwner);
+        _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _revokeRole(MANAGER_ROLE, msg.sender);
+
+        if (defaultReferrer == msg.sender) {
+            defaultReferrer = newOwner;
+            emit DefaultReferrerUpdated(newOwner);
+        }
+
+        emit OwnerTransferred(msg.sender, newOwner);
+    }
+
     function setManager(address account, bool enabled) external onlySuperAdmin {
         require(account != address(0), "account required");
         if (enabled) {
@@ -575,20 +601,31 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
     function _register(address user, address referrer) internal {
         UserAccount storage account = users[user];
+        address resolvedReferrer = _resolveReferrer(user, referrer);
         if (account.registered) {
-            if (account.referrer == address(0) && referrer != address(0)) {
-                _bindReferrer(user, referrer);
+            if (account.referrer == address(0) && resolvedReferrer != address(0)) {
+                _bindReferrer(user, resolvedReferrer);
             }
             return;
         }
 
-        if (referrer != address(0)) {
-            _bindReferrer(user, referrer);
+        if (resolvedReferrer != address(0)) {
+            _bindReferrer(user, resolvedReferrer);
         }
 
         account.registered = true;
         totalUsers += 1;
-        emit UserRegistered(user, referrer);
+        emit UserRegistered(user, resolvedReferrer);
+    }
+
+    function _resolveReferrer(address user, address referrer) internal view returns (address) {
+        if (referrer != address(0)) {
+            return referrer;
+        }
+        if (defaultReferrer != address(0) && defaultReferrer != user) {
+            return defaultReferrer;
+        }
+        return address(0);
     }
 
     function _bindReferrer(address user, address referrer) internal {

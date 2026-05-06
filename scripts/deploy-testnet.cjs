@@ -5,10 +5,15 @@ const hre = require("hardhat");
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
   const feeReceiver = process.env.FEE_RECEIVER || deployer.address;
+  const defaultReferrer = process.env.DEFAULT_REFERRER || deployer.address;
+  if (!hre.ethers.isAddress(defaultReferrer)) {
+    throw new Error("DEFAULT_REFERRER must be a valid address");
+  }
 
   console.log("Deploying upgradeable IronBrother to BSC Testnet");
   console.log("Deployer:", deployer.address);
   console.log("Fee receiver:", feeReceiver);
+  console.log("Default referrer:", defaultReferrer);
 
   const balance = await hre.ethers.provider.getBalance(deployer.address);
   console.log("Deployer BNB balance:", hre.ethers.formatEther(balance));
@@ -32,6 +37,11 @@ async function main() {
   );
   await ironBrother.waitForDeployment();
 
+  if (defaultReferrer.toLowerCase() !== deployer.address.toLowerCase()) {
+    const tx = await ironBrother.setDefaultReferrer(defaultReferrer);
+    await tx.wait();
+  }
+
   const proxy = await ironBrother.getAddress();
   const implementation = await hre.upgrades.erc1967.getImplementationAddress(proxy);
 
@@ -41,6 +51,7 @@ async function main() {
     deployedAt: new Date().toISOString(),
     deployer: deployer.address,
     feeReceiver,
+    defaultReferrer,
     usdt: usdtAddress,
     ironBrotherProxy: proxy,
     ironBrotherImplementation: implementation,
@@ -56,6 +67,7 @@ async function main() {
 
   console.log("IronBrother proxy deployed:", proxy);
   console.log("IronBrother implementation:", implementation);
+  console.log("Default referrer:", await ironBrother.defaultReferrer());
   console.log("Deployment file:", path.join("deployments", "bsc-testnet.json"));
 }
 

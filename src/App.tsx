@@ -408,6 +408,7 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['reentrant call', '上一笔交易仍在处理中，请稍后再试。'],
   ['usdt required', 'USDT 合约地址未配置。'],
   ['owner required', '合约管理员地址未配置。'],
+  ['owner unchanged', '新 Owner 不能与当前钱包相同。'],
   ['fee receiver required', '手续费接收地址不能为空。'],
   ['principal cap exceeded', '本金钱包已达到上限，请降低金额或先处理现有本金。'],
   ['staking window closed', '当前不在带单时间段，请在开放场次内提交。'],
@@ -1122,6 +1123,13 @@ function useIronBrotherData() {
     query: { enabled: isContractConfigured },
   });
 
+  const defaultReferrerQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'defaultReferrer',
+    query: { enabled: isContractConfigured },
+  });
+
   const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -1150,6 +1158,7 @@ function useIronBrotherData() {
     afternoonEnd: pickSessionConfig(4, 17 * SECONDS_PER_HOUR),
     yieldBps: (yieldQuery.data as bigint | undefined) ?? 100n,
     withdrawFee: (withdrawFeeQuery.data as bigint | undefined) ?? 10n * 10n ** 18n,
+    defaultReferrer: (defaultReferrerQuery.data as Address | undefined) ?? zeroAddress,
     currentLocalDay,
     principalOrderIds: orders.principalOrderIds,
     stakeOrderIds: orders.stakeOrderIds,
@@ -1159,6 +1168,7 @@ function useIronBrotherData() {
     teamSummary: teamSummary.data ?? emptyTeamSummary,
     isTeamSummaryLoading: teamSummary.isLoading,
     isAccountLoading: userQuery.isLoading,
+    isDefaultReferrerLoading: defaultReferrerQuery.isLoading,
   };
 }
 
@@ -1256,6 +1266,7 @@ function CustomerApp() {
   const data = useIronBrotherData();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const copy = LOCALE_COPY[locale];
+  const connectedDefaultReferrer = Boolean(address && data.defaultReferrer.toLowerCase() === address.toLowerCase());
   const shouldPromptReferrer =
     Boolean(
       isConnected &&
@@ -1263,7 +1274,9 @@ function CustomerApp() {
         isContractConfigured &&
         !wrongNetwork &&
         !data.isAccountLoading &&
+        !data.isDefaultReferrerLoading &&
         data.account.referrer === zeroAddress &&
+        !connectedDefaultReferrer &&
         dismissedReferrerPromptFor !== address,
     );
 
@@ -1319,6 +1332,7 @@ function CustomerApp() {
       {shouldPromptReferrer && address && (
         <BindReferrerModal
           address={address}
+          defaultReferrer={data.defaultReferrer}
           onDismiss={() => setDismissedReferrerPromptFor(address)}
         />
       )}
@@ -1326,9 +1340,17 @@ function CustomerApp() {
   );
 }
 
-function BindReferrerModal({ address, onDismiss }: { address: Address; onDismiss: () => void }) {
+function BindReferrerModal({
+  address,
+  defaultReferrer,
+  onDismiss,
+}: {
+  address: Address;
+  defaultReferrer: Address;
+  onDismiss: () => void;
+}) {
   const { runTx, tx, writeContractAsync } = useTxRunner();
-  const [referrer, setReferrer] = useState('');
+  const [referrer, setReferrer] = useState(defaultReferrer === zeroAddress ? '' : defaultReferrer);
   const trimmedReferrer = referrer.trim();
   const referrerAddress = isAddress(trimmedReferrer) ? (trimmedReferrer as Address) : undefined;
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
@@ -1340,6 +1362,12 @@ function BindReferrerModal({ address, onDismiss }: { address: Address; onDismiss
         ? '推荐人不能是当前钱包。'
         : '';
 
+  useEffect(() => {
+    if (!referrer && defaultReferrer !== zeroAddress) {
+      setReferrer(defaultReferrer);
+    }
+  }, [defaultReferrer, referrer]);
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="referrer-modal" role="dialog" aria-modal="true" aria-labelledby="bind-referrer-title">
@@ -1350,7 +1378,11 @@ function BindReferrerModal({ address, onDismiss }: { address: Address; onDismiss
           </div>
           <Users size={18} />
         </div>
-        <p className="modal-helper">当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。</p>
+        <p className="modal-helper">
+          {defaultReferrer === zeroAddress
+            ? '当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。'
+            : '当前钱包还没有推荐人。系统已填入默认推荐人，绑定后推荐关系将写入链上，确认后不能更换。'}
+        </p>
         <label>
           推荐人地址
           <input
@@ -1549,18 +1581,17 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
 function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
   return (
     <section className="screen-stack">
-      <DepositPanel disabled={disabled} />
+      <DepositPanel disabled={disabled} defaultReferrer={data.defaultReferrer} />
       <WalletActions data={data} disabled={disabled} />
       <PrincipalOrderList orders={data.principalOrders} />
     </section>
   );
 }
 
-function DepositPanel({ disabled }: { disabled: boolean }) {
+function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaultReferrer: Address }) {
   const { address } = useAccount();
   const { runTxFlow, tx, writeContractAsync } = useTxRunner();
   const [amount, setAmount] = useState('200');
-  const [referrer, setReferrer] = useState('');
   const parsedAmount = useMemo(() => {
     try {
       return parseTokenInput(amount);
@@ -1589,7 +1620,7 @@ function DepositPanel({ disabled }: { disabled: boolean }) {
           address: CONTRACT_ADDRESS,
           abi: ironBrotherAbi,
           functionName: 'deposit',
-          args: [parsedAmount, safeAddress(referrer)],
+          args: [parsedAmount, zeroAddress],
         }),
     };
 
@@ -1621,16 +1652,13 @@ function DepositPanel({ disabled }: { disabled: boolean }) {
         </div>
         <span className="status-chip">BSC</span>
       </div>
-      <div className="form-grid">
-        <label>
-          入金金额
-          <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
-        </label>
-        <label>
-          邀请人地址
-          <input value={referrer} onChange={(event) => setReferrer(event.target.value)} placeholder="可选" />
-        </label>
-      </div>
+      <label className="full-field">
+        入金金额
+        <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
+      </label>
+      <p className="helper-line">
+        默认推荐人 {defaultReferrer === zeroAddress ? '未设置' : shortAddress(defaultReferrer)}
+      </p>
       <button className="primary-button" disabled={disabled || parsedAmount <= 0n || transactionBusy} onClick={submitDeposit}>
         {depositButtonLabel}
       </button>
@@ -1775,7 +1803,13 @@ function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
       <section className="panel">
         <InfoLine
           label="我的推荐人"
-          value={data.account.referrer === zeroAddress ? '未绑定' : shortAddress(data.account.referrer)}
+          value={
+            data.account.referrer !== zeroAddress
+              ? shortAddress(data.account.referrer)
+              : data.defaultReferrer === zeroAddress
+                ? '未绑定'
+                : `${shortAddress(data.defaultReferrer)}（默认）`
+          }
         />
       </section>
       <div className="quick-grid">
@@ -1820,7 +1854,6 @@ function ProfileScreen({ address, data }: { address?: Address; data: ReturnType<
         <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
         <InfoLine label="累计入金" value={`${token(data.account.totalDeposited)} U`} />
         <InfoLine label="累计提现" value={`${token(data.account.totalWithdrawn)} U`} />
-        <InfoLine label="语言" value="中文繁体 / English / 日本語 / 한국어 / Tiếng Việt / Malay" />
       </section>
     </section>
   );
@@ -2171,12 +2204,15 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [lockDays, setLockDays] = useState('30');
   const [threshold, setThreshold] = useState('1000');
   const [feeReceiver, setFeeReceiver] = useState('');
+  const [defaultReferrer, setDefaultReferrer] = useState('');
   const [morningStart, setMorningStart] = useState('09:00');
   const [morningEnd, setMorningEnd] = useState('12:00');
   const [afternoonStart, setAfternoonStart] = useState('14:00');
   const [afternoonEnd, setAfternoonEnd] = useState('17:00');
   const [generation, setGeneration] = useState('1');
   const [generationRate, setGenerationRate] = useState('0.2');
+  const defaultReferrerInput = defaultReferrer.trim();
+  const canSaveDefaultReferrer = canEdit && (defaultReferrerInput === '' || isAddress(defaultReferrerInput));
 
   useEffect(() => {
     if (!isContractConfigured) return;
@@ -2190,6 +2226,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
     setLockDays(secondsToDays(config.lockPeriod));
     setThreshold(tokenInput(config.validVolumeThreshold));
     setFeeReceiver(config.feeReceiver === zeroAddress ? '' : config.feeReceiver);
+    setDefaultReferrer(config.defaultReferrer === zeroAddress ? '' : config.defaultReferrer);
     setMorningStart(secondsToClock(config.morningStart));
     setMorningEnd(secondsToClock(config.morningEnd));
     setAfternoonStart(secondsToClock(config.afternoonStart));
@@ -2203,6 +2240,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         <AdminCard icon={<Send />} label="提现手续费" value={`${token(config.withdrawFee)} U`} />
         <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
         <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
+        <AdminCard icon={<Users />} label="默认推荐人" value={config.defaultReferrer === zeroAddress ? '未设置' : shortAddress(config.defaultReferrer)} />
       </section>
 
       <section className="admin-panel">
@@ -2313,6 +2351,10 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             手续费接收地址
             <input value={feeReceiver} onChange={(event) => setFeeReceiver(event.target.value)} placeholder="0x..." />
           </label>
+          <label>
+            默认推荐人地址
+            <input value={defaultReferrer} onChange={(event) => setDefaultReferrer(event.target.value)} placeholder="留空则关闭默认推荐人" />
+          </label>
         </div>
         <div className="split-buttons">
           <button
@@ -2380,6 +2422,22 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             }
           >
             保存手续费地址
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canSaveDefaultReferrer}
+            onClick={() =>
+              runner.runTx('设置默认推荐人', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setDefaultReferrer',
+                  args: [defaultReferrerInput === '' ? zeroAddress : safeAddress(defaultReferrerInput)],
+                }),
+              )
+            }
+          >
+            保存默认推荐人
           </button>
         </div>
       </section>
@@ -2616,6 +2674,27 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
         >
           移除 Admin
         </button>
+        <button
+          className="secondary-button danger-button"
+          disabled={!canEdit || !target}
+          onClick={() => {
+            if (!target) return;
+            const confirmed = window.confirm(`确认将 Owner 转移到 ${target}？当前钱包的 Admin/Manager 权限会被移除。`);
+            if (!confirmed) return;
+            runner.runTx('转移 Owner', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'transferOwner',
+                args: [target],
+              }),
+            );
+          }}
+        >
+          <Shield size={17} />
+          转移 Owner
+        </button>
+        <p className="helper-line">转移后，新地址获得 Admin/Manager；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。</p>
       </div>
     </section>
   );
@@ -2666,6 +2745,7 @@ function useContractConfig() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawFee' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'validVolumeThreshold' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'feeReceiver' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'defaultReferrer' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'timezoneOffset' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningStart' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningEnd' },
@@ -2688,12 +2768,13 @@ function useContractConfig() {
     withdrawFee: pick(7, 0n),
     validVolumeThreshold: pick(8, 0n),
     feeReceiver: pick(9, zeroAddress),
-    timezoneOffset: pick(10, BigInt(EAST8_TIMEZONE_SECONDS)),
-    morningStart: pick(11, 0),
-    morningEnd: pick(12, 0),
-    afternoonStart: pick(13, 0),
-    afternoonEnd: pick(14, 0),
-    paused: pick(15, false),
+    defaultReferrer: pick(10, zeroAddress),
+    timezoneOffset: pick(11, BigInt(EAST8_TIMEZONE_SECONDS)),
+    morningStart: pick(12, 0),
+    morningEnd: pick(13, 0),
+    afternoonStart: pick(14, 0),
+    afternoonEnd: pick(15, 0),
+    paused: pick(16, false),
   };
 
   return {
@@ -2709,6 +2790,7 @@ function useContractConfig() {
       config.withdrawFee,
       config.validVolumeThreshold,
       config.feeReceiver,
+      config.defaultReferrer,
       config.timezoneOffset,
       config.morningStart,
       config.morningEnd,

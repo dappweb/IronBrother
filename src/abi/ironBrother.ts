@@ -9,6 +9,19 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'DefaultReferrerUpdated',
+    inputs: [{ name: 'defaultReferrer', type: 'address', indexed: true }],
+  },
+  {
+    type: 'event',
+    name: 'OwnerTransferred',
+    inputs: [
+      { name: 'previousOwner', type: 'address', indexed: true },
+      { name: 'newOwner', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
     name: 'Deposited',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
@@ -239,6 +252,13 @@ export const ironBrotherAbi = [
   {
     type: 'function',
     name: 'feeReceiver',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'defaultReferrer',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'address' }],
@@ -582,6 +602,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'setDefaultReferrer',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newDefaultReferrer', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setValidVolumeThreshold',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newThreshold', type: 'uint256' }],
@@ -644,6 +671,13 @@ export const ironBrotherAbi = [
       { name: 'account', type: 'address' },
       { name: 'enabled', type: 'bool' },
     ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'transferOwner',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newOwner', type: 'address' }],
     outputs: [],
   },
   {
