@@ -317,10 +317,44 @@ a {
 }
 
 .session-list,
+.language-list,
 .button-stack,
 .list-stack {
   display: grid;
   gap: 8px;
+}
+
+.language-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.language-option {
+  min-height: 44px;
+  border: 1px solid #e0ebe4;
+  border-radius: 8px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #f7fbf8;
+  color: #1d2723;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.language-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.language-option.active {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
 }
 
 .session-row,

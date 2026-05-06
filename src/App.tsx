@@ -8,6 +8,7 @@ import {
   Coins,
   Gift,
   Landmark,
+  Languages,
   LockKeyhole,
   PauseCircle,
   Repeat2,
@@ -39,8 +40,66 @@ import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, tok
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
+type LocaleKey = 'zh-Hant' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
+
+type LocaleCopy = {
+  nav: Record<NavKey, string>;
+  shell: {
+    greeting: string;
+    contractMissing: string;
+    switchNetwork: string;
+  };
+  language: {
+    eyebrow: string;
+    title: string;
+  };
+  home: {
+    principalWallet: string;
+    availableStake: string;
+    rewardWallet: string;
+    todaysYield: string;
+    perTime: string;
+    maturedUnredeemed: string;
+    maturedTrend: string;
+    actions: {
+      deposit: string;
+      stake: string;
+      reinvest: string;
+      withdraw: string;
+    };
+    chainTimeEyebrow: string;
+    stakingSessions: string;
+    perWalletPerSession: string;
+    latestOrders: string;
+    orderUnit: string;
+    noOrdersTitle: string;
+    noOrdersDetail: string;
+  };
+  session: {
+    morning: string;
+    afternoon: string;
+    closed: string;
+    canStake: string;
+    pending: string;
+  };
+  order: {
+    deposit: string;
+    reinvest: string;
+    stake: string;
+    unlock: string;
+    settle: string;
+  };
+  status: {
+    redeemed: string;
+    redeemable: string;
+    locked: string;
+    settled: string;
+    settleable: string;
+    pending: string;
+  };
+};
 
 type TxState = {
   label: string;
@@ -147,7 +206,194 @@ const SESSION_STATUS_REFETCH_MS = 30_000;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
+const LANGUAGE_STORAGE_KEY = 'ironbrother.locale';
 const DEFAULT_TX_ERROR = '交易失败，请检查钱包、余额和链上状态后重试。';
+
+const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
+  { key: 'zh-Hant', label: '中文繁体' },
+  { key: 'en', label: '英文' },
+  { key: 'ja', label: '日语' },
+  { key: 'ko', label: '韩语' },
+  { key: 'vi', label: '越南语' },
+  { key: 'ms', label: '马来语' },
+];
+
+const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
+  'zh-Hant': {
+    nav: { home: '首頁', stake: '質押', wallet: '錢包', team: '團隊', profile: '我的' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: '合約地址未配置，鏈上讀取和真實交易暫不可用。部署後設定 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可啟用。',
+      switchNetwork: '切換到 BSC Testnet',
+    },
+    language: { eyebrow: 'Language', title: '語言切換' },
+    home: {
+      principalWallet: '本金錢包',
+      availableStake: '可質押',
+      rewardWallet: '收益錢包',
+      todaysYield: '今日收益率',
+      perTime: '次',
+      maturedUnredeemed: '到期未贖回',
+      maturedTrend: '到期訂單需手動贖回',
+      actions: { deposit: '入金', stake: '質押', reinvest: '復投', withdraw: '提現' },
+      chainTimeEyebrow: 'UTC+8 鏈上時間',
+      stakingSessions: '質押場次',
+      perWalletPerSession: '每錢包每場 1 單',
+      latestOrders: '最新訂單',
+      orderUnit: '筆',
+      noOrdersTitle: '暫無鏈上訂單',
+      noOrdersDetail: '連接錢包後會直接讀取該地址的本金和質押訂單。',
+    },
+    session: { morning: '上午場', afternoon: '下午場', closed: '休息中', canStake: '可質押', pending: '待開放' },
+    order: { deposit: '入金訂單', reinvest: '復投訂單', stake: '質押訂單', unlock: '解鎖', settle: '結算' },
+    status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖定中', settled: '已結算', settleable: '可結算', pending: '待結算' },
+  },
+  en: {
+    nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_IRONBROTHER_CONTRACT_ADDRESS is set.',
+      switchNetwork: 'Switch to BSC Testnet',
+    },
+    language: { eyebrow: 'Language', title: 'Language' },
+    home: {
+      principalWallet: 'Principal Wallet',
+      availableStake: 'Stakeable',
+      rewardWallet: 'Reward Wallet',
+      todaysYield: 'Today yield',
+      perTime: 'time',
+      maturedUnredeemed: 'Matured',
+      maturedTrend: 'Matured orders require manual redemption',
+      actions: { deposit: 'Deposit', stake: 'Stake', reinvest: 'Reinvest', withdraw: 'Withdraw' },
+      chainTimeEyebrow: 'UTC+8 Chain Time',
+      stakingSessions: 'Staking Sessions',
+      perWalletPerSession: '1 order per wallet per session',
+      latestOrders: 'Latest Orders',
+      orderUnit: 'orders',
+      noOrdersTitle: 'No on-chain orders',
+      noOrdersDetail: 'Connect a wallet to read principal and staking orders for this address.',
+    },
+    session: { morning: 'Morning', afternoon: 'Afternoon', closed: 'Closed', canStake: 'Open', pending: 'Pending' },
+    order: { deposit: 'Deposit Order', reinvest: 'Reinvest Order', stake: 'Stake Order', unlock: 'Unlock', settle: 'Settle' },
+    status: { redeemed: 'Redeemed', redeemable: 'Redeemable', locked: 'Locked', settled: 'Settled', settleable: 'Settleable', pending: 'Pending' },
+  },
+  ja: {
+    nav: { home: 'ホーム', stake: 'ステーク', wallet: 'ウォレット', team: 'チーム', profile: 'マイ' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: 'コントラクトアドレスが未設定のため、オンチェーン読み取りと実取引は利用できません。',
+      switchNetwork: 'BSC Testnet に切替',
+    },
+    language: { eyebrow: 'Language', title: '言語切替' },
+    home: {
+      principalWallet: '元本ウォレット',
+      availableStake: 'ステーク可能',
+      rewardWallet: '報酬ウォレット',
+      todaysYield: '本日の利回り',
+      perTime: '回',
+      maturedUnredeemed: '満期未償還',
+      maturedTrend: '満期注文は手動で償還します',
+      actions: { deposit: '入金', stake: 'ステーク', reinvest: '再投資', withdraw: '出金' },
+      chainTimeEyebrow: 'UTC+8 チェーン時間',
+      stakingSessions: 'ステーク枠',
+      perWalletPerSession: 'ウォレットごと各枠 1 注文',
+      latestOrders: '最新注文',
+      orderUnit: '件',
+      noOrdersTitle: 'オンチェーン注文なし',
+      noOrdersDetail: 'ウォレット接続後、このアドレスの元本とステーク注文を直接読み取ります。',
+    },
+    session: { morning: '午前枠', afternoon: '午後枠', closed: '休止中', canStake: '受付中', pending: '待機中' },
+    order: { deposit: '入金注文', reinvest: '再投資注文', stake: 'ステーク注文', unlock: '解除', settle: '精算' },
+    status: { redeemed: '償還済み', redeemable: '償還可能', locked: 'ロック中', settled: '精算済み', settleable: '精算可能', pending: '精算待ち' },
+  },
+  ko: {
+    nav: { home: '홈', stake: '스테이킹', wallet: '지갑', team: '팀', profile: '내 정보' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: '컨트랙트 주소가 설정되지 않아 온체인 조회와 실제 거래를 사용할 수 없습니다.',
+      switchNetwork: 'BSC Testnet으로 전환',
+    },
+    language: { eyebrow: 'Language', title: '언어 전환' },
+    home: {
+      principalWallet: '원금 지갑',
+      availableStake: '스테이킹 가능',
+      rewardWallet: '보상 지갑',
+      todaysYield: '오늘 수익률',
+      perTime: '회',
+      maturedUnredeemed: '만기 미상환',
+      maturedTrend: '만기 주문은 수동 상환이 필요합니다',
+      actions: { deposit: '입금', stake: '스테이킹', reinvest: '재투자', withdraw: '출금' },
+      chainTimeEyebrow: 'UTC+8 체인 시간',
+      stakingSessions: '스테이킹 세션',
+      perWalletPerSession: '지갑당 세션별 1건',
+      latestOrders: '최근 주문',
+      orderUnit: '건',
+      noOrdersTitle: '온체인 주문 없음',
+      noOrdersDetail: '지갑을 연결하면 이 주소의 원금 및 스테이킹 주문을 직접 읽습니다.',
+    },
+    session: { morning: '오전 세션', afternoon: '오후 세션', closed: '휴식 중', canStake: '가능', pending: '대기' },
+    order: { deposit: '입금 주문', reinvest: '재투자 주문', stake: '스테이킹 주문', unlock: '잠금해제', settle: '정산' },
+    status: { redeemed: '상환됨', redeemable: '상환 가능', locked: '잠김', settled: '정산됨', settleable: '정산 가능', pending: '정산 대기' },
+  },
+  vi: {
+    nav: { home: 'Trang chủ', stake: 'Stake', wallet: 'Ví', team: 'Đội nhóm', profile: 'Của tôi' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: 'Chưa cấu hình địa chỉ hợp đồng, tạm thời không thể đọc on-chain hoặc giao dịch thật.',
+      switchNetwork: 'Chuyển sang BSC Testnet',
+    },
+    language: { eyebrow: 'Language', title: 'Đổi ngôn ngữ' },
+    home: {
+      principalWallet: 'Ví gốc',
+      availableStake: 'Có thể stake',
+      rewardWallet: 'Ví thưởng',
+      todaysYield: 'Lợi suất hôm nay',
+      perTime: 'lần',
+      maturedUnredeemed: 'Đáo hạn chưa rút',
+      maturedTrend: 'Lệnh đáo hạn cần rút thủ công',
+      actions: { deposit: 'Nạp', stake: 'Stake', reinvest: 'Tái đầu tư', withdraw: 'Rút' },
+      chainTimeEyebrow: 'Giờ chain UTC+8',
+      stakingSessions: 'Phiên stake',
+      perWalletPerSession: 'Mỗi ví 1 lệnh mỗi phiên',
+      latestOrders: 'Lệnh mới nhất',
+      orderUnit: 'lệnh',
+      noOrdersTitle: 'Chưa có lệnh on-chain',
+      noOrdersDetail: 'Kết nối ví để đọc trực tiếp lệnh gốc và stake của địa chỉ này.',
+    },
+    session: { morning: 'Phiên sáng', afternoon: 'Phiên chiều', closed: 'Đang nghỉ', canStake: 'Có thể stake', pending: 'Chưa mở' },
+    order: { deposit: 'Lệnh nạp', reinvest: 'Lệnh tái đầu tư', stake: 'Lệnh stake', unlock: 'Mở khóa', settle: 'Quyết toán' },
+    status: { redeemed: 'Đã rút', redeemable: 'Có thể rút', locked: 'Đang khóa', settled: 'Đã quyết toán', settleable: 'Có thể quyết toán', pending: 'Chờ quyết toán' },
+  },
+  ms: {
+    nav: { home: 'Utama', stake: 'Stake', wallet: 'Dompet', team: 'Pasukan', profile: 'Saya' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: 'Alamat kontrak belum dikonfigurasi. Bacaan on-chain dan transaksi sebenar belum tersedia.',
+      switchNetwork: 'Tukar ke BSC Testnet',
+    },
+    language: { eyebrow: 'Language', title: 'Tukar Bahasa' },
+    home: {
+      principalWallet: 'Dompet Prinsipal',
+      availableStake: 'Boleh stake',
+      rewardWallet: 'Dompet Ganjaran',
+      todaysYield: 'Hasil hari ini',
+      perTime: 'kali',
+      maturedUnredeemed: 'Matang belum tebus',
+      maturedTrend: 'Pesanan matang perlu ditebus manual',
+      actions: { deposit: 'Deposit', stake: 'Stake', reinvest: 'Labur semula', withdraw: 'Keluar' },
+      chainTimeEyebrow: 'Masa Chain UTC+8',
+      stakingSessions: 'Sesi Stake',
+      perWalletPerSession: '1 pesanan setiap dompet setiap sesi',
+      latestOrders: 'Pesanan Terkini',
+      orderUnit: 'pesanan',
+      noOrdersTitle: 'Tiada pesanan on-chain',
+      noOrdersDetail: 'Sambungkan dompet untuk membaca pesanan prinsipal dan stake alamat ini.',
+    },
+    session: { morning: 'Sesi pagi', afternoon: 'Sesi petang', closed: 'Rehat', canStake: 'Dibuka', pending: 'Menunggu' },
+    order: { deposit: 'Pesanan Deposit', reinvest: 'Pesanan Labur Semula', stake: 'Pesanan Stake', unlock: 'Buka kunci', settle: 'Selesai' },
+    status: { redeemed: 'Ditebus', redeemable: 'Boleh tebus', locked: 'Dikunci', settled: 'Selesai', settleable: 'Boleh selesai', pending: 'Menunggu selesai' },
+  },
+};
 
 const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['not super admin', '当前钱包没有超级管理员权限，无法执行该操作。'],
@@ -324,6 +570,41 @@ function sessionLabel(session: number) {
   if (session === 1) return '上午场';
   if (session === 2) return '下午场';
   return '休息中';
+}
+
+function isLocaleKey(value: string | null): value is LocaleKey {
+  return LANGUAGE_OPTIONS.some((option) => option.key === value);
+}
+
+function initialLocale(): LocaleKey {
+  if (typeof window === 'undefined') return 'zh-Hant';
+
+  try {
+    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    return isLocaleKey(saved) ? saved : 'zh-Hant';
+  } catch {
+    return 'zh-Hant';
+  }
+}
+
+function sessionLabelForLocale(session: number, copy: LocaleCopy) {
+  if (session === 1) return copy.session.morning;
+  if (session === 2) return copy.session.afternoon;
+  return copy.session.closed;
+}
+
+function principalSourceLabelForLocale(source: number, copy: LocaleCopy) {
+  return source === 1 ? copy.order.reinvest : copy.order.deposit;
+}
+
+function principalStatusLabelForLocale(order: PrincipalOrderData, copy: LocaleCopy) {
+  if (order.status === 1) return copy.status.redeemed;
+  return BigInt(Math.floor(Date.now() / 1000)) >= order.unlockAt ? copy.status.redeemable : copy.status.locked;
+}
+
+function stakeStatusLabelForLocale(order: StakeOrderData, copy: LocaleCopy) {
+  if (order.settled) return copy.status.settled;
+  return BigInt(Math.floor(Date.now() / 1000)) >= order.settleAt ? copy.status.settleable : copy.status.pending;
 }
 
 function parseBigIntInput(value: string) {
@@ -879,11 +1160,21 @@ function useTxRunner() {
 
 function CustomerApp() {
   const [nav, setNav] = useState<NavKey>('home');
+  const [locale, setLocale] = useState<LocaleKey>(initialLocale);
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const data = useIronBrotherData();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
+  const copy = LOCALE_COPY[locale];
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
+    } catch {
+      // localStorage may be unavailable in restricted browser contexts.
+    }
+  }, [locale]);
 
   return (
     <div className="app-shell">
@@ -891,24 +1182,24 @@ function CustomerApp() {
         <div className="topbar">
           <div>
             <p className="eyebrow">IronBrother</p>
-            <h1>Hi, {shortAddress(address)}</h1>
+            <h1>{copy.shell.greeting}, {shortAddress(address)}</h1>
           </div>
           <WalletConnectButton />
         </div>
         {!isContractConfigured && (
           <div className="notice warning">
-            合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可启用。
+            {copy.shell.contractMissing}
           </div>
         )}
         {wrongNetwork && (
           <button className="notice danger action-notice" onClick={() => switchChain({ chainId: bscTestnet.id })}>
-            切换到 BSC Testnet
+            {copy.shell.switchNetwork}
           </button>
         )}
       </header>
 
       <main className="mobile-frame content-frame">
-        {nav === 'home' && <HomeScreen data={data} onNavigate={setNav} />}
+        {nav === 'home' && <HomeScreen data={data} locale={locale} copy={copy} onLocaleChange={setLocale} onNavigate={setNav} />}
         {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'wallet' && <WalletScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'team' && <TeamScreen data={data} />}
@@ -916,91 +1207,105 @@ function CustomerApp() {
       </main>
 
       <nav className="mobile-frame bottom-nav" aria-label="主导航">
-        <NavButton icon={<Landmark />} label="首页" active={nav === 'home'} onClick={() => setNav('home')} />
-        <NavButton icon={<Coins />} label="质押" active={nav === 'stake'} onClick={() => setNav('stake')} />
-        <NavButton icon={<Wallet />} label="钱包" active={nav === 'wallet'} onClick={() => setNav('wallet')} />
-        <NavButton icon={<Users />} label="团队" active={nav === 'team'} onClick={() => setNav('team')} />
-        <NavButton icon={<UserRound />} label="我的" active={nav === 'profile'} onClick={() => setNav('profile')} />
+        <NavButton icon={<Landmark />} label={copy.nav.home} active={nav === 'home'} onClick={() => setNav('home')} />
+        <NavButton icon={<Coins />} label={copy.nav.stake} active={nav === 'stake'} onClick={() => setNav('stake')} />
+        <NavButton icon={<Wallet />} label={copy.nav.wallet} active={nav === 'wallet'} onClick={() => setNav('wallet')} />
+        <NavButton icon={<Users />} label={copy.nav.team} active={nav === 'team'} onClick={() => setNav('team')} />
+        <NavButton icon={<UserRound />} label={copy.nav.profile} active={nav === 'profile'} onClick={() => setNav('profile')} />
       </nav>
     </div>
   );
 }
 
-function HomeScreen({ data, onNavigate }: { data: ReturnType<typeof useIronBrotherData>; onNavigate: (nav: NavKey) => void }) {
-  const currentSessionLabel = sessionLabel(data.currentSession);
+function HomeScreen({
+  data,
+  locale,
+  copy,
+  onLocaleChange,
+  onNavigate,
+}: {
+  data: ReturnType<typeof useIronBrotherData>;
+  locale: LocaleKey;
+  copy: LocaleCopy;
+  onLocaleChange: (locale: LocaleKey) => void;
+  onNavigate: (nav: NavKey) => void;
+}) {
+  const currentSessionLabel = sessionLabelForLocale(data.currentSession, copy);
   const morningRange = sessionTimeRange(data.morningStart, data.morningEnd);
   const afternoonRange = sessionTimeRange(data.afternoonStart, data.afternoonEnd);
   const recentOrders = useMemo(() => {
     const principal = data.principalOrders.map((order) => ({
       id: `principal-${order.id.toString()}`,
-      label: `${principalSourceLabel(order.source)} #${order.id.toString()}`,
+      label: `${principalSourceLabelForLocale(order.source, copy)} #${order.id.toString()}`,
       amount: order.amount,
-      status: principalStatusLabel(order),
-      time: `解锁 ${dateTime(order.unlockAt)}`,
+      status: principalStatusLabelForLocale(order, copy),
+      time: `${copy.order.unlock} ${dateTime(order.unlockAt)}`,
       createdAt: order.createdAt,
     }));
     const stakes = data.stakeOrders.map((order) => ({
       id: `stake-${order.id.toString()}`,
-      label: `质押订单 #${order.id.toString()}`,
+      label: `${copy.order.stake} #${order.id.toString()}`,
       amount: order.amount,
-      status: stakeStatusLabel(order),
-      time: `${sessionLabel(order.session)} / 结算 ${dateTime(order.settleAt)}`,
+      status: stakeStatusLabelForLocale(order, copy),
+      time: `${sessionLabelForLocale(order.session, copy)} / ${copy.order.settle} ${dateTime(order.settleAt)}`,
       createdAt: order.createdAt,
     }));
 
     return [...principal, ...stakes]
       .sort((a, b) => Number(b.createdAt - a.createdAt))
       .slice(0, 5);
-  }, [data.principalOrders, data.stakeOrders]);
+  }, [copy, data.principalOrders, data.stakeOrders]);
 
   return (
     <section className="screen-stack">
       <div className="asset-card glow">
         <div className="card-row">
-          <span>本金钱包</span>
+          <span>{copy.home.principalWallet}</span>
           <LockKeyhole size={18} />
         </div>
         <strong>{token(data.account.principalBalance)} U</strong>
-        <small>可质押 {token(data.availablePrincipal)} U</small>
+        <small>{copy.home.availableStake} {token(data.availablePrincipal)} U</small>
       </div>
 
       <div className="quick-grid">
-        <MetricCard label="收益钱包" value={`${token(data.account.rewardBalance)} U`} trend={`今日收益率 ${bpsToPercent(data.yieldBps)} / 次`} />
-        <MetricCard label="到期未赎回" value={`${token(data.maturedUnredeemed)} U`} trend="到期订单需手动赎回" />
+        <MetricCard label={copy.home.rewardWallet} value={`${token(data.account.rewardBalance)} U`} trend={`${copy.home.todaysYield} ${bpsToPercent(data.yieldBps)} / ${copy.home.perTime}`} />
+        <MetricCard label={copy.home.maturedUnredeemed} value={`${token(data.maturedUnredeemed)} U`} trend={copy.home.maturedTrend} />
       </div>
 
       <div className="action-grid">
-        <ActionPill icon={<ArrowDownToLine />} label="入金" onClick={() => onNavigate('wallet')} />
-        <ActionPill icon={<Coins />} label="质押" onClick={() => onNavigate('stake')} />
-        <ActionPill icon={<Repeat2 />} label="复投" onClick={() => onNavigate('wallet')} />
-        <ActionPill icon={<ArrowUpRight />} label="提现" onClick={() => onNavigate('wallet')} />
+        <ActionPill icon={<ArrowDownToLine />} label={copy.home.actions.deposit} onClick={() => onNavigate('wallet')} />
+        <ActionPill icon={<Coins />} label={copy.home.actions.stake} onClick={() => onNavigate('stake')} />
+        <ActionPill icon={<Repeat2 />} label={copy.home.actions.reinvest} onClick={() => onNavigate('wallet')} />
+        <ActionPill icon={<ArrowUpRight />} label={copy.home.actions.withdraw} onClick={() => onNavigate('wallet')} />
       </div>
+
+      <LanguageSwitcher locale={locale} copy={copy} onChange={onLocaleChange} />
 
       <section className="panel">
         <div className="section-title">
           <div>
-            <p className="eyebrow">UTC+8 Chain Time</p>
-            <h2>质押场次</h2>
+            <p className="eyebrow">{copy.home.chainTimeEyebrow}</p>
+            <h2>{copy.home.stakingSessions}</h2>
           </div>
           <span className="status-chip">{currentSessionLabel}</span>
         </div>
         <div className="session-list">
-          <SessionRow title="上午场" time={morningRange} state={data.currentSession === 1 ? '可质押' : '待开放'} amount="每钱包每场 1 单" />
-          <SessionRow title="下午场" time={afternoonRange} state={data.currentSession === 2 ? '可质押' : '待开放'} amount="每钱包每场 1 单" />
+          <SessionRow title={copy.session.morning} time={morningRange} state={data.currentSession === 1 ? copy.session.canStake : copy.session.pending} amount={copy.home.perWalletPerSession} />
+          <SessionRow title={copy.session.afternoon} time={afternoonRange} state={data.currentSession === 2 ? copy.session.canStake : copy.session.pending} amount={copy.home.perWalletPerSession} />
         </div>
       </section>
 
       <section className="panel">
         <div className="section-title">
-          <h2>最新订单</h2>
-          <span>{recentOrders.length} 笔</span>
+          <h2>{copy.home.latestOrders}</h2>
+          <span>{recentOrders.length} {copy.home.orderUnit}</span>
         </div>
         {recentOrders.length > 0 ? (
           recentOrders.map((order) => (
             <OrderRow key={order.id} label={order.label} amount={order.amount} status={order.status} time={order.time} />
           ))
         ) : (
-          <EmptyState title="暂无链上订单" detail="连接钱包后会直接读取该地址的本金和质押订单。" />
+          <EmptyState title={copy.home.noOrdersTitle} detail={copy.home.noOrdersDetail} />
         )}
       </section>
     </section>
@@ -2444,6 +2749,37 @@ function WalletConnectButton() {
         );
       }}
     </ConnectButton.Custom>
+  );
+}
+
+function LanguageSwitcher({ locale, copy, onChange }: { locale: LocaleKey; copy: LocaleCopy; onChange: (locale: LocaleKey) => void }) {
+  return (
+    <section className="panel language-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">{copy.language.eyebrow}</p>
+          <h2>{copy.language.title}</h2>
+        </div>
+        <Languages size={20} />
+      </div>
+      <div className="language-list">
+        {LANGUAGE_OPTIONS.map((option) => {
+          const active = option.key === locale;
+          return (
+            <button
+              key={option.key}
+              className={active ? 'language-option active' : 'language-option'}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onChange(option.key)}
+            >
+              <span>{option.label}</span>
+              {active && <CheckCircle2 size={16} />}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
