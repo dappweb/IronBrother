@@ -196,6 +196,22 @@ type TeamSummaryData = {
   totalMembers: number;
 };
 
+type AdminUserRow = {
+  address: Address;
+  account: UserAccountData;
+  blockNumber?: bigint;
+};
+
+type UserTreeNode = AdminUserRow & {
+  children: UserTreeNode[];
+};
+
+type DynamicSettlementRow = AdminUserRow & {
+  dailyStakeVolume: bigint;
+  isValidOnDay: boolean;
+  settled: boolean;
+};
+
 type ChainEventRecord = {
   eventName: string;
   args: Record<string, unknown>;
@@ -860,6 +876,45 @@ function parseIdList(value: string) {
     .split(/[\s,;]+/)
     .map((item) => parseBigIntInput(item))
     .filter((item) => item > 0n);
+}
+
+function compareBigIntDesc(left: bigint, right: bigint) {
+  if (left === right) return 0;
+  return left > right ? -1 : 1;
+}
+
+function sortUserTreeNodes(nodes: UserTreeNode[]) {
+  nodes.sort((left, right) => {
+    const depositedDiff = compareBigIntDesc(left.account.totalDeposited, right.account.totalDeposited);
+    if (depositedDiff !== 0) return depositedDiff;
+    const directDiff = compareBigIntDesc(left.account.directCount, right.account.directCount);
+    return directDiff !== 0 ? directDiff : left.address.localeCompare(right.address);
+  });
+  nodes.forEach((node) => sortUserTreeNodes(node.children));
+  return nodes;
+}
+
+function buildUserTree(rows: AdminUserRow[]) {
+  const registeredRows = rows.filter((row) => row.account.registered);
+  const nodes = new Map<string, UserTreeNode>();
+  registeredRows.forEach((row) => {
+    nodes.set(row.address.toLowerCase(), { ...row, children: [] });
+  });
+
+  const roots: UserTreeNode[] = [];
+  for (const node of nodes.values()) {
+    const selfKey = node.address.toLowerCase();
+    const parentKey = node.account.referrer.toLowerCase();
+    const parent = parentKey !== zeroAddress && parentKey !== selfKey ? nodes.get(parentKey) : undefined;
+
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return sortUserTreeNodes(roots.length > 0 ? roots : Array.from(nodes.values()));
 }
 
 function App() {
@@ -1961,30 +2016,43 @@ function AdminUsersPage() {
   const users = useAdminUsers(lookupAddress);
 
   return (
-    <section className="admin-panel">
-      <div className="section-title">
-        <div>
-          <p className="eyebrow">Users</p>
-          <h2>用户管理</h2>
+    <section className="screen-stack">
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Users</p>
+            <h2>用户管理</h2>
+          </div>
+          <span className="status-chip">{users.rows.length} 人</span>
         </div>
-        <span className="status-chip">{users.rows.length} 人</span>
-      </div>
-      <label className="full-field">
-        搜索钱包地址
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
-      </label>
-      <div className="list-stack">
-        {users.rows.length > 0 ? (
-          users.rows.map((row) => <AdminUserListRow key={row.address} row={row} />)
-        ) : (
-          <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
-        )}
-      </div>
+        <label className="full-field">
+          搜索钱包地址
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
+        </label>
+        <div className="list-stack">
+          {users.rows.length > 0 ? (
+            users.rows.map((row) => <AdminUserListRow key={row.address} row={row} />)
+          ) : (
+            <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
+          )}
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">User Tree</p>
+            <h2>用户树</h2>
+          </div>
+          <span className="status-chip">{users.rows.filter((row) => row.account.registered).length} 人</span>
+        </div>
+        <AdminUserTree rows={users.rows} />
+      </section>
     </section>
   );
 }
 
-function AdminUserListRow({ row }: { row: { address: Address; account: UserAccountData; blockNumber?: bigint } }) {
+function AdminUserListRow({ row }: { row: AdminUserRow }) {
   return (
     <div className="admin-list-row wide">
       <div className="row-icon"><UserRound size={17} /></div>
@@ -1997,6 +2065,54 @@ function AdminUserListRow({ row }: { row: { address: Address; account: UserAccou
         <span>收益 {token(row.account.rewardBalance)} U</span>
         <span>{row.account.whitelist40 ? '40 代白名单' : row.account.registered ? '已注册' : '未注册'}</span>
       </div>
+    </div>
+  );
+}
+
+function AdminUserTree({ rows }: { rows: AdminUserRow[] }) {
+  const tree = useMemo(() => buildUserTree(rows), [rows]);
+
+  if (tree.length === 0) {
+    return <EmptyState title="暂无用户树" detail="用户注册后，会按推荐关系在这里生成层级树。" />;
+  }
+
+  return (
+    <div className="user-tree">
+      {tree.map((node) => (
+        <AdminUserTreeNode key={node.address} node={node} depth={0} seen={new Set()} />
+      ))}
+    </div>
+  );
+}
+
+function AdminUserTreeNode({ node, depth, seen }: { node: UserTreeNode; depth: number; seen: Set<string> }) {
+  const key = node.address.toLowerCase();
+  const cyclic = seen.has(key);
+  const nextSeen = new Set(seen);
+  nextSeen.add(key);
+
+  return (
+    <div className="user-tree-node">
+      <div className="user-tree-row" style={{ paddingLeft: depth * 18 }}>
+        <div className="row-icon"><Users size={17} /></div>
+        <div>
+          <strong>{shortAddress(node.address)}</strong>
+          <small>上级 {shortAddress(node.account.referrer)} / 直推 {node.account.directCount.toString()}</small>
+        </div>
+        <div className="row-metrics">
+          <span>入金 {token(node.account.totalDeposited)} U</span>
+          <span>本金 {token(node.account.principalBalance)} U</span>
+          <span>动态 {token(node.account.totalDynamicReward)} U</span>
+          {cyclic && <span className="amount-muted">循环引用</span>}
+        </div>
+      </div>
+      {!cyclic && node.children.length > 0 && (
+        <div className="user-tree-children">
+          {node.children.map((child) => (
+            <AdminUserTreeNode key={`${node.address}-${child.address}`} node={child} depth={depth + 1} seen={nextSeen} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2052,7 +2168,26 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
   const [dynamicDay, setDynamicDay] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
   const [stakeIds, setStakeIds] = useState('');
+  const currentDayQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'currentLocalDay',
+    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
+  });
+  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
+  const settlementDay = parseBigIntInput(dynamicDay);
+  const dayClosed = settlementDay > 0n && settlementDay < currentLocalDay;
+  const users = useAdminUsers();
+  const settlement = useDynamicSettlementRows(users.rows, settlementDay, settlementDay > 0n);
+  const oneClickAddresses = settlement.pendingRows.map((row) => row.address);
+  const validPendingCount = settlement.pendingRows.filter((row) => row.isValidOnDay).length;
   const events = useChainEvents(['StakeSettled', 'DynamicRewardSettled', 'RewardWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
+
+  useEffect(() => {
+    if (!dynamicDay && currentLocalDay > 0n) {
+      setDynamicDay((currentLocalDay - 1n).toString());
+    }
+  }, [currentLocalDay, dynamicDay]);
 
   return (
     <section className="screen-stack">
@@ -2090,6 +2225,58 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         >
           结算该用户动态奖励
         </button>
+        <div className="settlement-box">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">Daily batch</p>
+              <h2>每日一键动态结算</h2>
+            </div>
+            <span className="status-chip">{oneClickAddresses.length} 待结算</span>
+          </div>
+          <div className="settlement-stats">
+            <InfoLine label="当前本地日" value={currentLocalDay.toString()} />
+            <InfoLine label="结算日期" value={dynamicDay || '--'} />
+            <InfoLine label="有流水用户" value={`${settlement.rows.length} 人`} />
+            <InfoLine label="有效流水用户" value={`${validPendingCount} 人`} />
+          </div>
+          <button
+            className="primary-button"
+            disabled={!canWrite || !dayClosed || oneClickAddresses.length === 0}
+            onClick={() =>
+              runner.runTx('每日一键动态结算', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'settleDynamicRewardForUsers',
+                  args: [oneClickAddresses, settlementDay],
+                }),
+              )
+            }
+          >
+            每日一键动态结算
+          </button>
+          <p className="helper-line">
+            {dayClosed
+              ? '将结算所选日期内已产生流水且尚未结算的用户。'
+              : '只能结算已经结束的本地日期，通常选择当前本地日的前一天。'}
+          </p>
+          <div className="settlement-preview">
+            {settlement.isLoading ? (
+              <span>正在读取候选用户...</span>
+            ) : settlement.pendingRows.length > 0 ? (
+              settlement.pendingRows.slice(0, 8).map((row) => (
+                <div className="settlement-row" key={row.address}>
+                  <span>{shortAddress(row.address)}</span>
+                  <span>{token(row.dailyStakeVolume)} U</span>
+                  <span>{row.isValidOnDay ? '有效' : '未达门槛'}</span>
+                </div>
+              ))
+            ) : (
+              <span>暂无待结算用户。</span>
+            )}
+            {settlement.pendingRows.length > 8 && <span>还有 {settlement.pendingRows.length - 8} 个用户未显示。</span>}
+          </div>
+        </div>
         <div className="form-grid spaced">
           <label>
             批量用户地址
@@ -2988,7 +3175,47 @@ function useAdminUsers(extraAddress?: Address) {
     [addresses, usersQuery.data],
   );
 
-  return { rows };
+  return { rows, isLoading: events.isLoading || usersQuery.isLoading };
+}
+
+function useDynamicSettlementRows(rows: AdminUserRow[], day: bigint, enabled = true) {
+  const registeredRows = useMemo(() => rows.filter((row) => row.account.registered), [rows]);
+  const detailContracts = useMemo(
+    () =>
+      registeredRows.flatMap((row) => [
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'dailyStakeVolume', args: [row.address, day] },
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'isValidOnDay', args: [row.address, day] },
+        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'dynamicRewardSettled', args: [row.address, day] },
+      ]),
+    [day, registeredRows],
+  );
+
+  const detailQuery = useReadContracts({
+    contracts: detailContracts as never,
+    query: { enabled: Boolean(isContractConfigured && enabled && day > 0n && registeredRows.length > 0) },
+  });
+
+  const settlementRows = useMemo(
+    () =>
+      registeredRows
+        .map((row, index): DynamicSettlementRow => {
+          const base = index * 3;
+          return {
+            ...row,
+            dailyStakeVolume: readResult(detailQuery.data?.[base], 0n),
+            isValidOnDay: readResult(detailQuery.data?.[base + 1], false),
+            settled: readResult(detailQuery.data?.[base + 2], false),
+          };
+        })
+        .filter((row) => row.dailyStakeVolume > 0n),
+    [detailQuery.data, registeredRows],
+  );
+
+  return {
+    rows: settlementRows,
+    pendingRows: settlementRows.filter((row) => !row.settled),
+    isLoading: detailQuery.isLoading,
+  };
 }
 
 function useAdminRole(address?: Address) {
