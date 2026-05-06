@@ -1,0 +1,11 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "deployedAt": "2026-05-06T08:36:45.974Z",
+  "deployer": "0x744447d8580EB900b199e852C132F626247a36F7",
+  "feeReceiver": "0x744447d8580EB900b199e852C132F626247a36F7",
+  "usdt": "0x114fd26CDddfA6fF54Bf584770b1B78824Ad0b7f",
+  "ironBrotherProxy": "0xA384D716f4c9749Dcf1578e476d6b6b565D37A41",
+  "ironBrotherImplementation": "0x7DDb23fDe398ADB35B8F3C93F8b99c7900c3d9cB",
+  "proxyKind": "uups"
+}

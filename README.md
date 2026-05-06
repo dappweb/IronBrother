@@ -1,2 +1,93 @@
 # IronBrother
-IronBrother
+
+Pure on-chain BSC USDT staking DApp with a customer mobile UI, a simplified Admin console, and Cloudflare Pages deployment.
+
+## Stack
+
+- React + Vite + TypeScript
+- RainbowKit + wagmi + viem
+- Solidity + Hardhat
+- OpenZeppelin Contracts
+- Cloudflare Pages
+
+## Local Setup
+
+```bash
+npm install
+copy .env.example .env.local
+npm run dev
+```
+
+Set these values in `.env.local` for BSC Testnet:
+
+```bash
+VITE_BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+VITE_WALLETCONNECT_PROJECT_ID=your-walletconnect-project-id
+VITE_USDT_ADDRESS=
+VITE_IRONBROTHER_CONTRACT_ADDRESS=
+```
+
+On BSC Testnet, use `TEST_USDT_ADDRESS` if you already have a test USDT token. If not set, the testnet deployment script deploys `MockUSDT` and writes the address to `deployments/bsc-testnet.json`.
+
+The BSC mainnet BEP-20 USDT address for production is:
+
+```text
+0x55d398326f99059fF775485246999027B3197955
+```
+
+## Contracts
+
+Compile:
+
+```bash
+npm run compile
+```
+
+Test:
+
+```bash
+npm test
+```
+
+Deploy upgradeable proxy to BSC Testnet:
+
+```bash
+set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set PRIVATE_KEY=your-deployer-private-key
+npm run deploy:testnet
+```
+
+After deployment, set `VITE_IRONBROTHER_CONTRACT_ADDRESS` and `VITE_USDT_ADDRESS` in Cloudflare Pages and `.env.local`.
+
+Upgrade the BSC Testnet proxy:
+
+```bash
+set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set PRIVATE_KEY=your-upgrader-private-key
+set IRONBROTHER_PROXY=deployed-proxy-address
+npm run upgrade:testnet
+```
+
+## Cloudflare Pages
+
+Build command:
+
+```bash
+npm run build
+```
+
+Build output directory:
+
+```text
+dist
+```
+
+Deploy from CLI:
+
+```bash
+npm run deploy:pages
+```
+
+## Notes
+
+The smart contract cannot automatically run jobs at 12:00, 17:00, or 00:00. Settlement is exposed as callable on-chain functions. The UI/Admin can trigger settlement transactions after the configured time windows.
