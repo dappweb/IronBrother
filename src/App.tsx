@@ -2263,9 +2263,14 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
   const settlement = useDynamicSettlementRows(users.rows, settlementDay, settlementDay > 0n);
   const oneClickAddresses = settlement.pendingRows.map((row) => row.address);
   const validPendingCount = settlement.pendingRows.filter((row) => row.isValidOnDay).length;
+  const orderBook = useAdminOrderBook();
+  const currentDayStakeOrders = orderBook.stakeOrders.filter((order) => order.day === currentLocalDay);
+  const unsettledStakeOrders = orderBook.stakeOrders.filter((order) => !order.settled);
+  const recentStakeVolume = orderBook.stakeOrders.reduce((sum, order) => sum + order.amount, 0n);
+  const currentDayStakeVolume = currentDayStakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const withdrawals = useAdminWithdrawalRequests();
   const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
-  const events = useChainEvents(['StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'PrincipalRedeemed', 'Reinvested']);
+  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
     if (!dynamicDay && currentLocalDay > 0n) {
@@ -2404,6 +2409,30 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
           >
             批量带单结算
           </button>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Stake Flow</p>
+            <h2>带单流水回显</h2>
+          </div>
+          <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
+        </div>
+        <div className="settlement-stats">
+          <InfoLine label="当前本地日" value={currentLocalDay.toString()} />
+          <InfoLine label="今日带单笔数" value={`${currentDayStakeOrders.length} 笔`} />
+          <InfoLine label="今日带单流水" value={`${token(currentDayStakeVolume)} U`} />
+          <InfoLine label="未结算带单" value={`${unsettledStakeOrders.length} 笔`} />
+          <InfoLine label="最近带单流水" value={`${token(recentStakeVolume)} U`} />
+        </div>
+        <div className="list-stack">
+          {orderBook.stakeOrders.length > 0 ? (
+            orderBook.stakeOrders.slice(0, 8).map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
+          ) : (
+            <EmptyState title="暂无带单流水" detail="这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。" />
+          )}
         </div>
       </section>
 
