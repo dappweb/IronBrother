@@ -128,6 +128,22 @@ describe("IronBrother", function () {
     expect(account.rewardBalance).to.equal(U("2"));
   });
 
+  it("allows a registered user without referrer to bind one later", async function () {
+    const { alice, bob, carol, ironBrother } = await deployFixture();
+
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    expect((await ironBrother.users(alice.address)).referrer).to.equal(ethers.ZeroAddress);
+
+    await ironBrother.connect(alice).register(bob.address);
+    expect((await ironBrother.users(alice.address)).referrer).to.equal(bob.address);
+    expect((await ironBrother.users(bob.address)).directCount).to.equal(1);
+    expect(await ironBrother.getDirectReferrals(bob.address)).to.deep.equal([alice.address]);
+
+    await ironBrother.connect(alice).register(carol.address);
+    expect((await ironBrother.users(alice.address)).referrer).to.equal(bob.address);
+    expect((await ironBrother.users(carol.address)).directCount).to.equal(0);
+  });
+
   it("allows reward withdrawal with fee", async function () {
     const { alice, feeReceiver, usdt, ironBrother } = await deployFixture();
 

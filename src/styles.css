@@ -281,6 +281,46 @@ a {
   text-align: left;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  padding: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(11, 31, 25, 0.48);
+  backdrop-filter: blur(10px);
+}
+
+.referrer-modal {
+  width: min(100%, 390px);
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 28px 80px rgba(10, 30, 23, 0.32);
+}
+
+.modal-helper {
+  margin: 12px 0 16px;
+  color: #52635d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.field-error {
+  margin: 8px 0 0;
+  color: #a11818;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.modal-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .screen-stack {
   display: grid;
   gap: 12px;

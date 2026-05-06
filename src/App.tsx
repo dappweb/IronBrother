@@ -1158,6 +1158,7 @@ function useIronBrotherData() {
     directReferrals: directReferrals.rows,
     teamSummary: teamSummary.data ?? emptyTeamSummary,
     isTeamSummaryLoading: teamSummary.isLoading,
+    isAccountLoading: userQuery.isLoading,
   };
 }
 
@@ -1248,12 +1249,23 @@ function useTxRunner() {
 function CustomerApp() {
   const [nav, setNav] = useState<NavKey>('home');
   const [locale, setLocale] = useState<LocaleKey>(initialLocale);
+  const [dismissedReferrerPromptFor, setDismissedReferrerPromptFor] = useState<Address | undefined>();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const data = useIronBrotherData();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const copy = LOCALE_COPY[locale];
+  const shouldPromptReferrer =
+    Boolean(
+      isConnected &&
+        address &&
+        isContractConfigured &&
+        !wrongNetwork &&
+        !data.isAccountLoading &&
+        data.account.referrer === zeroAddress &&
+        dismissedReferrerPromptFor !== address,
+    );
 
   useEffect(() => {
     try {
@@ -1303,6 +1315,77 @@ function CustomerApp() {
         <NavButton icon={<Users />} label={copy.nav.team} active={nav === 'team'} onClick={() => setNav('team')} />
         <NavButton icon={<UserRound />} label={copy.nav.profile} active={nav === 'profile'} onClick={() => setNav('profile')} />
       </nav>
+
+      {shouldPromptReferrer && address && (
+        <BindReferrerModal
+          address={address}
+          onDismiss={() => setDismissedReferrerPromptFor(address)}
+        />
+      )}
+    </div>
+  );
+}
+
+function BindReferrerModal({ address, onDismiss }: { address: Address; onDismiss: () => void }) {
+  const { runTx, tx, writeContractAsync } = useTxRunner();
+  const [referrer, setReferrer] = useState('');
+  const trimmedReferrer = referrer.trim();
+  const referrerAddress = isAddress(trimmedReferrer) ? (trimmedReferrer as Address) : undefined;
+  const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+  const validationMessage = !trimmedReferrer
+    ? '请输入推荐人钱包地址。'
+    : !referrerAddress
+      ? '请输入有效的钱包地址。'
+      : referrerAddress.toLowerCase() === address.toLowerCase()
+        ? '推荐人不能是当前钱包。'
+        : '';
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="referrer-modal" role="dialog" aria-modal="true" aria-labelledby="bind-referrer-title">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Referrer</p>
+            <h2 id="bind-referrer-title">绑定推荐人</h2>
+          </div>
+          <Users size={18} />
+        </div>
+        <p className="modal-helper">当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。</p>
+        <label>
+          推荐人地址
+          <input
+            value={referrer}
+            onChange={(event) => setReferrer(event.target.value)}
+            placeholder="0x..."
+            spellCheck={false}
+          />
+        </label>
+        {validationMessage && <p className="field-error">{validationMessage}</p>}
+        <div className="modal-actions">
+          <button className="secondary-button" type="button" disabled={transactionBusy} onClick={onDismiss}>
+            稍后绑定
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={transactionBusy || Boolean(validationMessage)}
+            onClick={() => {
+              if (!referrerAddress) return;
+              runTx('绑定推荐人', () =>
+                writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'register',
+                  args: [referrerAddress],
+                }),
+              );
+            }}
+          >
+            绑定推荐人
+          </button>
+        </div>
+        <TxStatus tx={tx} />
+      </section>
     </div>
   );
 }
@@ -1689,6 +1772,12 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
 function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
   return (
     <section className="screen-stack">
+      <section className="panel">
+        <InfoLine
+          label="我的推荐人"
+          value={data.account.referrer === zeroAddress ? '未绑定' : shortAddress(data.account.referrer)}
+        />
+      </section>
       <div className="quick-grid">
         <MetricCard
           label="团队充值总业绩"

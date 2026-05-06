@@ -454,6 +454,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'register',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'referrer', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'deposit',
     stateMutability: 'nonpayable',
     inputs: [

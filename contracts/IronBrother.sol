@@ -576,24 +576,34 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     function _register(address user, address referrer) internal {
         UserAccount storage account = users[user];
         if (account.registered) {
+            if (account.referrer == address(0) && referrer != address(0)) {
+                _bindReferrer(user, referrer);
+            }
             return;
         }
 
-        require(referrer != user, "self referrer");
         if (referrer != address(0)) {
-            if (!users[referrer].registered) {
-                users[referrer].registered = true;
-                totalUsers += 1;
-                emit UserRegistered(referrer, address(0));
-            }
-            account.referrer = referrer;
-            directReferrals[referrer].push(user);
-            users[referrer].directCount += 1;
+            _bindReferrer(user, referrer);
         }
 
         account.registered = true;
         totalUsers += 1;
         emit UserRegistered(user, referrer);
+    }
+
+    function _bindReferrer(address user, address referrer) internal {
+        require(referrer != user, "self referrer");
+        UserAccount storage account = users[user];
+
+        if (!users[referrer].registered) {
+            users[referrer].registered = true;
+            totalUsers += 1;
+            emit UserRegistered(referrer, address(0));
+        }
+
+        account.referrer = referrer;
+        directReferrals[referrer].push(user);
+        users[referrer].directCount += 1;
     }
 
     function _validateAmount(uint256 amount) internal view {
