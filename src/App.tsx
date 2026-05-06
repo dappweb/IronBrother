@@ -2096,7 +2096,24 @@ function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const lookupAddress = isAddress(search.trim()) ? (search.trim() as Address) : undefined;
   const [selectedAddress, setSelectedAddress] = useState<Address | undefined>();
-  const extraAddresses = useMemo(() => uniqueAddresses([lookupAddress, selectedAddress]), [lookupAddress, selectedAddress]);
+  const orderBook = useAdminOrderBook();
+  const withdrawals = useAdminWithdrawalRequests();
+  const totalUsersQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'totalUsers',
+    query: { enabled: isContractConfigured },
+  });
+  const orderAddresses = useMemo(
+    () =>
+      uniqueAddresses([
+        ...orderBook.principalOrders.map((order) => order.user),
+        ...orderBook.stakeOrders.map((order) => order.user),
+        ...withdrawals.requests.map((request) => request.user),
+      ]),
+    [orderBook.principalOrders, orderBook.stakeOrders, withdrawals.requests],
+  );
+  const extraAddresses = useMemo(() => uniqueAddresses([lookupAddress, selectedAddress, ...orderAddresses]), [lookupAddress, orderAddresses, selectedAddress]);
   const users = useAdminUsers(extraAddresses);
   const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
@@ -2105,6 +2122,7 @@ function AdminUsersPage() {
     query: { enabled: isContractConfigured },
   });
   const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
+  const totalUsers = (totalUsersQuery.data as bigint | undefined) ?? 0n;
   const sortedRows = useMemo(
     () =>
       [...users.rows].sort((left, right) => {
@@ -2128,6 +2146,9 @@ function AdminUsersPage() {
       setSelectedAddress(lookupAddress);
     }
   }, [lookupAddress]);
+  const registeredRows = sortedRows.filter((row) => row.account.registered);
+  const totalUsersLabel = totalUsers > 0n ? `${registeredRows.length}/${totalUsers.toString()} 人` : `${registeredRows.length} 人`;
+  const showPartialUserWarning = totalUsers > BigInt(registeredRows.length);
 
   return (
     <section className="screen-stack">
@@ -2138,13 +2159,20 @@ function AdminUsersPage() {
               <p className="eyebrow">Users</p>
               <h2>用户管理</h2>
             </div>
-            <span className="status-chip">{users.rows.length} 人</span>
+            <span className="status-chip">{totalUsersLabel}</span>
           </div>
           <label className="full-field">
             搜索钱包地址
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
           </label>
           {users.isLoading && <p className="helper-line">正在读取用户事件和链上账户...</p>}
+          {users.eventError && <p className="field-error">用户事件读取失败，已尝试从订单地址兜底回显。请检查线上 RPC 或事件起始区块配置。</p>}
+          {!users.eventError && users.eventCount === 0 && totalUsers > 0n && (
+            <p className="field-error">链上已有 {totalUsers.toString()} 个用户，但当前没有读取到用户注册事件，已尝试从订单地址兜底回显。</p>
+          )}
+          {showPartialUserWarning && (
+            <p className="field-error">当前仅回显 {registeredRows.length} / {totalUsers.toString()} 个链上用户。要完全一致，需要线上配置可查询历史日志的 RPC 和 VITE_IRONBROTHER_EVENT_FROM_BLOCK。</p>
+          )}
           <div className="list-stack">
             {sortedRows.length > 0 ? (
               sortedRows.map((row) => (
@@ -2170,7 +2198,7 @@ function AdminUsersPage() {
             <p className="eyebrow">User Tree</p>
             <h2>全部用户关系树</h2>
           </div>
-          <span className="status-chip">{users.rows.filter((row) => row.account.registered).length} 人</span>
+          <span className="status-chip">{totalUsersLabel}</span>
         </div>
         <AdminUserTree rows={users.rows} selectedAddress={selectedRow?.address} onSelect={setSelectedAddress} />
       </section>
@@ -3598,7 +3626,12 @@ function useAdminUsers(extraAddress?: Address | readonly Address[]) {
     [addresses, usersQuery.data],
   );
 
-  return { rows, isLoading: events.isLoading || usersQuery.isLoading };
+  return {
+    rows,
+    eventCount: events.data?.length ?? 0,
+    eventError: events.isError,
+    isLoading: events.isLoading || usersQuery.isLoading,
+  };
 }
 
 function useDynamicSettlementRows(rows: AdminUserRow[], day: bigint, enabled = true) {
