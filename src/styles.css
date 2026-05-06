@@ -518,6 +518,41 @@ a {
   grid-template-columns: auto minmax(0, 1fr) minmax(320px, auto);
 }
 
+.admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.user-row-button,
+.user-tree-row-button,
+.referral-row-button {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.user-row-button:hover,
+.user-row-button:focus-visible,
+.user-tree-row-button:hover,
+.user-tree-row-button:focus-visible,
+.referral-row-button:hover,
+.referral-row-button:focus-visible {
+  background: #ffffff;
+  outline: 2px solid rgba(17, 17, 17, 0.12);
+  outline-offset: 0;
+}
+
+.user-row-button.selected,
+.user-tree-row-button.selected {
+  background: #ffffff;
+  outline: 2px solid #111111;
+  outline-offset: 0;
+}
+
 .user-tree {
   display: grid;
   gap: 8px;
@@ -543,6 +578,77 @@ a {
   padding: 12px;
   border-radius: 8px;
   background: #f7fbf8;
+}
+
+.user-detail-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.user-detail-address {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7fbf8;
+}
+
+.user-detail-address strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.user-detail-address small {
+  display: block;
+  margin-top: 4px;
+  color: #718179;
+  font-size: 12px;
+}
+
+.user-detail-address a {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.user-detail-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.user-detail-stats .info-line strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.user-detail-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #eef2ef;
+}
+
+.compact-title {
+  margin-bottom: 0;
+}
+
+.compact-title h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.compact-title span {
+  color: #718179;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .admin-list-row small,
@@ -939,6 +1045,10 @@ input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .admin-users-layout {
+    grid-template-columns: 1fr;
+  }
+
   .admin-list-row,
   .admin-list-row.wide,
   .user-tree-row {
@@ -951,6 +1061,10 @@ input {
   }
 
   .settlement-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .user-detail-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -966,6 +1080,7 @@ input {
   .split-buttons,
   .admin-grid,
   .admin-columns,
+  .admin-users-layout,
   .settlement-stats {
     grid-template-columns: 1fr;
   }

@@ -2095,48 +2095,100 @@ function AdminDashboardPage({ dashboard }: { dashboard: ReturnType<typeof useAdm
 function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const lookupAddress = isAddress(search.trim()) ? (search.trim() as Address) : undefined;
-  const users = useAdminUsers(lookupAddress);
+  const [selectedAddress, setSelectedAddress] = useState<Address | undefined>();
+  const extraAddresses = useMemo(() => uniqueAddresses([lookupAddress, selectedAddress]), [lookupAddress, selectedAddress]);
+  const users = useAdminUsers(extraAddresses);
+  const currentDayQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'currentLocalDay',
+    query: { enabled: isContractConfigured },
+  });
+  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
+  const sortedRows = useMemo(
+    () =>
+      [...users.rows].sort((left, right) => {
+        if (left.account.registered !== right.account.registered) return left.account.registered ? -1 : 1;
+        const depositedDiff = compareBigIntDesc(left.account.totalDeposited, right.account.totalDeposited);
+        if (depositedDiff !== 0) return depositedDiff;
+        return left.address.localeCompare(right.address);
+      }),
+    [users.rows],
+  );
+  const selectedRow = useMemo(() => {
+    if (selectedAddress) {
+      const matched = users.rows.find((row) => row.address.toLowerCase() === selectedAddress.toLowerCase());
+      if (matched) return matched;
+    }
+    return sortedRows[0];
+  }, [selectedAddress, sortedRows, users.rows]);
+
+  useEffect(() => {
+    if (lookupAddress) {
+      setSelectedAddress(lookupAddress);
+    }
+  }, [lookupAddress]);
 
   return (
     <section className="screen-stack">
-      <section className="admin-panel">
-        <div className="section-title">
-          <div>
-            <p className="eyebrow">Users</p>
-            <h2>用户管理</h2>
+      <section className="admin-users-layout">
+        <section className="admin-panel">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">Users</p>
+              <h2>用户管理</h2>
+            </div>
+            <span className="status-chip">{users.rows.length} 人</span>
           </div>
-          <span className="status-chip">{users.rows.length} 人</span>
-        </div>
-        <label className="full-field">
-          搜索钱包地址
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
-        </label>
-        <div className="list-stack">
-          {users.rows.length > 0 ? (
-            users.rows.map((row) => <AdminUserListRow key={row.address} row={row} />)
-          ) : (
-            <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
-          )}
-        </div>
+          <label className="full-field">
+            搜索钱包地址
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
+          </label>
+          {users.isLoading && <p className="helper-line">正在读取用户事件和链上账户...</p>}
+          <div className="list-stack">
+            {sortedRows.length > 0 ? (
+              sortedRows.map((row) => (
+                <AdminUserListRow
+                  key={row.address}
+                  row={row}
+                  selected={selectedRow?.address.toLowerCase() === row.address.toLowerCase()}
+                  onSelect={setSelectedAddress}
+                />
+              ))
+            ) : (
+              <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
+            )}
+          </div>
+        </section>
+
+        <AdminUserDetailPanel row={selectedRow} currentLocalDay={currentLocalDay} onSelect={setSelectedAddress} />
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
           <div>
             <p className="eyebrow">User Tree</p>
-            <h2>用户树</h2>
+            <h2>全部用户关系树</h2>
           </div>
           <span className="status-chip">{users.rows.filter((row) => row.account.registered).length} 人</span>
         </div>
-        <AdminUserTree rows={users.rows} />
+        <AdminUserTree rows={users.rows} selectedAddress={selectedRow?.address} onSelect={setSelectedAddress} />
       </section>
     </section>
   );
 }
 
-function AdminUserListRow({ row }: { row: AdminUserRow }) {
+function AdminUserListRow({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: AdminUserRow;
+  selected: boolean;
+  onSelect: (address: Address) => void;
+}) {
   return (
-    <div className="admin-list-row wide">
+    <button className={`admin-list-row wide user-row-button${selected ? ' selected' : ''}`} type="button" onClick={() => onSelect(row.address)}>
       <div className="row-icon"><UserRound size={17} /></div>
       <div>
         <strong>{shortAddress(row.address)}</strong>
@@ -2147,11 +2199,19 @@ function AdminUserListRow({ row }: { row: AdminUserRow }) {
         <span>收益 {token(row.account.rewardBalance)} U</span>
         <span>{row.account.whitelist40 ? '40 代白名单' : row.account.registered ? '已注册' : '未注册'}</span>
       </div>
-    </div>
+    </button>
   );
 }
 
-function AdminUserTree({ rows }: { rows: AdminUserRow[] }) {
+function AdminUserTree({
+  rows,
+  selectedAddress,
+  onSelect,
+}: {
+  rows: AdminUserRow[];
+  selectedAddress?: Address;
+  onSelect: (address: Address) => void;
+}) {
   const tree = useMemo(() => buildUserTree(rows), [rows]);
 
   if (tree.length === 0) {
@@ -2161,21 +2221,34 @@ function AdminUserTree({ rows }: { rows: AdminUserRow[] }) {
   return (
     <div className="user-tree">
       {tree.map((node) => (
-        <AdminUserTreeNode key={node.address} node={node} depth={0} seen={new Set()} />
+        <AdminUserTreeNode key={node.address} node={node} depth={0} seen={new Set()} selectedAddress={selectedAddress} onSelect={onSelect} />
       ))}
     </div>
   );
 }
 
-function AdminUserTreeNode({ node, depth, seen }: { node: UserTreeNode; depth: number; seen: Set<string> }) {
+function AdminUserTreeNode({
+  node,
+  depth,
+  seen,
+  selectedAddress,
+  onSelect,
+}: {
+  node: UserTreeNode;
+  depth: number;
+  seen: Set<string>;
+  selectedAddress?: Address;
+  onSelect: (address: Address) => void;
+}) {
   const key = node.address.toLowerCase();
   const cyclic = seen.has(key);
   const nextSeen = new Set(seen);
   nextSeen.add(key);
+  const selected = selectedAddress?.toLowerCase() === key;
 
   return (
     <div className="user-tree-node">
-      <div className="user-tree-row" style={{ paddingLeft: depth * 18 }}>
+      <button className={`user-tree-row user-tree-row-button${selected ? ' selected' : ''}`} type="button" style={{ paddingLeft: depth * 18 }} onClick={() => onSelect(node.address)}>
         <div className="row-icon"><Users size={17} /></div>
         <div>
           <strong>{shortAddress(node.address)}</strong>
@@ -2187,15 +2260,150 @@ function AdminUserTreeNode({ node, depth, seen }: { node: UserTreeNode; depth: n
           <span>动态 {token(node.account.totalDynamicReward)} U</span>
           {cyclic && <span className="amount-muted">循环引用</span>}
         </div>
-      </div>
+      </button>
       {!cyclic && node.children.length > 0 && (
         <div className="user-tree-children">
           {node.children.map((child) => (
-            <AdminUserTreeNode key={`${node.address}-${child.address}`} node={child} depth={depth + 1} seen={nextSeen} />
+            <AdminUserTreeNode
+              key={`${node.address}-${child.address}`}
+              node={child}
+              depth={depth + 1}
+              seen={nextSeen}
+              selectedAddress={selectedAddress}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function AdminUserDetailPanel({
+  row,
+  currentLocalDay,
+  onSelect,
+}: {
+  row?: AdminUserRow;
+  currentLocalDay: bigint;
+  onSelect: (address: Address) => void;
+}) {
+  const address = row?.address ?? zeroAddress;
+  const enabled = Boolean(row && address !== zeroAddress);
+  const orders = useUserOrders(address, enabled);
+  const referrals = useDirectReferralRows(address, currentLocalDay, enabled);
+  const teamSummary = useTeamSummary(address, enabled);
+  const latestPrincipalOrders = useMemo(() => [...orders.principalOrders].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2), [orders.principalOrders]);
+  const latestStakeOrders = useMemo(() => [...orders.stakeOrders].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2), [orders.stakeOrders]);
+  const latestWithdrawalRequests = useMemo(
+    () => [...orders.withdrawalRequests].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2),
+    [orders.withdrawalRequests],
+  );
+
+  if (!row) {
+    return (
+      <section className="admin-panel user-detail-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">User Detail</p>
+            <h2>用户详细信息</h2>
+          </div>
+          <span className="status-chip">未选择</span>
+        </div>
+        <EmptyState title="请选择用户" detail="从用户列表或关系树点击钱包地址后，会在这里回显链上明细。" />
+      </section>
+    );
+  }
+
+  const account = row.account;
+  const accountStatus = account.whitelist40 ? '40 代白名单' : account.registered ? '已注册' : '未注册';
+
+  return (
+    <section className="admin-panel user-detail-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">User Detail</p>
+          <h2>用户详细信息</h2>
+        </div>
+        <span className="status-chip">{accountStatus}</span>
+      </div>
+
+      <div className="user-detail-address">
+        <div>
+          <strong>{row.address}</strong>
+          <small>上级 {account.referrer === zeroAddress ? '未绑定' : shortAddress(account.referrer)} / 直推 {account.directCount.toString()} 人</small>
+        </div>
+        <a href={`https://testnet.bscscan.com/address/${row.address}`} target="_blank" rel="noreferrer">BscScan</a>
+      </div>
+
+      <div className="settlement-stats user-detail-stats">
+        <InfoLine label="本金余额" value={`${token(account.principalBalance)} U`} />
+        <InfoLine label="带单中本金" value={`${token(account.principalStaked)} U`} />
+        <InfoLine label="收益余额" value={`${token(account.rewardBalance)} U`} />
+        <InfoLine label="累计入金" value={`${token(account.totalDeposited)} U`} />
+        <InfoLine label="累计带单" value={`${token(account.totalStaked)} U`} />
+        <InfoLine label="累计提现" value={`${token(account.totalWithdrawn)} U`} />
+        <InfoLine label="静态收益" value={`${token(account.totalStaticReward)} U`} />
+        <InfoLine label="动态收益" value={`${token(account.totalDynamicReward)} U`} />
+        <InfoLine label="团队人数" value={teamSummary.isLoading ? '读取中' : `${teamSummary.data?.totalMembers ?? 0} 人`} />
+        <InfoLine label="团队入金" value={teamSummary.isLoading ? '读取中' : `${token(teamSummary.data?.totalDeposited ?? 0n)} U`} />
+        <InfoLine label="本金订单" value={`${orders.principalOrders.length} 笔`} />
+        <InfoLine label="带单订单" value={`${orders.stakeOrders.length} 笔`} />
+      </div>
+
+      <section className="user-detail-section">
+        <div className="section-title compact-title">
+          <h3>直推用户</h3>
+          <span>{referrals.rows.length} 人</span>
+        </div>
+        <div className="list-stack">
+          {referrals.rows.length > 0 ? (
+            referrals.rows.map((item) => <DirectReferralListRow key={item.address} item={item} onSelect={onSelect} />)
+          ) : (
+            <EmptyState title="暂无直推用户" detail="该用户当前没有链上直推记录。" />
+          )}
+        </div>
+      </section>
+
+      <section className="user-detail-section">
+        <div className="section-title compact-title">
+          <h3>最近订单</h3>
+          <span>{orders.isLoading ? '读取中' : `${orders.principalOrders.length + orders.stakeOrders.length + orders.withdrawalRequests.length} 笔`}</span>
+        </div>
+        <div className="list-stack">
+          {latestPrincipalOrders.map((order) => (
+            <OrderRow
+              key={`principal-${order.id.toString()}`}
+              label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
+              amount={order.amount}
+              status={principalStatusLabel(order)}
+              time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
+            />
+          ))}
+          {latestStakeOrders.map((order) => (
+            <OrderRow
+              key={`stake-${order.id.toString()}`}
+              label={`带单订单 #${order.id.toString()}`}
+              amount={order.amount}
+              status={stakeStatusLabel(order)}
+              time={`${sessionLabel(order.session)} / 收益 ${token(order.reward)} U / 结算 ${dateTime(order.settleAt)}`}
+            />
+          ))}
+          {latestWithdrawalRequests.map((request) => (
+            <OrderRow
+              key={`withdrawal-${request.id.toString()}`}
+              label={`提现申请 #${request.id.toString()}`}
+              amount={request.amount}
+              status={withdrawalStatusLabel(request)}
+              time={`到账 ${token(request.netAmount)} U / 申请 ${dateTime(request.requestedAt)}`}
+            />
+          ))}
+          {latestPrincipalOrders.length + latestStakeOrders.length + latestWithdrawalRequests.length === 0 && (
+            <EmptyState title="暂无订单记录" detail="该用户暂未产生本金、带单或提现申请。" />
+          )}
+        </div>
+      </section>
+    </section>
   );
 }
 
@@ -3357,12 +3565,13 @@ function useChainEvents(eventNames: readonly string[]) {
   });
 }
 
-function useAdminUsers(extraAddress?: Address) {
+function useAdminUsers(extraAddress?: Address | readonly Address[]) {
   const events = useChainEvents(['UserRegistered']);
+  const extraAddresses = useMemo(() => (Array.isArray(extraAddress) ? extraAddress : extraAddress ? [extraAddress] : []), [extraAddress]);
   const addresses = useMemo(() => {
     const eventAddresses = (events.data ?? []).map((event) => event.args.user as Address | undefined);
-    return uniqueAddresses(extraAddress ? [extraAddress, ...eventAddresses] : eventAddresses);
-  }, [events.data, extraAddress]);
+    return uniqueAddresses([...extraAddresses, ...eventAddresses]);
+  }, [events.data, extraAddresses]);
 
   const userContracts = useMemo(
     () =>
@@ -3706,9 +3915,9 @@ function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
   );
 }
 
-function DirectReferralListRow({ item }: { item: DirectReferralRow }) {
-  return (
-    <div className="list-row">
+function DirectReferralListRow({ item, onSelect }: { item: DirectReferralRow; onSelect?: (address: Address) => void }) {
+  const content = (
+    <>
       <div className="row-icon"><Users size={17} /></div>
       <div>
         <strong>{shortAddress(item.address)}</strong>
@@ -3717,6 +3926,20 @@ function DirectReferralListRow({ item }: { item: DirectReferralRow }) {
       <span className={item.isValidToday ? 'amount-positive' : 'amount-muted'}>
         {item.isValidToday ? '今日有效' : '未达标'}
       </span>
+    </>
+  );
+
+  if (onSelect) {
+    return (
+      <button className="list-row referral-row-button" type="button" onClick={() => onSelect(item.address)}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="list-row">
+      {content}
     </div>
   );
 }
