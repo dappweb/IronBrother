@@ -249,6 +249,8 @@ const SESSION_STATUS_REFETCH_MS = 30_000;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
+const PRODUCT_TITLE_ZH = '原力';
+const PRODUCT_TITLE_EN = 'CrudeTrust';
 const PRODUCT_BRAND = '原力 CrudeTrust';
 const LANGUAGE_STORAGE_KEY = 'crudetrust.locale';
 const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
@@ -710,6 +712,10 @@ function initialLocale(): LocaleKey {
   } catch {
     return DEFAULT_LOCALE;
   }
+}
+
+function productTitleForLocale(locale: LocaleKey) {
+  return locale === 'zh-CN' || locale === 'zh-TW' ? PRODUCT_TITLE_ZH : PRODUCT_TITLE_EN;
 }
 
 function urlReferrer(): Address | undefined {
@@ -1585,6 +1591,7 @@ function CustomerApp() {
   const data = useIronBrotherData();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const copy = LOCALE_COPY[locale];
+  const productTitle = productTitleForLocale(locale);
   const effectiveReferrer = useMemo(() => {
     if (!promotionReferrer) return data.defaultReferrer;
     if (address && promotionReferrer.toLowerCase() === address.toLowerCase()) return data.defaultReferrer;
@@ -1617,8 +1624,7 @@ function CustomerApp() {
       <header className="mobile-frame top-frame">
         <div className="topbar">
           <div>
-            <p className="eyebrow">{PRODUCT_BRAND}</p>
-            <h1>{copy.shell.greeting}, {shortAddress(address)}</h1>
+            <h1>{productTitle}</h1>
           </div>
           <div className="topbar-actions">
             <TopLanguageSwitcher locale={locale} copy={copy} onChange={setLocale} />
