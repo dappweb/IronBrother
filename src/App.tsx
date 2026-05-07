@@ -1303,6 +1303,7 @@ function useIronBrotherData() {
     teamSummary: teamSummary.data ?? emptyTeamSummary,
     isTeamSummaryLoading: teamSummary.isLoading,
     isAccountLoading: userQuery.isLoading,
+    isSessionLoading: sessionQuery.isLoading,
     isDefaultReferrerLoading: defaultReferrerQuery.isLoading,
   };
 }
@@ -1669,6 +1670,26 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
   }, [amount]);
   const estimatedReward = (parsedAmount * data.yieldBps) / 10_000n;
   const sessionSettleLabel = data.sessionSettleAt > 0n ? dateTime(data.sessionSettleAt) : '未开放';
+  const stakingWindowOpen = data.currentSession === 1 || data.currentSession === 2;
+  const sessionGuardMessage = data.isSessionLoading
+    ? '正在读取链上场次，请稍候。'
+    : stakingWindowOpen
+      ? ''
+      : '当前场次未开放，请等待下一场开启。';
+  const stakeDisabled = disabled || !stakingWindowOpen || data.isSessionLoading || parsedAmount <= 0n;
+
+  function submitStake() {
+    if (stakeDisabled) return;
+
+    runTx('确认带单', () =>
+      writeContractAsync({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'stake',
+        args: [parsedAmount],
+      }),
+    );
+  }
 
   return (
     <section className="screen-stack">
@@ -1691,20 +1712,13 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
 
         <button
           className="primary-button"
-          disabled={disabled || parsedAmount <= 0n}
-          onClick={() =>
-            runTx('确认带单', () =>
-              writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'stake',
-                args: [parsedAmount],
-              }),
-            )
-          }
+          type="button"
+          disabled={stakeDisabled}
+          onClick={submitStake}
         >
           确认带单
         </button>
+        {sessionGuardMessage && <p className="field-error">{sessionGuardMessage}</p>}
         <TxStatus tx={tx} />
       </section>
 
