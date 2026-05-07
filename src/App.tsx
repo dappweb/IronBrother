@@ -296,7 +296,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     },
     session: { morning: '上午场', afternoon: '下午场', closed: '休息中', canStake: '可带单', pending: '待开放' },
     order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算' },
-    status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁定中', settled: '已结算', settleable: '可结算', pending: '待结算' },
+    status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁仓中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
   'zh-TW': {
     nav: { home: '首頁', stake: '帶單', wallet: '錢包', team: '團隊', profile: '我的' },
@@ -327,7 +327,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     },
     session: { morning: '上午場', afternoon: '下午場', closed: '休息中', canStake: '可帶單', pending: '待開放' },
     order: { deposit: '入金訂單', reinvest: '複投訂單', stake: '帶單訂單', unlock: '解鎖', settle: '結算' },
-    status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖定中', settled: '已結算', settleable: '可結算', pending: '待結算' },
+    status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖倉中', settled: '已結算', settleable: '可結算', pending: '待結算' },
   },
   en: {
     nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
@@ -675,7 +675,7 @@ function principalSourceLabel(source: number) {
 
 function principalStatusLabel(order: PrincipalOrderData) {
   if (order.status === 1) return '已赎回';
-  return BigInt(Math.floor(Date.now() / 1000)) >= order.unlockAt ? '可赎回' : '锁定中';
+  return BigInt(Math.floor(Date.now() / 1000)) >= order.unlockAt ? '可赎回' : '锁仓中';
 }
 
 function stakeStatusLabel(order: StakeOrderData) {
