@@ -1781,9 +1781,7 @@ function HomeScreen({
       createdAt: order.createdAt,
     }));
 
-    return [...principal, ...stakes]
-      .sort((a, b) => Number(b.createdAt - a.createdAt))
-      .slice(0, 5);
+    return [...principal, ...stakes].sort((a, b) => Number(b.createdAt - a.createdAt));
   }, [copy, data.principalOrders, data.stakeOrders, nowSeconds]);
 
   return (
