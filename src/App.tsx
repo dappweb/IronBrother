@@ -713,9 +713,45 @@ function dynamicRewardDetailFromHistory(row: unknown, upline: Address, historyIn
   };
 }
 
-function localDayLabel(day: bigint) {
-  const startAt = day * BigInt(SECONDS_PER_DAY) - BigInt(EAST8_TIMEZONE_SECONDS);
-  return dateTime(startAt);
+function chineseDateLabel(timestampSeconds: bigint) {
+  const timestampMs = Number(timestampSeconds) * 1000;
+  if (!Number.isFinite(timestampMs)) return '--';
+
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Shanghai',
+  }).formatToParts(new Date(timestampMs));
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  return year && month && day ? `${year}年${month}月${day}日` : '--';
+}
+
+function effectiveSettlementCycle(day: bigint, settlementCycle: bigint) {
+  if (day <= 0n) return 0n;
+  const fallbackCycle = settlementCycle > 0n ? settlementCycle : BigInt(SECONDS_PER_DAY);
+  const dailyLocalDay = BigInt(currentUnixSeconds() + EAST8_TIMEZONE_SECONDS) / BigInt(SECONDS_PER_DAY);
+
+  if (fallbackCycle === BigInt(SECONDS_PER_DAY) && dailyLocalDay > 0n && day > dailyLocalDay * 2n) {
+    const inferredCycle = BigInt(currentUnixSeconds() + EAST8_TIMEZONE_SECONDS) / day;
+    if (inferredCycle >= 60n && inferredCycle <= BigInt(SECONDS_PER_DAY)) {
+      return inferredCycle;
+    }
+  }
+
+  return fallbackCycle;
+}
+
+function localDayLabel(day: bigint, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
+  if (day <= 0n) return '--';
+  const cycle = effectiveSettlementCycle(day, settlementCycle);
+  if (cycle <= 0n) return '--';
+  const startAt = day * cycle - BigInt(EAST8_TIMEZONE_SECONDS);
+  if (startAt < 0n) return '--';
+  return chineseDateLabel(startAt);
 }
 
 function recentIds(nextId?: bigint, limit = 40) {
@@ -1468,6 +1504,7 @@ function useIronBrotherData(scope: NavKey = 'home') {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawalApprovalRequired' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'defaultReferrer' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'currentLocalDay' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'settlementCycle' },
     ],
     query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
   });
@@ -1496,6 +1533,7 @@ function useIronBrotherData(scope: NavKey = 'home') {
     withdrawalApprovalRequired: pickBase(11, true),
     defaultReferrer: pickBase(12, zeroAddress),
     currentLocalDay,
+    settlementCycle: pickBase(14, BigInt(SECONDS_PER_DAY)),
     principalOrderIds: orders.principalOrderIds,
     stakeOrderIds: orders.stakeOrderIds,
     withdrawalRequestIds: orders.withdrawalRequestIds,
@@ -2145,7 +2183,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
   const withdrawActionLabel = data.withdrawalApprovalRequired ? '申请提现' : '确认提现';
   const withdrawHelper = data.withdrawalApprovalRequired
     ? <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />，提交后需后台审批打款。</>
-    : <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />，将从合约奖励池即时打款。</>;
+    : <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />。</>;
   const reinvestValidation = reinvestParsed > data.account.rewardBalance ? '复投金额不能超过收益钱包余额。' : '';
   const withdrawValidation =
     withdrawParsed > data.account.rewardBalance
@@ -2228,6 +2266,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
   const details = useDynamicRewardDetails(address);
   const eventTotal = useMemo(() => details.rows.reduce((sum, row) => sum + row.reward, 0n), [details.rows]);
   const latestDetail = details.rows[0];
+  const settlementCycle = data.settlementCycle;
 
   return (
     <section className="screen-stack">
@@ -2243,22 +2282,19 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           <MetricCard label="链上动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="已进入收益钱包" />
           <MetricCard label="已索引明细" value={<MoneyAmount value={eventTotal} />} trend={`${details.rows.length} 条结算明细`} />
         </div>
-        <p className="helper-line">
-          Bot 每日结算上一个 UTC+8 本地日；这里直接读取链上动态奖励 history，展示来源下级、代数、流水和奖励。
-        </p>
       </section>
 
       <section className="panel">
         <div className="section-title">
           <div>
             <p className="eyebrow">Reward details</p>
-            <h2>动态收益细则</h2>
+            <h2>动态收益明细</h2>
           </div>
           <span className="status-chip">{details.isLoading ? '读取中' : details.isError ? '读取失败' : `${details.rows.length} 条`}</span>
         </div>
         <div className="settlement-stats reward-summary-grid">
-          <InfoLine label="当前本地日" value={data.currentLocalDay.toString()} />
-          <InfoLine label="最近结算日" value={latestDetail ? latestDetail.day.toString() : '--'} />
+          <InfoLine label="本地日" value={localDayLabel(data.currentLocalDay, settlementCycle)} />
+          <InfoLine label="最近结算" value={latestDetail ? localDayLabel(latestDetail.day, settlementCycle) : '--'} />
           <InfoLine label="最近来源" value={latestDetail ? shortAddress(latestDetail.source) : '--'} />
           <InfoLine label="最近奖励" value={latestDetail ? <MoneyAmount value={latestDetail.reward} prefix="+" /> : '--'} />
         </div>
@@ -2268,9 +2304,9 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           ) : details.isError ? (
             <EmptyState title="动态明细读取失败" detail="链上动态奖励 history 读取失败，请稍后重试。" />
           ) : details.rows.length > 0 ? (
-            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} />)
+            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} settlementCycle={settlementCycle} />)
           ) : (
-            <EmptyState title="暂无动态收益明细" detail="当下级流水达标并由 bot 完成每日结算后，动态奖励明细会显示在这里。" />
+            <EmptyState title="暂无动态收益明细" />
           )}
         </div>
       </section>
@@ -2278,13 +2314,13 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
   );
 }
 
-function DynamicRewardDetailRow({ detail }: { detail: DynamicRewardDetail }) {
+function DynamicRewardDetailRow({ detail, settlementCycle }: { detail: DynamicRewardDetail; settlementCycle: bigint }) {
   return (
     <div className="admin-list-row reward-detail-row">
       <div className="row-icon"><Gift size={17} /></div>
       <div>
         <strong>来自 {shortAddress(detail.source)} / {detail.generation} 代</strong>
-        <small>本地日 {detail.day.toString()} · {localDayLabel(detail.day)}</small>
+        <small>本地日 {localDayLabel(detail.day, settlementCycle)}</small>
       </div>
       <div className="row-metrics">
         <span>流水 {token(detail.volume)} U</span>
@@ -2298,9 +2334,10 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
   return (
     <section className="screen-stack">
       <section className="panel profile-panel">
-        <div className="avatar-large">{address ? address.slice(2, 4).toUpperCase() : 'IB'}</div>
+        <div className="avatar-large">
+          <img className="avatar-logo" src={PRODUCT_LOGO_SRC} alt={PRODUCT_BRAND} />
+        </div>
         <h2>{shortAddress(address)}</h2>
-        <p>上级 {shortAddress(data.account.referrer)}</p>
       </section>
       <PromotionLinkCard address={address} />
       <section className="panel">
@@ -2335,7 +2372,7 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
         {data.directReferrals.length > 0 ? (
           data.directReferrals.map((item) => <DirectReferralListRow key={item.address} item={item} />)
         ) : (
-          <EmptyState title="暂无直推数据" detail="直推关系由合约 getDirectReferrals 直接读取。" />
+          <EmptyState title="暂无直推数据" />
         )}
       </section>
       <section className="panel">
@@ -2359,6 +2396,7 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
 
 function PromotionLinkCard({ address }: { address?: Address }) {
   const promotionLink = useMemo(() => promotionLinkForAddress(address), [address]);
+  const promotionLinkLabel = address ? `ref=${shortAddress(address)}` : '';
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyStatus =
     copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败，请手动复制' : '分享给新用户绑定推荐关系';
@@ -2381,7 +2419,7 @@ function PromotionLinkCard({ address }: { address?: Address }) {
           <div className="promotion-link-row">
             <div className="promotion-link-content">
               <span>我的推广链接</span>
-              <strong>{promotionLink}</strong>
+              <strong>{promotionLinkLabel}</strong>
             </div>
             <div className="promotion-link-actions">
               <button
@@ -2417,7 +2455,7 @@ function PromotionLinkCard({ address }: { address?: Address }) {
           </p>
         </>
       ) : (
-        <EmptyState title="暂无推广链接" detail="连接钱包后自动生成你的专属推广链接。" />
+        <EmptyState title="暂无推广链接" />
       )}
     </section>
   );
@@ -4704,7 +4742,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
           );
         })
       ) : (
-        <EmptyState title="暂无本金订单" detail="入金和复投后会从 principalOrders(id) 读取显示。" />
+        <EmptyState title="暂无本金订单" />
       )}
       <TxStatus tx={tx} />
     </section>
@@ -4927,11 +4965,11 @@ function EventRow({ event }: { event: ChainEventRecord }) {
   );
 }
 
-function EmptyState({ title, detail }: { title: string; detail: string }) {
+function EmptyState({ title, detail }: { title: string; detail?: string }) {
   return (
     <div className="empty-state">
       <strong>{title}</strong>
-      <span>{detail}</span>
+      {detail ? <span>{detail}</span> : null}
     </div>
   );
 }
