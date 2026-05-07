@@ -219,6 +219,38 @@ describe("IronBrother", function () {
     expect(account.rewardBalance).to.equal(U("2"));
   });
 
+  it("lets a manager bot settle the previous local day in indexed batches", async function () {
+    const { owner, alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextLocalHour(10);
+    const day = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("400"));
+
+    await setNextLocalHour(15);
+    await ironBrother.connect(bob).stake(U("600"));
+
+    await setNextLocalHour(10);
+    const preview = await ironBrother.botSettleDailyDynamicRewards.staticCall(day, 0, 100);
+    expect(preview[0]).to.equal(2n);
+    expect(preview[1]).to.equal(1n);
+    expect(preview[2]).to.equal(U("2"));
+    expect(preview[3]).to.equal(2n);
+    expect(preview[4]).to.equal(true);
+
+    await expect(ironBrother.botSettleDailyDynamicRewards(day, 0, 100))
+      .to.emit(ironBrother, "DynamicRewardBotSettled")
+      .withArgs(owner.address, day, 0n, 2n, 1n, U("2"), 2n, true);
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(U("2"));
+    expect(await ironBrother.dynamicRewardSettled(alice.address, day)).to.equal(true);
+    expect(await ironBrother.dynamicRewardSettled(bob.address, day)).to.equal(true);
+  });
+
   it("allows a registered user without referrer to bind one later", async function () {
     const { alice, bob, carol, ironBrother } = await deployFixture();
 

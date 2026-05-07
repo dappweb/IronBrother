@@ -104,6 +104,20 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'DynamicRewardBotSettled',
+    inputs: [
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'day', type: 'uint256', indexed: true },
+      { name: 'cursor', type: 'uint256', indexed: false },
+      { name: 'processed', type: 'uint256', indexed: false },
+      { name: 'rewardedUsers', type: 'uint256', indexed: false },
+      { name: 'totalReward', type: 'uint256', indexed: false },
+      { name: 'nextCursor', type: 'uint256', indexed: false },
+      { name: 'finished', type: 'bool', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
     name: 'WithdrawalRequested',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
@@ -180,6 +194,13 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'MAX_BOT_SETTLEMENT_BATCH',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
   },
   {
     type: 'function',
@@ -722,6 +743,23 @@ export const ironBrotherAbi = [
       { name: 'day', type: 'uint256' },
     ],
     outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'botSettleDailyDynamicRewards',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'day', type: 'uint256' },
+      { name: 'cursor', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'processed', type: 'uint256' },
+      { name: 'rewardedUsers', type: 'uint256' },
+      { name: 'totalReward', type: 'uint256' },
+      { name: 'nextCursor', type: 'uint256' },
+      { name: 'finished', type: 'bool' },
+    ],
   },
   {
     type: 'function',

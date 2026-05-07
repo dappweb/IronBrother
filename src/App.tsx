@@ -41,8 +41,8 @@ import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
 
-type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
-type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
+type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team' | 'profile';
+type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'withdrawals' | 'team' | 'config' | 'roles';
 type LocaleKey = 'zh-CN' | 'zh-TW' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
@@ -241,6 +241,18 @@ type ChainEventRecord = {
   logIndex: number;
 };
 
+type DynamicRewardDetail = {
+  source: Address;
+  upline: Address;
+  day: bigint;
+  generation: number;
+  volume: bigint;
+  reward: bigint;
+  blockNumber: bigint;
+  transactionHash: Hash;
+  logIndex: number;
+};
+
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 const CONTRACT_ADDRESS = IRONBROTHER_CONTRACT_ADDRESS ?? zeroAddress;
 const EVENT_LOOKBACK_BLOCKS = 200_000n;
@@ -272,7 +284,7 @@ const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
 
 const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
   'zh-CN': {
-    nav: { home: '首页', stake: '带单', wallet: '钱包', team: '团队', profile: '我的' },
+    nav: { home: '首页', stake: '带单', wallet: '钱包', bot: '收益', team: '团队', profile: '我的' },
     shell: {
       greeting: 'Hi',
       contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可启用。',
@@ -303,7 +315,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁仓中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
   'zh-TW': {
-    nav: { home: '首頁', stake: '帶單', wallet: '錢包', team: '團隊', profile: '我的' },
+    nav: { home: '首頁', stake: '帶單', wallet: '錢包', bot: '收益', team: '團隊', profile: '我的' },
     shell: {
       greeting: 'Hi',
       contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可啟用。',
@@ -334,7 +346,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖倉中', settled: '已結算', settleable: '可結算', pending: '待結算' },
   },
   en: {
-    nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
+    nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', bot: 'Rewards', team: 'Team', profile: 'Me' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_CRUDETRUST_CONTRACT_ADDRESS is set.',
@@ -365,7 +377,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: 'Redeemed', redeemable: 'Redeemable', locked: 'Locked', settled: 'Settled', settleable: 'Settleable', pending: 'Pending' },
   },
   ja: {
-    nav: { home: 'ホーム', stake: 'ステーク', wallet: 'ウォレット', team: 'チーム', profile: 'マイ' },
+    nav: { home: 'ホーム', stake: 'ステーク', wallet: 'ウォレット', bot: '報酬', team: 'チーム', profile: 'マイ' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'コントラクトアドレスが未設定のため、オンチェーン読み取りと実取引は利用できません。',
@@ -396,7 +408,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '償還済み', redeemable: '償還可能', locked: 'ロック中', settled: '精算済み', settleable: '精算可能', pending: '精算待ち' },
   },
   ko: {
-    nav: { home: '홈', stake: '스테이킹', wallet: '지갑', team: '팀', profile: '내 정보' },
+    nav: { home: '홈', stake: '스테이킹', wallet: '지갑', bot: '보상', team: '팀', profile: '내 정보' },
     shell: {
       greeting: 'Hi',
       contractMissing: '컨트랙트 주소가 설정되지 않아 온체인 조회와 실제 거래를 사용할 수 없습니다.',
@@ -427,7 +439,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '상환됨', redeemable: '상환 가능', locked: '잠김', settled: '정산됨', settleable: '정산 가능', pending: '정산 대기' },
   },
   vi: {
-    nav: { home: 'Trang chủ', stake: 'Stake', wallet: 'Ví', team: 'Đội nhóm', profile: 'Của tôi' },
+    nav: { home: 'Trang chủ', stake: 'Stake', wallet: 'Ví', bot: 'Thưởng', team: 'Đội nhóm', profile: 'Của tôi' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Chưa cấu hình địa chỉ hợp đồng, tạm thời không thể đọc on-chain hoặc giao dịch thật.',
@@ -458,7 +470,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: 'Đã rút', redeemable: 'Có thể rút', locked: 'Đang khóa', settled: 'Đã quyết toán', settleable: 'Có thể quyết toán', pending: 'Chờ quyết toán' },
   },
   ms: {
-    nav: { home: 'Utama', stake: 'Stake', wallet: 'Dompet', team: 'Pasukan', profile: 'Saya' },
+    nav: { home: 'Utama', stake: 'Stake', wallet: 'Dompet', bot: 'Ganjaran', team: 'Pasukan', profile: 'Saya' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Alamat kontrak belum dikonfigurasi. Bacaan on-chain dan transaksi sebenar belum tersedia.',
@@ -659,6 +671,47 @@ function uniqueAddresses(addresses: readonly (Address | string | undefined)[]) {
     }
   }
   return [...seen.values()];
+}
+
+function eventAddress(value: unknown): Address | undefined {
+  return typeof value === 'string' && isAddress(value) ? (value as Address) : undefined;
+}
+
+function eventBigInt(value: unknown) {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
+  return 0n;
+}
+
+function eventNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'bigint') return Number(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return 0;
+}
+
+function dynamicRewardDetailFromEvent(event: ChainEventRecord): DynamicRewardDetail | undefined {
+  const source = eventAddress(event.args.source);
+  const upline = eventAddress(event.args.upline);
+  if (!source || !upline) return undefined;
+
+  return {
+    source,
+    upline,
+    day: eventBigInt(event.args.day),
+    generation: eventNumber(event.args.generation),
+    volume: eventBigInt(event.args.volume),
+    reward: eventBigInt(event.args.reward),
+    blockNumber: event.blockNumber,
+    transactionHash: event.transactionHash,
+    logIndex: event.logIndex,
+  };
+}
+
+function localDayLabel(day: bigint) {
+  const startAt = day * BigInt(SECONDS_PER_DAY) - BigInt(EAST8_TIMEZONE_SECONDS);
+  return dateTime(startAt);
 }
 
 function recentIds(nextId?: bigint, limit = 40) {
@@ -1653,6 +1706,7 @@ function CustomerApp() {
             suggestedReferrer={effectiveReferrer}
           />
         )}
+        {nav === 'bot' && <BotRewardsScreen address={address} data={data} />}
         {nav === 'team' && <TeamScreen data={data} />}
         {nav === 'profile' && <ProfileScreen address={address} data={data} />}
       </main>
@@ -1661,6 +1715,7 @@ function CustomerApp() {
         <NavButton icon={<Landmark />} label={copy.nav.home} active={nav === 'home'} onClick={() => setNav('home')} />
         <NavButton icon={<Coins />} label={copy.nav.stake} active={nav === 'stake'} onClick={() => setNav('stake')} />
         <NavButton icon={<Wallet />} label={copy.nav.wallet} active={nav === 'wallet'} onClick={() => setNav('wallet')} />
+        <NavButton icon={<Gift />} label={copy.nav.bot} active={nav === 'bot'} onClick={() => setNav('bot')} />
         <NavButton icon={<Users />} label={copy.nav.team} active={nav === 'team'} onClick={() => setNav('team')} />
         <NavButton icon={<UserRound />} label={copy.nav.profile} active={nav === 'profile'} onClick={() => setNav('profile')} />
       </nav>
@@ -2175,6 +2230,75 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
   );
 }
 
+function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
+  const details = useDynamicRewardDetails(address);
+  const eventTotal = useMemo(() => details.rows.reduce((sum, row) => sum + row.reward, 0n), [details.rows]);
+  const latestDetail = details.rows[0];
+
+  return (
+    <section className="screen-stack">
+      <section className="panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Settlement Bot</p>
+            <h2>动态收益</h2>
+          </div>
+          <Gift size={18} />
+        </div>
+        <div className="calc-grid">
+          <MetricCard label="链上动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="已进入收益钱包" />
+          <MetricCard label="已索引明细" value={<MoneyAmount value={eventTotal} />} trend={`${details.rows.length} 条结算明细`} />
+        </div>
+        <p className="helper-line">
+          Bot 每日结算上一个 UTC+8 本地日；这里直接读取链上 DynamicRewardSettled 事件，展示来源下级、代数、流水和奖励。
+        </p>
+      </section>
+
+      <section className="panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Reward details</p>
+            <h2>动态收益细则</h2>
+          </div>
+          <span className="status-chip">{details.isLoading ? '读取中' : `${details.rows.length} 条`}</span>
+        </div>
+        <div className="settlement-stats reward-summary-grid">
+          <InfoLine label="当前本地日" value={data.currentLocalDay.toString()} />
+          <InfoLine label="最近结算日" value={latestDetail ? latestDetail.day.toString() : '--'} />
+          <InfoLine label="最近来源" value={latestDetail ? shortAddress(latestDetail.source) : '--'} />
+          <InfoLine label="最近奖励" value={latestDetail ? <MoneyAmount value={latestDetail.reward} prefix="+" /> : '--'} />
+        </div>
+        <div className="list-stack reward-detail-list">
+          {details.isLoading ? (
+            <EmptyState title="正在读取动态明细" detail="明细来自链上事件日志，确认后会自动出现在这里。" />
+          ) : details.rows.length > 0 ? (
+            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.transactionHash}-${detail.logIndex}`} detail={detail} />)
+          ) : (
+            <EmptyState title="暂无动态收益明细" detail="当下级流水达标并由 bot 完成每日结算后，动态奖励明细会显示在这里。" />
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function DynamicRewardDetailRow({ detail }: { detail: DynamicRewardDetail }) {
+  return (
+    <div className="admin-list-row reward-detail-row">
+      <div className="row-icon"><Gift size={17} /></div>
+      <div>
+        <strong>来自 {shortAddress(detail.source)} / {detail.generation} 代</strong>
+        <small>本地日 {detail.day.toString()} · {localDayLabel(detail.day)} · 区块 {detail.blockNumber.toString()}</small>
+      </div>
+      <div className="row-metrics">
+        <span>流水 {token(detail.volume)} U</span>
+        <span className="amount-positive">+{token(detail.reward)} U</span>
+        <a href={`https://testnet.bscscan.com/tx/${detail.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
+      </div>
+    </div>
+  );
+}
+
 function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
   return (
     <section className="screen-stack">
@@ -2324,6 +2448,7 @@ function AdminConsole() {
     { key: 'principal', label: '本金订单' },
     { key: 'stakes', label: '带单订单' },
     { key: 'rewards', label: '收益流水' },
+    { key: 'withdrawals', label: '提现申请' },
     { key: 'team', label: '团队关系' },
     { key: 'config', label: '合约配置' },
     { key: 'roles', label: '权限管理' },
@@ -2370,7 +2495,8 @@ function AdminConsole() {
         {nav === 'users' && <AdminUsersPage />}
         {nav === 'principal' && <AdminPrincipalOrdersPage />}
         {nav === 'stakes' && <AdminStakeOrdersPage />}
-        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
+        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
+        {nav === 'withdrawals' && <AdminWithdrawalsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
         {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
         {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
         {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
@@ -2790,15 +2916,11 @@ function AdminStakeOrdersPage() {
   );
 }
 
-function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean; canApprove: boolean; runner: ReturnType<typeof useTxRunner> }) {
-  const { address } = useAccount();
+function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
   const [dynamicUser, setDynamicUser] = useState('');
   const [dynamicDay, setDynamicDay] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
   const [stakeIds, setStakeIds] = useState('');
-  const [fundAmount, setFundAmount] = useState('1000');
-  const [contractWithdrawReceiver, setContractWithdrawReceiver] = useState('');
-  const [contractWithdrawAmount, setContractWithdrawAmount] = useState('');
   const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -2817,38 +2939,7 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
   const unsettledStakeOrders = orderBook.stakeOrders.filter((order) => !order.settled);
   const recentStakeVolume = orderBook.stakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const currentDayStakeVolume = currentDayStakeOrders.reduce((sum, order) => sum + order.amount, 0n);
-  const withdrawals = useAdminWithdrawalRequests();
-  const config = useContractConfig();
-  const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
-  const rewardPoolQuery = useReadContract({
-    address: BSC_USDT_ADDRESS,
-    abi: erc20Abi,
-    functionName: 'balanceOf',
-    args: [CONTRACT_ADDRESS],
-    query: { enabled: isContractConfigured },
-  });
-  const rewardPoolBalance = (rewardPoolQuery.data as bigint | undefined) ?? 0n;
-  const fundParsed = useMemo(() => {
-    try {
-      return parseTokenInput(fundAmount);
-    } catch {
-      return 0n;
-    }
-  }, [fundAmount]);
-  const contractWithdrawParsed = useMemo(() => {
-    try {
-      return parseTokenInput(contractWithdrawAmount);
-    } catch {
-      return 0n;
-    }
-  }, [contractWithdrawAmount]);
-  const resolvedContractWithdrawReceiver = contractWithdrawReceiver.trim() || address || '';
-  const canWithdrawContractFunds =
-    canApprove &&
-    contractWithdrawParsed > 0n &&
-    contractWithdrawParsed <= rewardPoolBalance &&
-    isAddress(resolvedContractWithdrawReceiver);
-  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'ContractFundsWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
+  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'DynamicRewardBotSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'ContractFundsWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
     if (!dynamicDay && currentLocalDay > 0n) {
@@ -3017,8 +3108,86 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
       <section className="admin-panel">
         <div className="section-title">
           <div>
+            <p className="eyebrow">Events</p>
+            <h2>收益流水</h2>
+          </div>
+          <span className="status-chip">{events.data?.length ?? 0} 条</span>
+        </div>
+        <div className="list-stack">
+          {(events.data ?? []).length > 0 ? (
+            events.data?.map((event) => <EventRow key={`${event.transactionHash}-${event.logIndex}`} event={event} />)
+          ) : (
+            <EmptyState title="暂无流水事件" detail="流水来自合约事件日志，会按区块倒序读取最近链上记录。" />
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function AdminWithdrawalsPage({
+  canWrite,
+  canApprove,
+  runner,
+}: {
+  canWrite: boolean;
+  canApprove: boolean;
+  runner: ReturnType<typeof useTxRunner>;
+}) {
+  const { address } = useAccount();
+  const [fundAmount, setFundAmount] = useState('1000');
+  const [contractWithdrawReceiver, setContractWithdrawReceiver] = useState('');
+  const [contractWithdrawAmount, setContractWithdrawAmount] = useState('');
+  const withdrawals = useAdminWithdrawalRequests();
+  const config = useContractConfig();
+  const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
+  const sortedRequests = useMemo(
+    () =>
+      [...withdrawals.requests].sort((left, right) => {
+        if (left.status !== right.status) {
+          if (left.status === 0) return -1;
+          if (right.status === 0) return 1;
+        }
+        return compareBigIntDesc(left.id, right.id);
+      }),
+    [withdrawals.requests],
+  );
+  const rewardPoolQuery = useReadContract({
+    address: BSC_USDT_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [CONTRACT_ADDRESS],
+    query: { enabled: isContractConfigured },
+  });
+  const rewardPoolBalance = (rewardPoolQuery.data as bigint | undefined) ?? 0n;
+  const fundParsed = useMemo(() => {
+    try {
+      return parseTokenInput(fundAmount);
+    } catch {
+      return 0n;
+    }
+  }, [fundAmount]);
+  const contractWithdrawParsed = useMemo(() => {
+    try {
+      return parseTokenInput(contractWithdrawAmount);
+    } catch {
+      return 0n;
+    }
+  }, [contractWithdrawAmount]);
+  const resolvedContractWithdrawReceiver = contractWithdrawReceiver.trim() || address || '';
+  const canWithdrawContractFunds =
+    canApprove &&
+    contractWithdrawParsed > 0n &&
+    contractWithdrawParsed <= rewardPoolBalance &&
+    isAddress(resolvedContractWithdrawReceiver);
+
+  return (
+    <section className="screen-stack">
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
             <p className="eyebrow">Withdrawals</p>
-            <h2>提现审批</h2>
+            <h2>提现申请处理</h2>
           </div>
           <span className="status-chip">
             {config.withdrawalApprovalRequired ? `${withdrawals.pendingRequests.length} 待审 / ${token(pendingWithdrawalAmount)} U` : `免审批 / ${withdrawals.pendingRequests.length} 历史待审`}
@@ -3029,6 +3198,22 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
             ? '审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。'
             : '当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。'}
         </p>
+        <div className="settlement-stats">
+          <InfoLine label="提现申请" value={`${withdrawals.requests.length} 笔`} />
+          <InfoLine label="待审申请" value={`${withdrawals.pendingRequests.length} 笔`} />
+          <InfoLine label="待审金额" value={`${token(pendingWithdrawalAmount)} U`} />
+          <InfoLine label="奖励池余额" value={`${token(rewardPoolBalance)} U`} />
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Payout Pool</p>
+            <h2>奖励池与合约出金</h2>
+          </div>
+          <Wallet size={20} />
+        </div>
         <div className="form-grid">
           <label>
             奖励池充值 U
@@ -3100,30 +3285,23 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
           提走合约 USDT
         </button>
         <p className="helper-line">仅 Super Admin 可提走合约奖励池当前持有的 USDT。</p>
-        <div className="list-stack">
-          {withdrawals.requests.length > 0 ? (
-            withdrawals.requests.map((request) => (
-              <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
-            ))
-          ) : (
-            <EmptyState title="暂无提现申请" detail={config.withdrawalApprovalRequired ? '用户提交提现后，会在这里等待 Admin 审批。' : '免审批提现会自动打款并直接显示为已打款记录。'} />
-          )}
-        </div>
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
           <div>
-            <p className="eyebrow">Events</p>
-            <h2>收益流水</h2>
+            <p className="eyebrow">Requests</p>
+            <h2>提现申请列表</h2>
           </div>
-          <span className="status-chip">{events.data?.length ?? 0} 条</span>
+          <span className="status-chip">{withdrawals.isLoading ? '读取中' : `${sortedRequests.length} 笔`}</span>
         </div>
         <div className="list-stack">
-          {(events.data ?? []).length > 0 ? (
-            events.data?.map((event) => <EventRow key={`${event.transactionHash}-${event.logIndex}`} event={event} />)
+          {sortedRequests.length > 0 ? (
+            sortedRequests.map((request) => (
+              <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
+            ))
           ) : (
-            <EmptyState title="暂无流水事件" detail="流水来自合约事件日志，会按区块倒序读取最近链上记录。" />
+            <EmptyState title="暂无提现申请" detail={config.withdrawalApprovalRequired ? '用户提交提现后，会在这里等待 Admin 审批。' : '免审批提现会自动打款并直接显示为已打款记录。'} />
           )}
         </div>
       </section>
@@ -4040,6 +4218,55 @@ function useChainEvents(eventNames: readonly string[], enabled = true) {
   });
 }
 
+function useDynamicRewardDetails(upline?: Address) {
+  const publicClient = usePublicClient();
+
+  const query = useQuery({
+    queryKey: ['dynamicRewardDetails', CONTRACT_ADDRESS, upline],
+    enabled: Boolean(isContractConfigured && publicClient && upline),
+    staleTime: 30_000,
+    refetchInterval: upline ? 60_000 : false,
+    queryFn: async () => {
+      if (!publicClient || !upline) return [] as DynamicRewardDetail[];
+
+      const client = publicClient as unknown as {
+        getBlockNumber: () => Promise<bigint>;
+        getContractEvents: (args: Record<string, unknown>) => Promise<ChainEventRecord[]>;
+      };
+      const latest = await client.getBlockNumber();
+      const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
+      const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
+      const logs: ChainEventRecord[] = [];
+
+      for (let start = fromBlock; start <= latest; start += EVENT_CHUNK_BLOCKS + 1n) {
+        const end = start + EVENT_CHUNK_BLOCKS > latest ? latest : start + EVENT_CHUNK_BLOCKS;
+        const chunk = await client.getContractEvents({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          eventName: 'DynamicRewardSettled',
+          args: { upline },
+          fromBlock: start,
+          toBlock: end,
+        });
+        logs.push(...chunk);
+      }
+
+      return logs
+        .map(dynamicRewardDetailFromEvent)
+        .filter((row): row is DynamicRewardDetail => Boolean(row))
+        .sort((left, right) => {
+          const blockDiff = Number(right.blockNumber - left.blockNumber);
+          return blockDiff === 0 ? right.logIndex - left.logIndex : blockDiff;
+        });
+    },
+  });
+
+  return {
+    rows: query.data ?? [],
+    isLoading: query.isLoading,
+  };
+}
+
 function useAdminUsers(extraAddress?: Address | readonly Address[]) {
   const indexedUsersQuery = useReadContract({
     address: CONTRACT_ADDRESS,
@@ -4638,8 +4865,8 @@ function AdminWithdrawalRequestRow({
 
 function EventRow({ event }: { event: ChainEventRecord }) {
   const args = event.args ?? {};
-  const primaryAddress = (args.user || args.source || args.upline || args.funder) as string | undefined;
-  const amount = (args.amount || args.reward || args.netAmount || args.principal) as bigint | undefined;
+  const primaryAddress = (args.user ?? args.source ?? args.upline ?? args.operator ?? args.funder) as string | undefined;
+  const amount = (args.amount ?? args.reward ?? args.totalReward ?? args.netAmount ?? args.principal) as bigint | undefined;
 
   return (
     <div className="admin-list-row">

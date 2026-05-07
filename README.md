@@ -85,6 +85,17 @@ npm run upgrade:testnet
 
 `REGISTERED_USERS` is optional. Use it after upgrading an existing proxy so `syncRegisteredUsers()` can seed the new on-chain user index used by Admin `getAllUsers()` reads. New registrations are indexed automatically.
 
+Run the daily dynamic reward settlement bot after the UTC+8 local day has closed:
+
+```bash
+set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set PRIVATE_KEY=manager-or-super-admin-private-key
+set IRONBROTHER_PROXY=deployed-proxy-address
+npm run bot:dynamic:settle:testnet
+```
+
+By default the bot settles the previous local day in batches of 50 indexed users. Override `DYNAMIC_SETTLEMENT_DAY`, `DYNAMIC_SETTLEMENT_BATCH_SIZE`, or `DYNAMIC_SETTLEMENT_START_CURSOR` when backfilling or resuming a stopped run. The bot wallet must have `MANAGER_ROLE`.
+
 ## Cloudflare Pages
 
 Cloudflare Pages should build from the repository root. The failed log below means Pages built the old `main` commit that only contained `README.md`, so `/opt/buildhome/repo/package.json` did not exist. Push a full project commit to `main`, then configure two branch environments:
@@ -131,4 +142,4 @@ npm run deploy:pages:test
 
 ## Notes
 
-The smart contract cannot automatically run jobs at 12:00, 17:00, or 00:00. Settlement is exposed as callable on-chain functions. The UI/Admin can trigger settlement transactions after the configured time windows.
+The smart contract cannot automatically run jobs by itself at 12:00, 17:00, or 00:00. Settlement is exposed as callable on-chain functions. The UI/Admin can trigger settlement transactions after the configured time windows, and the dynamic reward bot script can be scheduled by an external cron runner after the local day closes.

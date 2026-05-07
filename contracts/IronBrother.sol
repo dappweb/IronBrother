@@ -15,6 +15,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
     uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
+    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 100;
     int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
@@ -160,6 +161,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     );
     event StakeSettled(address indexed user, uint256 indexed stakeId, uint256 principal, uint256 reward);
     event DynamicRewardSettled(address indexed source, address indexed upline, uint256 day, uint8 generation, uint256 volume, uint256 reward);
+    event DynamicRewardBotSettled(address indexed operator, uint256 indexed day, uint256 cursor, uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished);
     event WithdrawalRequested(address indexed user, uint256 indexed requestId, uint256 amount, uint256 fee, uint256 netAmount);
     event WithdrawalApproved(address indexed user, uint256 indexed requestId, address indexed payer, uint256 amount, uint256 fee, uint256 netAmount);
     event WithdrawalRejected(address indexed user, uint256 indexed requestId, address indexed operator, uint256 amount);
@@ -471,6 +473,46 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         }
     }
 
+    function botSettleDailyDynamicRewards(uint256 day, uint256 cursor, uint256 limit)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyRole(MANAGER_ROLE)
+        returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished)
+    {
+        require(day < currentLocalDay(), "day not closed");
+        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+
+        uint256 userCount = registeredUsers.length;
+        if (cursor >= userCount) {
+            emit DynamicRewardBotSettled(msg.sender, day, cursor, 0, 0, 0, userCount, true);
+            return (0, 0, 0, userCount, true);
+        }
+
+        uint256 end = cursor + limit;
+        if (end > userCount) {
+            end = userCount;
+        }
+
+        for (uint256 i = cursor; i < end; i++) {
+            address account = registeredUsers[i];
+            if (dynamicRewardSettled[account][day]) {
+                continue;
+            }
+
+            uint256 reward = _settleDynamicRewardForUserUnchecked(account, day);
+            processed += 1;
+            if (reward > 0) {
+                rewardedUsers += 1;
+                totalReward += reward;
+            }
+        }
+
+        nextCursor = end;
+        finished = nextCursor >= userCount;
+        emit DynamicRewardBotSettled(msg.sender, day, cursor, processed, rewardedUsers, totalReward, nextCursor, finished);
+    }
+
     function availablePrincipal(address user) public view returns (uint256) {
         UserAccount storage account = users[user];
         uint256 blocked = account.principalStaked + maturedUnredeemedPrincipal(user);
@@ -725,14 +767,18 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit StakeSettled(stakeOrder.user, stakeId, stakeOrder.amount, stakeOrder.reward);
     }
 
-    function _settleDynamicRewardForUser(address user, uint256 day) internal whenNotPaused {
+    function _settleDynamicRewardForUser(address user, uint256 day) internal whenNotPaused returns (uint256 totalReward) {
         require(day < currentLocalDay(), "day not closed");
         require(!dynamicRewardSettled[user][day], "dynamic settled");
 
+        return _settleDynamicRewardForUserUnchecked(user, day);
+    }
+
+    function _settleDynamicRewardForUserUnchecked(address user, uint256 day) internal returns (uint256 totalReward) {
         dynamicRewardSettled[user][day] = true;
         uint256 volume = dailyStakeVolume[user][day];
         if (volume < validVolumeThreshold) {
-            return;
+            return 0;
         }
 
         address upline = users[user].referrer;
@@ -744,6 +790,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
                     users[upline].totalDynamicReward += reward;
                     totalRewardBalance += reward;
                     totalDynamicRewardCredited += reward;
+                    totalReward += reward;
                     emit DynamicRewardSettled(user, upline, day, generation, volume, reward);
                 }
             }

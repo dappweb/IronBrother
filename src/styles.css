@@ -565,6 +565,23 @@ a {
   grid-template-columns: auto minmax(0, 1fr) minmax(320px, auto);
 }
 
+.reward-detail-row {
+  grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto);
+}
+
+.reward-detail-row strong,
+.reward-detail-row small {
+  overflow-wrap: anywhere;
+}
+
+.reward-detail-list {
+  margin-top: 12px;
+}
+
+.reward-summary-grid {
+  margin-bottom: 12px;
+}
+
 .admin-users-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
@@ -1010,7 +1027,7 @@ input {
   border-radius: 20px 20px 28px 28px;
   padding: 10px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
   position: fixed;
   left: 50%;
