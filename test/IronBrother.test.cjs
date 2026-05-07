@@ -98,6 +98,25 @@ describe("IronBrother", function () {
     expect((await ironBrother.users(bob.address)).directCount).to.equal(0);
   });
 
+  it("indexes registered users for admin reads", async function () {
+    const { owner, alice, bob, carol, ironBrother } = await deployFixture();
+
+    await ironBrother.connect(alice).deposit(U("200"), ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("300"), alice.address);
+
+    expect(await ironBrother.getAllUsers()).to.deep.equal([owner.address, alice.address, bob.address]);
+
+    const aliceAccount = await ironBrother.users(alice.address);
+    const bobAccount = await ironBrother.users(bob.address);
+    expect(aliceAccount.totalDeposited).to.equal(U("200"));
+    expect(aliceAccount.directCount).to.equal(1);
+    expect(bobAccount.referrer).to.equal(alice.address);
+
+    await ironBrother.syncRegisteredUsers([owner.address, alice.address]);
+    expect(await ironBrother.getAllUsers()).to.deep.equal([owner.address, alice.address, bob.address]);
+    await expect(ironBrother.syncRegisteredUsers([carol.address])).to.be.revertedWith("not registered");
+  });
+
   it("transfers owner permissions and default referrer to a new owner", async function () {
     const { owner, alice, ironBrother } = await deployFixture();
     const adminRole = await ironBrother.DEFAULT_ADMIN_ROLE();
@@ -221,6 +240,7 @@ describe("IronBrother", function () {
   it("requires admin approval to pay a reward withdrawal with fee", async function () {
     const { owner, alice, feeReceiver, usdt, ironBrother } = await deployFixture();
 
+    expect(await ironBrother.withdrawalApprovalRequired()).to.equal(true);
     await ironBrother.setYieldBps(500);
     await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await setNextLocalHour(10);
@@ -243,5 +263,38 @@ describe("IronBrother", function () {
     expect(await usdt.balanceOf(alice.address)).to.equal(U("9040"));
     expect(await ironBrother.totalPendingWithdrawalAmount()).to.equal(0);
     expect((await ironBrother.withdrawalRequests(1)).status).to.equal(1);
+  });
+
+  it("can disable withdrawal approval and pay from the contract reward pool", async function () {
+    const { alice, feeReceiver, usdt, ironBrother } = await deployFixture();
+
+    await ironBrother.setYieldBps(500);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
+    await setNextLocalHour(10);
+    await ironBrother.connect(alice).stake(U("1000"));
+    await setNextLocalHour(12);
+    await ironBrother.settleStake(1);
+
+    await expect(ironBrother.setWithdrawalApprovalRequired(false)).to.emit(ironBrother, "ConfigUpdated");
+    expect(await ironBrother.withdrawalApprovalRequired()).to.equal(false);
+    await expect(ironBrother.connect(alice).requestWithdrawRewards(U("50"))).to.be.revertedWith("insufficient payout balance");
+
+    await ironBrother.fundRewards(U("50"));
+    const contractAddress = await ironBrother.getAddress();
+    const withdrawal = await ironBrother.connect(alice).requestWithdrawRewards(U("50"));
+    await expect(withdrawal)
+      .to.emit(ironBrother, "WithdrawalRequested")
+      .withArgs(alice.address, 1, U("50"), U("10"), U("40"));
+    await expect(withdrawal)
+      .to.emit(ironBrother, "WithdrawalApproved")
+      .withArgs(alice.address, 1, contractAddress, U("50"), U("10"), U("40"));
+
+    const request = await ironBrother.withdrawalRequests(1);
+    expect(request.status).to.equal(1);
+    expect(request.payer).to.equal(contractAddress);
+    expect(await ironBrother.totalPendingWithdrawalAmount()).to.equal(0);
+    expect(await usdt.balanceOf(contractAddress)).to.equal(0);
+    expect(await usdt.balanceOf(feeReceiver.address)).to.equal(U("10"));
+    expect(await usdt.balanceOf(alice.address)).to.equal(U("9040"));
   });
 });

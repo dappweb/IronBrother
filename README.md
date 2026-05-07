@@ -78,8 +78,11 @@ set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 set PRIVATE_KEY=your-upgrader-private-key
 set IRONBROTHER_PROXY=deployed-proxy-address
 set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
+set REGISTERED_USERS=user1,user2,user3
 npm run upgrade:testnet
 ```
+
+`REGISTERED_USERS` is optional. Use it after upgrading an existing proxy so `syncRegisteredUsers()` can seed the new on-chain user index used by Admin `getAllUsers()` reads. New registrations are indexed automatically.
 
 ## Cloudflare Pages
 

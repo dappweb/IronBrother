@@ -9,6 +9,11 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'UserIndexed',
+    inputs: [{ name: 'user', type: 'address', indexed: true }],
+  },
+  {
+    type: 'event',
     name: 'DefaultReferrerUpdated',
     inputs: [{ name: 'defaultReferrer', type: 'address', indexed: true }],
   },
@@ -132,6 +137,14 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'RewardsFunded',
+    inputs: [
+      { name: 'funder', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
     name: 'Whitelist40Updated',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
@@ -237,6 +250,20 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalApprovalDisabled',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalApprovalRequired',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
   },
   {
     type: 'function',
@@ -514,6 +541,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'getAllUsers',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address[]' }],
+  },
+  {
+    type: 'function',
     name: 'getDepositReceivers',
     stateMutability: 'view',
     inputs: [],
@@ -631,6 +665,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'fundRewards',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'approveWithdrawal',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'requestId', type: 'uint256' }],
@@ -661,6 +702,13 @@ export const ironBrotherAbi = [
       { name: 'userList', type: 'address[]' },
       { name: 'day', type: 'uint256' },
     ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'syncRegisteredUsers',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'accountList', type: 'address[]' }],
     outputs: [],
   },
   {
@@ -703,6 +751,13 @@ export const ironBrotherAbi = [
     name: 'setWithdrawFee',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newWithdrawFee', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setWithdrawalApprovalRequired',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'required', type: 'bool' }],
     outputs: [],
   },
   {

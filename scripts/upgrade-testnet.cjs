@@ -16,6 +16,18 @@ function parseDepositReceivers(value, fallback) {
   return resolved;
 }
 
+function parseAddressList(value, name) {
+  const addresses = value
+    ? value.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean)
+    : [];
+  for (const address of addresses) {
+    if (!hre.ethers.isAddress(address)) {
+      throw new Error(`Invalid ${name}: ${address}`);
+    }
+  }
+  return addresses;
+}
+
 async function main() {
   const proxyAddress = process.env.IRONBROTHER_PROXY;
   if (!proxyAddress) {
@@ -40,11 +52,19 @@ async function main() {
   const receiverTx = await upgraded.setDepositReceivers(depositReceivers);
   await receiverTx.wait();
 
+  const registeredUsers = parseAddressList(process.env.REGISTERED_USERS, "registered user");
+  for (let start = 0; start < registeredUsers.length; start += 100) {
+    const batch = registeredUsers.slice(start, start + 100);
+    const tx = await upgraded.syncRegisteredUsers(batch);
+    await tx.wait();
+  }
+
   const implementation = await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
   console.log("IronBrother proxy upgraded:", proxyAddress);
   console.log("New implementation:", implementation);
   console.log("Default referrer:", await upgraded.defaultReferrer());
   console.log("Deposit receivers:", (await upgraded.getDepositReceivers()).join(", "));
+  console.log("Synced registered users:", registeredUsers.length);
 }
 
 main().catch((error) => {

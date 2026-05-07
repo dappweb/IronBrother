@@ -7,9 +7,11 @@ import {
   ChevronDown,
   Clock3,
   Coins,
+  Copy,
   Gift,
   Landmark,
   Languages,
+  Link2,
   LockKeyhole,
   PauseCircle,
   Repeat2,
@@ -41,7 +43,7 @@ import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, tok
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'team' | 'profile';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'team' | 'config' | 'roles';
-type LocaleKey = 'zh-CN' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
+type LocaleKey = 'zh-CN' | 'zh-TW' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
 
@@ -59,6 +61,8 @@ type LocaleCopy = {
   home: {
     principalWallet: string;
     availableStake: string;
+    totalPrincipal: string;
+    stakedPrincipal: string;
     rewardWallet: string;
     todaysYield: string;
     perTime: string;
@@ -246,12 +250,15 @@ const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
 const LANGUAGE_STORAGE_KEY = 'ironbrother.locale';
 const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
+const PROMOTION_REFERRER_PARAM = 'ref';
+const TOKEN_SYMBOL = 'USDT';
 const TEAM_SUMMARY_MAX_DEPTH = 40;
 const TX_GAS_BUFFER_BPS = 12_000n;
 const DEFAULT_TX_ERROR = '交易失败，请检查钱包、余额和链上状态后重试。';
 
 const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
   { key: 'zh-CN', label: '简体中文' },
+  { key: 'zh-TW', label: '繁體中文' },
   { key: 'en', label: 'English' },
   { key: 'ja', label: '日本語' },
   { key: 'ko', label: '한국어' },
@@ -271,6 +278,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: '本金钱包',
       availableStake: '可带单',
+      totalPrincipal: '总本金',
+      stakedPrincipal: '带单中',
       rewardWallet: '收益钱包',
       todaysYield: '今日收益率',
       perTime: '次',
@@ -289,6 +298,37 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算' },
     status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁定中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
+  'zh-TW': {
+    nav: { home: '首頁', stake: '帶單', wallet: '錢包', team: '團隊', profile: '我的' },
+    shell: {
+      greeting: 'Hi',
+      contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可啟用。',
+      switchNetwork: '切換到 BSC Testnet',
+    },
+    language: { eyebrow: 'Language', title: '語言切換' },
+    home: {
+      principalWallet: '本金錢包',
+      availableStake: '可帶單',
+      totalPrincipal: '總本金',
+      stakedPrincipal: '帶單中',
+      rewardWallet: '收益錢包',
+      todaysYield: '今日收益率',
+      perTime: '次',
+      maturedUnredeemed: '到期未贖回',
+      maturedTrend: '到期訂單需手動贖回',
+      actions: { deposit: '入金', stake: '帶單', reinvest: '複投', withdraw: '提現' },
+      chainTimeEyebrow: 'UTC+8 鏈上時間',
+      stakingSessions: '帶單場次',
+      perWalletPerSession: '每錢包每場 1 單',
+      latestOrders: '最新訂單',
+      orderUnit: '筆',
+      noOrdersTitle: '暫無訂單',
+      noOrdersDetail: '連接錢包後，將直接讀取該地址的本金訂單和帶單訂單。',
+    },
+    session: { morning: '上午場', afternoon: '下午場', closed: '休息中', canStake: '可帶單', pending: '待開放' },
+    order: { deposit: '入金訂單', reinvest: '複投訂單', stake: '帶單訂單', unlock: '解鎖', settle: '結算' },
+    status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖定中', settled: '已結算', settleable: '可結算', pending: '待結算' },
+  },
   en: {
     nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
     shell: {
@@ -300,6 +340,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: 'Principal Wallet',
       availableStake: 'Stakeable',
+      totalPrincipal: 'Total principal',
+      stakedPrincipal: 'In stake',
       rewardWallet: 'Reward Wallet',
       todaysYield: 'Today yield',
       perTime: 'time',
@@ -329,6 +371,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: '元本ウォレット',
       availableStake: 'ステーク可能',
+      totalPrincipal: '元本合計',
+      stakedPrincipal: 'ステーク中',
       rewardWallet: '報酬ウォレット',
       todaysYield: '本日の利回り',
       perTime: '回',
@@ -358,6 +402,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: '원금 지갑',
       availableStake: '스테이킹 가능',
+      totalPrincipal: '총 원금',
+      stakedPrincipal: '스테이킹 중',
       rewardWallet: '보상 지갑',
       todaysYield: '오늘 수익률',
       perTime: '회',
@@ -387,6 +433,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: 'Ví gốc',
       availableStake: 'Có thể stake',
+      totalPrincipal: 'Tổng gốc',
+      stakedPrincipal: 'Đang stake',
       rewardWallet: 'Ví thưởng',
       todaysYield: 'Lợi suất hôm nay',
       perTime: 'lần',
@@ -416,6 +464,8 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     home: {
       principalWallet: 'Dompet Prinsipal',
       availableStake: 'Boleh stake',
+      totalPrincipal: 'Jumlah prinsipal',
+      stakedPrincipal: 'Sedang stake',
       rewardWallet: 'Dompet Ganjaran',
       todaysYield: 'Hasil hari ini',
       perTime: 'kali',
@@ -453,6 +503,7 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['not registered', '当前钱包尚未注册，请先完成入金或注册。'],
   ['insufficient reward balance', '收益钱包余额不足。'],
   ['amount must exceed fee', '提现金额必须大于手续费。'],
+  ['insufficient payout balance', '合约奖励池余额不足，暂不能免审批自动打款。请联系 Admin 补充奖励池或开启审批。'],
   ['amount required', '请输入大于 0 的金额。'],
   ['account required', '请输入有效的钱包地址。'],
   ['cannot remove self', '不能移除当前登录钱包自己的管理员权限。'],
@@ -659,6 +710,48 @@ function initialLocale(): LocaleKey {
   }
 }
 
+function urlReferrer(): Address | undefined {
+  if (typeof window === 'undefined') return undefined;
+
+  const params = new URLSearchParams(window.location.search);
+  const referrer = params.get(PROMOTION_REFERRER_PARAM) ?? params.get('referrer');
+
+  return referrer && isAddress(referrer) && referrer !== zeroAddress ? (referrer as Address) : undefined;
+}
+
+function promotionLinkForAddress(address?: Address) {
+  if (!address || typeof window === 'undefined') return '';
+
+  const url = new URL(window.location.href);
+  if (url.pathname.startsWith('/admin')) {
+    url.pathname = '/';
+  }
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set(PROMOTION_REFERRER_PARAM, address);
+  return url.toString();
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+
+  if (!copied) {
+    throw new Error('Copy failed');
+  }
+}
+
 function sessionLabelForLocale(session: number, copy: LocaleCopy) {
   if (session === 1) return copy.session.morning;
   if (session === 2) return copy.session.afternoon;
@@ -669,14 +762,49 @@ function principalSourceLabelForLocale(source: number, copy: LocaleCopy) {
   return source === 1 ? copy.order.reinvest : copy.order.deposit;
 }
 
-function principalStatusLabelForLocale(order: PrincipalOrderData, copy: LocaleCopy) {
-  if (order.status === 1) return copy.status.redeemed;
-  return BigInt(Math.floor(Date.now() / 1000)) >= order.unlockAt ? copy.status.redeemable : copy.status.locked;
+function currentUnixSeconds() {
+  return Math.floor(Date.now() / 1000);
 }
 
-function stakeStatusLabelForLocale(order: StakeOrderData, copy: LocaleCopy) {
+function formatCountdown(targetAt: bigint, nowSeconds: number) {
+  const remaining = Math.max(0, Number(targetAt - BigInt(nowSeconds)));
+  const days = Math.floor(remaining / SECONDS_PER_DAY);
+  const hours = Math.floor((remaining % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
+  const minutes = Math.floor((remaining % SECONDS_PER_HOUR) / 60);
+  const seconds = remaining % 60;
+  const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
+
+  return `${days}天 ${clock}`;
+}
+
+function principalStatusLabelForLocale(order: PrincipalOrderData, copy: LocaleCopy, nowSeconds = currentUnixSeconds()) {
+  if (order.status === 1) return copy.status.redeemed;
+  return BigInt(nowSeconds) >= order.unlockAt ? copy.status.redeemable : copy.status.locked;
+}
+
+function stakeStatusLabelForLocale(order: StakeOrderData, copy: LocaleCopy, nowSeconds = currentUnixSeconds()) {
   if (order.settled) return copy.status.settled;
-  return BigInt(Math.floor(Date.now() / 1000)) >= order.settleAt ? copy.status.settleable : copy.status.pending;
+  return BigInt(nowSeconds) >= order.settleAt ? copy.status.settleable : copy.status.pending;
+}
+
+function principalOrderHomeTime(order: PrincipalOrderData, copy: LocaleCopy, nowSeconds: number) {
+  if (order.status === 1) return `${copy.order.unlock} ${dateTime(order.unlockAt)}`;
+  if (BigInt(nowSeconds) < order.unlockAt) return `${copy.order.unlock} ${formatCountdown(order.unlockAt, nowSeconds)}`;
+  return `${copy.status.redeemable} / ${copy.order.unlock} ${dateTime(order.unlockAt)}`;
+}
+
+function useNowSeconds() {
+  const [nowSeconds, setNowSeconds] = useState(currentUnixSeconds);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowSeconds(currentUnixSeconds());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return nowSeconds;
 }
 
 function parseBigIntInput(value: string) {
@@ -1273,6 +1401,13 @@ function useIronBrotherData() {
     query: { enabled: isContractConfigured },
   });
 
+  const withdrawalApprovalQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'withdrawalApprovalRequired',
+    query: { enabled: isContractConfigured },
+  });
+
   const defaultReferrerQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -1308,6 +1443,7 @@ function useIronBrotherData() {
     afternoonEnd: pickSessionConfig(4, 17 * SECONDS_PER_HOUR),
     yieldBps: (yieldQuery.data as bigint | undefined) ?? 100n,
     withdrawFee: (withdrawFeeQuery.data as bigint | undefined) ?? 10n * 10n ** 18n,
+    withdrawalApprovalRequired: (withdrawalApprovalQuery.data as boolean | undefined) ?? true,
     defaultReferrer: (defaultReferrerQuery.data as Address | undefined) ?? zeroAddress,
     currentLocalDay,
     principalOrderIds: orders.principalOrderIds,
@@ -1440,13 +1576,19 @@ function CustomerApp() {
   const [nav, setNav] = useState<NavKey>('home');
   const [locale, setLocale] = useState<LocaleKey>(initialLocale);
   const [dismissedReferrerPromptFor, setDismissedReferrerPromptFor] = useState<Address | undefined>();
+  const promotionReferrer = useMemo(urlReferrer, []);
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const data = useIronBrotherData();
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const copy = LOCALE_COPY[locale];
-  const connectedDefaultReferrer = Boolean(address && data.defaultReferrer.toLowerCase() === address.toLowerCase());
+  const effectiveReferrer = useMemo(() => {
+    if (!promotionReferrer) return data.defaultReferrer;
+    if (address && promotionReferrer.toLowerCase() === address.toLowerCase()) return data.defaultReferrer;
+    return promotionReferrer;
+  }, [address, data.defaultReferrer, promotionReferrer]);
+  const connectedDefaultReferrer = Boolean(address && effectiveReferrer.toLowerCase() === address.toLowerCase());
   const shouldPromptReferrer =
     Boolean(
       isConnected &&
@@ -1496,7 +1638,13 @@ function CustomerApp() {
       <main className="mobile-frame content-frame">
         {nav === 'home' && <HomeScreen data={data} copy={copy} onNavigate={setNav} />}
         {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
-        {nav === 'wallet' && <WalletScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
+        {nav === 'wallet' && (
+          <WalletScreen
+            data={data}
+            disabled={!isConnected || wrongNetwork || !isContractConfigured}
+            suggestedReferrer={effectiveReferrer}
+          />
+        )}
         {nav === 'team' && <TeamScreen data={data} />}
         {nav === 'profile' && <ProfileScreen address={address} data={data} />}
       </main>
@@ -1512,7 +1660,7 @@ function CustomerApp() {
       {shouldPromptReferrer && address && (
         <BindReferrerModal
           address={address}
-          defaultReferrer={data.defaultReferrer}
+          defaultReferrer={effectiveReferrer}
           onDismiss={() => setDismissedReferrerPromptFor(address)}
         />
       )}
@@ -1614,20 +1762,21 @@ function HomeScreen({
   const currentSessionLabel = sessionLabelForLocale(data.currentSession, copy);
   const morningRange = sessionTimeRange(data.morningStart, data.morningEnd);
   const afternoonRange = sessionTimeRange(data.afternoonStart, data.afternoonEnd);
+  const nowSeconds = useNowSeconds();
   const recentOrders = useMemo(() => {
     const principal = data.principalOrders.map((order) => ({
       id: `principal-${order.id.toString()}`,
       label: `${principalSourceLabelForLocale(order.source, copy)} #${order.id.toString()}`,
       amount: order.amount,
-      status: principalStatusLabelForLocale(order, copy),
-      time: `${copy.order.unlock} ${dateTime(order.unlockAt)}`,
+      status: principalStatusLabelForLocale(order, copy, nowSeconds),
+      time: principalOrderHomeTime(order, copy, nowSeconds),
       createdAt: order.createdAt,
     }));
     const stakes = data.stakeOrders.map((order) => ({
       id: `stake-${order.id.toString()}`,
       label: `${copy.order.stake} #${order.id.toString()}`,
       amount: order.amount,
-      status: stakeStatusLabelForLocale(order, copy),
+      status: stakeStatusLabelForLocale(order, copy, nowSeconds),
       time: `${sessionLabelForLocale(order.session, copy)} / ${copy.order.settle} ${dateTime(order.settleAt)}`,
       createdAt: order.createdAt,
     }));
@@ -1635,7 +1784,7 @@ function HomeScreen({
     return [...principal, ...stakes]
       .sort((a, b) => Number(b.createdAt - a.createdAt))
       .slice(0, 5);
-  }, [copy, data.principalOrders, data.stakeOrders]);
+  }, [copy, data.principalOrders, data.stakeOrders, nowSeconds]);
 
   return (
     <section className="screen-stack">
@@ -1644,13 +1793,16 @@ function HomeScreen({
           <span>{copy.home.principalWallet}</span>
           <LockKeyhole size={18} />
         </div>
-        <strong>{token(data.account.principalBalance)} U</strong>
-        <small>{copy.home.availableStake} {token(data.availablePrincipal)} U</small>
+        <strong><MoneyAmount value={data.availablePrincipal} /></strong>
+        <small className="asset-card-detail">
+          <span>{copy.home.totalPrincipal} <MoneyAmount value={data.account.principalBalance} /></span>
+          <span>{copy.home.stakedPrincipal} <MoneyAmount value={data.account.principalStaked} /></span>
+        </small>
       </div>
 
       <div className="quick-grid">
-        <MetricCard label={copy.home.rewardWallet} value={`${token(data.account.rewardBalance)} U`} trend={`${copy.home.todaysYield} ${bpsToPercent(data.yieldBps)} / ${copy.home.perTime}`} />
-        <MetricCard label={copy.home.maturedUnredeemed} value={`${token(data.maturedUnredeemed)} U`} trend={copy.home.maturedTrend} />
+        <MetricCard label={copy.home.rewardWallet} value={<MoneyAmount value={data.account.rewardBalance} />} trend={`${copy.home.todaysYield} ${bpsToPercent(data.yieldBps)} / ${copy.home.perTime}`} />
+        <MetricCard label={copy.home.maturedUnredeemed} value={<MoneyAmount value={data.maturedUnredeemed} />} trend={copy.home.maturedTrend} />
       </div>
 
       <div className="action-grid">
@@ -1748,12 +1900,12 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
         <label className="amount-field">
           <span>带单金额</span>
           <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
-          <small>可带单 {token(data.availablePrincipal)} U</small>
+          <small>可带单 <MoneyAmount value={data.availablePrincipal} /></small>
         </label>
 
         <div className="calc-grid">
           <MetricCard label="链上场次" value={sessionLabel(data.currentSession)} trend={`东八区 ${currentSessionRange(data)}`} />
-          <MetricCard label="预计收益" value={`+${token(estimatedReward)} U`} trend={`${bpsToPercent(data.yieldBps)} / 结算 ${sessionSettleLabel}`} />
+          <MetricCard label="预计收益" value={<MoneyAmount value={estimatedReward} prefix="+" />} trend={`${bpsToPercent(data.yieldBps)} / 结算 ${sessionSettleLabel}`} />
         </div>
 
         <button
@@ -1774,10 +1926,18 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
   );
 }
 
-function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
+function WalletScreen({
+  data,
+  disabled,
+  suggestedReferrer,
+}: {
+  data: ReturnType<typeof useIronBrotherData>;
+  disabled: boolean;
+  suggestedReferrer: Address;
+}) {
   return (
     <section className="screen-stack">
-      <DepositPanel disabled={disabled} defaultReferrer={data.defaultReferrer} />
+      <DepositPanel disabled={disabled} suggestedReferrer={suggestedReferrer} />
       <WalletActions data={data} disabled={disabled} />
       <WithdrawalRequestList requests={data.withdrawalRequests} />
       <PrincipalOrderList orders={data.principalOrders} />
@@ -1785,10 +1945,10 @@ function WalletScreen({ data, disabled }: { data: ReturnType<typeof useIronBroth
   );
 }
 
-function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaultReferrer: Address }) {
+function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; suggestedReferrer: Address }) {
   const { address } = useAccount();
   const { runTxFlow, tx, writeContractAsync } = useTxRunner();
-  const [amount, setAmount] = useState('200');
+  const [amount, setAmount] = useState('');
   const parsedAmount = useMemo(() => {
     try {
       return parseTokenInput(amount);
@@ -1817,7 +1977,7 @@ function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaul
           address: CONTRACT_ADDRESS,
           abi: ironBrotherAbi,
           functionName: 'deposit',
-          args: [parsedAmount, zeroAddress],
+          args: [parsedAmount, suggestedReferrer],
         }),
     };
 
@@ -1851,10 +2011,10 @@ function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaul
       </div>
       <label className="full-field">
         入金金额
-        <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
+        <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
       </label>
       <p className="helper-line">
-        新用户入金时，将使用默认推荐人：{defaultReferrer === zeroAddress ? '未设置' : shortAddress(defaultReferrer)}
+        新用户入金时，将使用推荐人：{suggestedReferrer === zeroAddress ? '未设置' : shortAddress(suggestedReferrer)}
       </p>
       <button className="primary-button" disabled={disabled || parsedAmount <= 0n || transactionBusy} onClick={submitDeposit}>
         {depositButtonLabel}
@@ -1866,10 +2026,29 @@ function DepositPanel({ disabled, defaultReferrer }: { disabled: boolean; defaul
 
 function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
   const { runTx, tx, writeContractAsync } = useTxRunner();
-  const [reinvestAmount, setReinvestAmount] = useState('100');
-  const [withdrawAmount, setWithdrawAmount] = useState('120');
+  const rewardBalanceInput = tokenInput(data.account.rewardBalance);
+  const [reinvestAmount, setReinvestAmount] = useState(() => rewardBalanceInput);
+  const [withdrawAmount, setWithdrawAmount] = useState(() => rewardBalanceInput);
+  const previousReinvestDefaultRef = useRef(reinvestAmount);
+  const previousWithdrawDefaultRef = useRef(withdrawAmount);
   const [redeemId, setRedeemId] = useState('1');
   const [stakeId, setStakeId] = useState('1');
+
+  useEffect(() => {
+    const nextDefaultAmount = tokenInput(data.account.rewardBalance);
+
+    setReinvestAmount((currentAmount) => {
+      const shouldUseDefault = currentAmount === previousReinvestDefaultRef.current;
+      previousReinvestDefaultRef.current = nextDefaultAmount;
+      return shouldUseDefault ? nextDefaultAmount : currentAmount;
+    });
+
+    setWithdrawAmount((currentAmount) => {
+      const shouldUseDefault = currentAmount === previousWithdrawDefaultRef.current;
+      previousWithdrawDefaultRef.current = nextDefaultAmount;
+      return shouldUseDefault ? nextDefaultAmount : currentAmount;
+    });
+  }, [data.account.rewardBalance]);
 
   const reinvestParsed = useMemo(() => {
     try {
@@ -1886,6 +2065,17 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
     }
   }, [withdrawAmount]);
   const netWithdrawal = withdrawParsed > data.withdrawFee ? withdrawParsed - data.withdrawFee : 0n;
+  const withdrawActionLabel = data.withdrawalApprovalRequired ? '申请提现' : '确认提现';
+  const withdrawHelper = data.withdrawalApprovalRequired
+    ? <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />，提交后需后台审批打款。</>
+    : <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />，将从合约奖励池即时打款。</>;
+  const reinvestValidation = reinvestParsed > data.account.rewardBalance ? '复投金额不能超过收益钱包余额。' : '';
+  const withdrawValidation =
+    withdrawParsed > data.account.rewardBalance
+      ? '提现金额不能超过收益钱包余额。'
+      : withdrawParsed > 0n && withdrawParsed <= data.withdrawFee
+        ? '提现金额必须大于手续费。'
+        : '';
 
   return (
     <section className="panel">
@@ -1894,27 +2084,31 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           <p className="eyebrow">Reward wallet</p>
           <h2>收益钱包</h2>
         </div>
-        <strong>{token(data.account.rewardBalance)} U</strong>
+        <strong><MoneyAmount value={data.account.rewardBalance} /></strong>
       </div>
       <div className="calc-grid">
-        <MetricCard label="静态累计" value={`${token(data.account.totalStaticReward)} U`} trend="带单按次结算" />
-        <MetricCard label="动态累计" value={`${token(data.account.totalDynamicReward)} U`} trend="每日 0 点后可结算" />
+        <MetricCard label="静态累计" value={<MoneyAmount value={data.account.totalStaticReward} />} trend="带单按次结算" />
+        <MetricCard label="动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="每日 0 点后可结算" />
       </div>
       <div className="form-grid">
         <label>
           复投金额
-          <input value={reinvestAmount} onChange={(event) => setReinvestAmount(event.target.value)} inputMode="decimal" />
+          <input value={reinvestAmount} onChange={(event) => setReinvestAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
+          <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
         <label>
           提现金额
-          <input value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} inputMode="decimal" />
+          <input value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
+          <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
       </div>
-      <p className="helper-line">提现手续费 {token(data.withdrawFee)} U，预计到账 {token(netWithdrawal)} U</p>
+      <p className="helper-line">{withdrawHelper}</p>
+      {reinvestValidation && <p className="field-error">{reinvestValidation}</p>}
+      {withdrawValidation && <p className="field-error">{withdrawValidation}</p>}
       <div className="split-buttons">
         <button
           className="secondary-button"
-          disabled={disabled || reinvestParsed <= 0n}
+          disabled={disabled || reinvestParsed <= 0n || Boolean(reinvestValidation)}
           onClick={() =>
             runTx('收益复投', () =>
               writeContractAsync({
@@ -1930,9 +2124,9 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
         </button>
         <button
           className="primary-button"
-          disabled={disabled || withdrawParsed <= 0n}
+          disabled={disabled || withdrawParsed <= 0n || Boolean(withdrawValidation)}
           onClick={() =>
-            runTx('申请提现', () =>
+            runTx(withdrawActionLabel, () =>
               writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -1942,7 +2136,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
             )
           }
         >
-          申请提现
+          {withdrawActionLabel}
         </button>
       </div>
       <div className="form-grid">
@@ -2012,7 +2206,7 @@ function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
       <div className="quick-grid">
         <MetricCard
           label="团队充值总业绩"
-          value={data.isTeamSummaryLoading ? '--' : `${token(data.teamSummary.totalDeposited)} U`}
+          value={data.isTeamSummaryLoading ? '--' : <MoneyAmount value={data.teamSummary.totalDeposited} />}
           trend="累计下级入金"
         />
         <MetricCard
@@ -2036,6 +2230,72 @@ function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
   );
 }
 
+function PromotionLinkCard({ address }: { address?: Address }) {
+  const promotionLink = useMemo(() => promotionLinkForAddress(address), [address]);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copyStatus =
+    copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败，请手动复制' : '分享给新用户绑定推荐关系';
+
+  useEffect(() => {
+    setCopyState('idle');
+  }, [promotionLink]);
+
+  return (
+    <section className="panel promotion-panel">
+      <div className="section-title">
+        <div>
+          <p className="eyebrow">Referral</p>
+          <h2>推广链接</h2>
+        </div>
+        <Link2 size={18} />
+      </div>
+      {promotionLink ? (
+        <>
+          <div className="promotion-link-row">
+            <div className="promotion-link-content">
+              <span>我的推广链接</span>
+              <strong>{promotionLink}</strong>
+            </div>
+            <div className="promotion-link-actions">
+              <button
+                className="icon-button"
+                type="button"
+                title="复制推广链接"
+                aria-label="复制推广链接"
+                onClick={async () => {
+                  try {
+                    await copyText(promotionLink);
+                    setCopyState('copied');
+                  } catch {
+                    setCopyState('failed');
+                  }
+                }}
+              >
+                <Copy size={16} />
+              </button>
+              <a
+                className="icon-button"
+                href={promotionLink}
+                target="_blank"
+                rel="noreferrer"
+                title="打开推广链接"
+                aria-label="打开推广链接"
+              >
+                <ArrowUpRight size={16} />
+              </a>
+            </div>
+          </div>
+          <p className={copyState === 'failed' ? 'promotion-copy-status danger' : 'promotion-copy-status'}>
+            {copyStatus}
+          </p>
+        </>
+      ) : (
+        <EmptyState title="暂无推广链接" detail="连接钱包后自动生成你的专属推广链接。" />
+      )}
+    </section>
+  );
+}
+
 function ProfileScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
   return (
     <section className="screen-stack">
@@ -2044,13 +2304,14 @@ function ProfileScreen({ address, data }: { address?: Address; data: ReturnType<
         <h2>{shortAddress(address)}</h2>
         <p>上级 {shortAddress(data.account.referrer)}</p>
       </section>
+      <PromotionLinkCard address={address} />
       <section className="panel">
         <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
         <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
         <InfoLine label="网络" value="BSC Testnet" />
         <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
-        <InfoLine label="累计入金" value={`${token(data.account.totalDeposited)} U`} />
-        <InfoLine label="累计提现" value={`${token(data.account.totalWithdrawn)} U`} />
+        <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
+        <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
       </section>
     </section>
   );
@@ -2226,13 +2487,13 @@ function AdminUsersPage() {
             搜索钱包地址
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
           </label>
-          {users.isLoading && <p className="helper-line">正在读取用户事件和链上账户...</p>}
-          {users.eventError && <p className="field-error">用户事件读取失败，已尝试从订单地址兜底回显。请检查线上 RPC 或事件起始区块配置。</p>}
-          {!users.eventError && users.eventCount === 0 && totalUsers > 0n && (
-            <p className="field-error">链上已有 {totalUsers.toString()} 个用户，但当前没有读取到用户注册事件，已尝试从订单地址兜底回显。</p>
+          {users.isLoading && <p className="helper-line">正在读取用户索引/事件和链上账户...</p>}
+          {users.eventError && users.indexedCount === 0 && <p className="field-error">合约用户索引为空，用户事件读取也失败，已尝试从订单地址兜底回显。请检查线上 RPC 或先执行历史用户同步。</p>}
+          {!users.eventError && users.indexedCount === 0 && users.eventCount === 0 && totalUsers > 0n && (
+            <p className="field-error">链上已有 {totalUsers.toString()} 个用户，但当前合约用户索引为空。升级后需要执行 syncRegisteredUsers 同步历史用户。</p>
           )}
           {showPartialUserWarning && (
-            <p className="field-error">当前仅回显 {registeredRows.length} / {totalUsers.toString()} 个链上用户。要完全一致，需要线上配置可查询历史日志的 RPC 和 VITE_IRONBROTHER_EVENT_FROM_BLOCK。</p>
+            <p className="field-error">当前仅回显 {registeredRows.length} / {totalUsers.toString()} 个链上用户。要完全一致，请用 syncRegisteredUsers 补齐历史用户索引。</p>
           )}
           <div className="list-stack">
             {sortedRows.length > 0 ? (
@@ -2547,6 +2808,7 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
   const [dynamicDay, setDynamicDay] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
   const [stakeIds, setStakeIds] = useState('');
+  const [fundAmount, setFundAmount] = useState('1000');
   const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -2566,8 +2828,24 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
   const recentStakeVolume = orderBook.stakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const currentDayStakeVolume = currentDayStakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const withdrawals = useAdminWithdrawalRequests();
+  const config = useContractConfig();
   const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
-  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'PrincipalRedeemed', 'Reinvested']);
+  const rewardPoolQuery = useReadContract({
+    address: BSC_USDT_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: [CONTRACT_ADDRESS],
+    query: { enabled: isContractConfigured },
+  });
+  const rewardPoolBalance = (rewardPoolQuery.data as bigint | undefined) ?? 0n;
+  const fundParsed = useMemo(() => {
+    try {
+      return parseTokenInput(fundAmount);
+    } catch {
+      return 0n;
+    }
+  }, [fundAmount]);
+  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
     if (!dynamicDay && currentLocalDay > 0n) {
@@ -2739,16 +3017,62 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
             <p className="eyebrow">Withdrawals</p>
             <h2>提现审批</h2>
           </div>
-          <span className="status-chip">{withdrawals.pendingRequests.length} 待审 / {token(pendingWithdrawalAmount)} U</span>
+          <span className="status-chip">
+            {config.withdrawalApprovalRequired ? `${withdrawals.pendingRequests.length} 待审 / ${token(pendingWithdrawalAmount)} U` : `免审批 / ${withdrawals.pendingRequests.length} 历史待审`}
+          </span>
         </div>
-        <p className="helper-line">审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。</p>
+        <p className="helper-line">
+          {config.withdrawalApprovalRequired
+            ? '审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。'
+            : '当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。'}
+        </p>
+        <div className="form-grid">
+          <label>
+            奖励池充值 U
+            <input value={fundAmount} onChange={(event) => setFundAmount(event.target.value)} inputMode="decimal" />
+          </label>
+          <div className="inline-info-box">
+            <span>合约奖励池余额</span>
+            <strong>{token(rewardPoolBalance)} U</strong>
+          </div>
+        </div>
+        <button
+          className="secondary-button full-button"
+          disabled={!canWrite || fundParsed <= 0n}
+          onClick={() =>
+            runner.runTxFlow('充值奖励池', [
+              {
+                label: '授权 USDT',
+                request: () =>
+                  runner.writeContractAsync({
+                    address: BSC_USDT_ADDRESS,
+                    abi: erc20Abi,
+                    functionName: 'approve',
+                    args: [CONTRACT_ADDRESS, fundParsed],
+                  }),
+              },
+              {
+                label: '充值奖励池',
+                request: () =>
+                  runner.writeContractAsync({
+                    address: CONTRACT_ADDRESS,
+                    abi: ironBrotherAbi,
+                    functionName: 'fundRewards',
+                    args: [fundParsed],
+                  }),
+              },
+            ])
+          }
+        >
+          充值奖励池
+        </button>
         <div className="list-stack">
           {withdrawals.requests.length > 0 ? (
             withdrawals.requests.map((request) => (
               <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
             ))
           ) : (
-            <EmptyState title="暂无提现申请" detail="用户提交提现后，会在这里等待 Admin 审批。" />
+            <EmptyState title="暂无提现申请" detail={config.withdrawalApprovalRequired ? '用户提交提现后，会在这里等待 Admin 审批。' : '免审批提现会自动打款并直接显示为已打款记录。'} />
           )}
         </div>
       </section>
@@ -2862,6 +3186,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
         <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
         <AdminCard icon={<Users />} label="默认推荐人" value={config.defaultReferrer === zeroAddress ? '未设置' : shortAddress(config.defaultReferrer)} />
+        <AdminCard icon={<Shield />} label="提现审批" value={config.withdrawalApprovalRequired ? '开启' : '关闭'} />
         <AdminCard icon={<Wallet />} label="下个入金钱包" value={`#${Number(config.nextDepositReceiverIndex) + 1}`} />
       </section>
 
@@ -2890,6 +3215,30 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             最高收益率 %
             <input value={maxYieldPercent} onChange={(event) => setMaxYieldPercent(event.target.value)} />
           </label>
+        </div>
+        <div className="setting-toggle-row">
+          <div>
+            <strong>提现需要 Admin 审批</strong>
+            <small>{config.withdrawalApprovalRequired ? '用户提现会进入待审列表，由 Admin 审批打款。' : '用户提现会从合约奖励池自动打款，请确保奖励池余额充足。'}</small>
+          </div>
+          <button
+            className={config.withdrawalApprovalRequired ? 'toggle-button on' : 'toggle-button'}
+            type="button"
+            aria-pressed={config.withdrawalApprovalRequired}
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx(config.withdrawalApprovalRequired ? '关闭提现审批' : '开启提现审批', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setWithdrawalApprovalRequired',
+                  args: [!config.withdrawalApprovalRequired],
+                }),
+              )
+            }
+          >
+            <span />
+          </button>
         </div>
         <div className="split-buttons">
           <button
@@ -3464,6 +3813,7 @@ function useContractConfig() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonStart' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonEnd' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'paused' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawalApprovalRequired' },
     ],
     query: { enabled: isContractConfigured },
   });
@@ -3489,6 +3839,7 @@ function useContractConfig() {
     afternoonStart: pick(16, 0),
     afternoonEnd: pick(17, 0),
     paused: pick(18, false),
+    withdrawalApprovalRequired: pick(19, true),
   };
 
   return {
@@ -3513,6 +3864,7 @@ function useContractConfig() {
       config.afternoonStart,
       config.afternoonEnd,
       config.paused,
+      config.withdrawalApprovalRequired,
     ].join('|'),
   };
 }
@@ -3612,14 +3964,14 @@ function useAdminWithdrawalRequests() {
   };
 }
 
-function useChainEvents(eventNames: readonly string[]) {
+function useChainEvents(eventNames: readonly string[], enabled = true) {
   const publicClient = usePublicClient();
 
   return useQuery({
     queryKey: ['ironBrotherEvents', CONTRACT_ADDRESS, eventNames.join('|')],
-    enabled: Boolean(isContractConfigured && publicClient),
+    enabled: Boolean(enabled && isContractConfigured && publicClient),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: enabled ? 60_000 : false,
     queryFn: async () => {
       if (!publicClient) return [] as ChainEventRecord[];
 
@@ -3655,12 +4007,20 @@ function useChainEvents(eventNames: readonly string[]) {
 }
 
 function useAdminUsers(extraAddress?: Address | readonly Address[]) {
-  const events = useChainEvents(['UserRegistered']);
+  const indexedUsersQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getAllUsers',
+    query: { enabled: isContractConfigured },
+  });
+  const indexedAddresses = (indexedUsersQuery.data as readonly Address[] | undefined) ?? [];
+  const shouldReadUserEvents = !indexedUsersQuery.isLoading && indexedAddresses.length === 0;
+  const events = useChainEvents(['UserRegistered'], shouldReadUserEvents);
   const extraAddresses = useMemo(() => (Array.isArray(extraAddress) ? extraAddress : extraAddress ? [extraAddress] : []), [extraAddress]);
   const addresses = useMemo(() => {
-    const eventAddresses = (events.data ?? []).map((event) => event.args.user as Address | undefined);
-    return uniqueAddresses([...extraAddresses, ...eventAddresses]);
-  }, [events.data, extraAddresses]);
+    const eventAddresses = shouldReadUserEvents ? (events.data ?? []).map((event) => event.args.user as Address | undefined) : [];
+    return uniqueAddresses([...extraAddresses, ...indexedAddresses, ...eventAddresses]);
+  }, [events.data, extraAddresses, indexedAddresses, shouldReadUserEvents]);
 
   const userContracts = useMemo(
     () =>
@@ -3689,9 +4049,10 @@ function useAdminUsers(extraAddress?: Address | readonly Address[]) {
 
   return {
     rows,
-    eventCount: events.data?.length ?? 0,
-    eventError: events.isError,
-    isLoading: events.isLoading || usersQuery.isLoading,
+    indexedCount: indexedAddresses.length,
+    eventCount: shouldReadUserEvents ? events.data?.length ?? 0 : 0,
+    eventError: shouldReadUserEvents && events.isError,
+    isLoading: indexedUsersQuery.isLoading || (shouldReadUserEvents && events.isLoading) || usersQuery.isLoading,
   };
 }
 
@@ -3886,7 +4247,24 @@ function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
   );
 }
 
-function MetricCard({ label, value, trend }: { label: string; value: string; trend: string }) {
+function MoneyAmount({
+  value,
+  prefix = '',
+  digits = 2,
+}: {
+  value?: bigint | number | string;
+  prefix?: string;
+  digits?: number;
+}) {
+  return (
+    <span className="token-amount">
+      <span className="token-amount-value">{prefix}{token(value, digits)}</span>
+      <span className="token-amount-unit">{TOKEN_SYMBOL}</span>
+    </span>
+  );
+}
+
+function MetricCard({ label, value, trend }: { label: string; value: React.ReactNode; trend: React.ReactNode }) {
   return (
     <div className="metric-card">
       <span>{label}</span>
@@ -3921,7 +4299,7 @@ function SessionRow({ title, time, state, amount }: { title: string; time: strin
   );
 }
 
-function OrderRow({ label, amount, status, time }: { label: string; amount: bigint; status: string; time: string }) {
+function OrderRow({ label, amount, status, time }: { label: string; amount: bigint; status: string; time: React.ReactNode }) {
   return (
     <div className="list-row">
       <div className="row-icon"><Landmark size={17} /></div>
@@ -3930,7 +4308,7 @@ function OrderRow({ label, amount, status, time }: { label: string; amount: bigi
         <small>{time}</small>
       </div>
       <div className="row-right">
-        <span>{token(amount)} U</span>
+        <MoneyAmount value={amount} />
         <small>{status}</small>
       </div>
     </div>
@@ -3951,11 +4329,11 @@ function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[]
             label={`提现申请 #${request.id.toString()}`}
             amount={request.amount}
             status={withdrawalStatusLabel(request)}
-            time={`到账 ${token(request.netAmount)} U / 手续费 ${token(request.fee)} U / 申请 ${dateTime(request.requestedAt)}`}
+            time={<>到账 <MoneyAmount value={request.netAmount} /> / 手续费 <MoneyAmount value={request.fee} /> / 申请 {dateTime(request.requestedAt)}</>}
           />
         ))
       ) : (
-        <EmptyState title="暂无提现申请" detail="提交提现后，需要后台审核并从出款钱包打款。" />
+        <EmptyState title="暂无提现申请" detail="提交提现后，提现记录会在这里显示。" />
       )}
     </section>
   );
@@ -3999,7 +4377,7 @@ function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
             label={`带单订单 #${order.id.toString()}`}
             amount={order.amount}
             status={stakeStatusLabel(order)}
-            time={`${sessionLabel(order.session)} / 收益 ${token(order.reward)} U / 结算 ${dateTime(order.settleAt)}`}
+            time={<>{sessionLabel(order.session)} / 收益 <MoneyAmount value={order.reward} /> / 结算 {dateTime(order.settleAt)}</>}
           />
         ))
       ) : (
@@ -4015,7 +4393,7 @@ function DirectReferralListRow({ item, onSelect }: { item: DirectReferralRow; on
       <div className="row-icon"><Users size={17} /></div>
       <div>
         <strong>{shortAddress(item.address)}</strong>
-        <small>今日流水 {token(item.dailyStakeVolume)} U / 本金 {token(item.account.principalBalance)} U</small>
+        <small>今日流水 <MoneyAmount value={item.dailyStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
       </div>
       <span className={item.isValidToday ? 'amount-positive' : 'amount-muted'}>
         {item.isValidToday ? '今日有效' : '未达标'}
@@ -4180,7 +4558,7 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function InfoLine({ label, value }: { label: string; value: string }) {
+function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="info-line">
       <span>{label}</span>

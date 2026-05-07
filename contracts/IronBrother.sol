@@ -136,8 +136,12 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     uint256 public totalPendingWithdrawalAmount;
     mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
     mapping(address => uint256[]) private userWithdrawalRequestIds;
+    address[] private registeredUsers;
+    mapping(address => bool) private registeredUserIndexed;
+    bool public withdrawalApprovalDisabled;
 
     event UserRegistered(address indexed user, address indexed referrer);
+    event UserIndexed(address indexed user);
     event DefaultReferrerUpdated(address indexed defaultReferrer);
     event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
     event Deposited(address indexed user, uint256 indexed orderId, uint256 amount);
@@ -351,6 +355,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         _requestWithdrawal(amount);
     }
 
+    function withdrawalApprovalRequired() public view returns (bool) {
+        return !withdrawalApprovalDisabled;
+    }
+
     function approveWithdrawal(uint256 requestId) external nonReentrant whenNotPaused onlySuperAdmin {
         WithdrawalRequest storage request = withdrawalRequests[requestId];
         require(request.user != address(0), "no withdrawal");
@@ -394,29 +402,47 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     function _requestWithdrawal(uint256 amount) internal {
         UserAccount storage account = users[msg.sender];
         require(account.rewardBalance >= amount, "insufficient reward balance");
-        require(amount > withdrawFee, "amount must exceed fee");
+        uint256 fee = withdrawFee;
+        require(amount > fee, "amount must exceed fee");
+
+        uint256 netAmount = amount - fee;
+        bool requiresApproval = withdrawalApprovalRequired();
+        if (!requiresApproval) {
+            require(usdt.balanceOf(address(this)) >= amount, "insufficient payout balance");
+        }
 
         account.rewardBalance -= amount;
-        uint256 netAmount = amount - withdrawFee;
         totalRewardBalance -= amount;
-        totalPendingWithdrawalAmount += amount;
-
         uint256 requestId = _nextWithdrawalId();
         withdrawalRequests[requestId] = WithdrawalRequest({
             id: requestId,
             user: msg.sender,
             amount: amount,
-            fee: withdrawFee,
+            fee: fee,
             netAmount: netAmount,
             requestedAt: block.timestamp,
-            processedAt: 0,
-            status: WithdrawalStatus.Pending,
-            operator: address(0),
-            payer: address(0)
+            processedAt: requiresApproval ? 0 : block.timestamp,
+            status: requiresApproval ? WithdrawalStatus.Pending : WithdrawalStatus.Paid,
+            operator: requiresApproval ? address(0) : msg.sender,
+            payer: requiresApproval ? address(0) : address(this)
         });
         userWithdrawalRequestIds[msg.sender].push(requestId);
 
-        emit WithdrawalRequested(msg.sender, requestId, amount, withdrawFee, netAmount);
+        emit WithdrawalRequested(msg.sender, requestId, amount, fee, netAmount);
+
+        if (requiresApproval) {
+            totalPendingWithdrawalAmount += amount;
+            return;
+        }
+
+        account.totalWithdrawn += netAmount;
+        totalWithdrawnAmount += amount;
+        usdt.safeTransfer(msg.sender, netAmount);
+        if (fee > 0) {
+            usdt.safeTransfer(feeReceiver, fee);
+        }
+
+        emit WithdrawalApproved(msg.sender, requestId, address(this), amount, fee, netAmount);
     }
 
     function fundRewards(uint256 amount) external nonReentrant {
@@ -515,8 +541,20 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return directReferrals[user];
     }
 
+    function getAllUsers() external view returns (address[] memory) {
+        return registeredUsers;
+    }
+
     function getDepositReceivers() external view returns (address[DEPOSIT_RECEIVER_COUNT] memory) {
         return depositReceivers;
+    }
+
+    function syncRegisteredUsers(address[] calldata accountList) external onlySuperAdmin {
+        for (uint256 i = 0; i < accountList.length; i++) {
+            address account = accountList[i];
+            require(users[account].registered, "not registered");
+            _indexRegisteredUser(account);
+        }
     }
 
     function setAdmin(address account, bool enabled) external onlySuperAdmin {
@@ -598,6 +636,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     function setWithdrawFee(uint256 newWithdrawFee) external onlySuperAdmin {
         withdrawFee = newWithdrawFee;
         emit ConfigUpdated("WITHDRAW_FEE", newWithdrawFee);
+    }
+
+    function setWithdrawalApprovalRequired(bool required) external onlySuperAdmin {
+        withdrawalApprovalDisabled = !required;
+        emit ConfigUpdated("WITHDRAWAL_APPROVAL_REQUIRED", required ? 1 : 0);
     }
 
     function setFeeReceiver(address newFeeReceiver) external onlySuperAdmin {
@@ -702,6 +745,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         UserAccount storage account = users[user];
         address resolvedReferrer = _resolveReferrer(user, referrer);
         if (account.registered) {
+            _indexRegisteredUser(user);
             if (account.referrer == address(0) && resolvedReferrer != address(0)) {
                 _bindReferrer(user, resolvedReferrer);
             }
@@ -713,6 +757,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         }
 
         account.registered = true;
+        _indexRegisteredUser(user);
         totalUsers += 1;
         emit UserRegistered(user, resolvedReferrer);
     }
@@ -733,6 +778,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
         if (!users[referrer].registered) {
             users[referrer].registered = true;
+            _indexRegisteredUser(referrer);
             totalUsers += 1;
             emit UserRegistered(referrer, address(0));
         }
@@ -740,6 +786,16 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         account.referrer = referrer;
         directReferrals[referrer].push(user);
         users[referrer].directCount += 1;
+    }
+
+    function _indexRegisteredUser(address user) internal {
+        if (user == address(0) || registeredUserIndexed[user]) {
+            return;
+        }
+
+        registeredUsers.push(user);
+        registeredUserIndexed[user] = true;
+        emit UserIndexed(user);
     }
 
     function _setDepositReceivers(address[DEPOSIT_RECEIVER_COUNT] memory newDepositReceivers) internal {
