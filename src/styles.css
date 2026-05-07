@@ -76,7 +76,15 @@ a {
 .content-frame {
   border-radius: 18px;
   padding: 14px;
-  overflow: hidden;
+  max-height: calc(100vh - 234px);
+  max-height: calc(100dvh - 234px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.content-frame::-webkit-scrollbar {
+  display: none;
 }
 
 .topbar,
@@ -1027,7 +1035,7 @@ input {
   border-radius: 20px 20px 28px 28px;
   padding: 10px;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
   position: fixed;
   left: 50%;
@@ -1315,6 +1323,11 @@ input {
   .top-frame {
     top: 10px;
     width: min(calc(100% - 20px), 430px);
+  }
+
+  .content-frame {
+    max-height: calc(100vh - 208px);
+    max-height: calc(100dvh - 208px);
   }
 
   .promotion-link-row {

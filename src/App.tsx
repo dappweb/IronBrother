@@ -41,7 +41,7 @@ import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
 
-type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team' | 'profile';
+type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'withdrawals' | 'team' | 'config' | 'roles';
 type LocaleKey = 'zh-CN' | 'zh-TW' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
@@ -284,7 +284,7 @@ const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
 
 const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
   'zh-CN': {
-    nav: { home: '首页', stake: '带单', wallet: '钱包', bot: '收益', team: '团队', profile: '我的' },
+    nav: { home: '首页', stake: '带单', wallet: '钱包', bot: '收益', team: '团队' },
     shell: {
       greeting: 'Hi',
       contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可启用。',
@@ -315,7 +315,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁仓中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
   'zh-TW': {
-    nav: { home: '首頁', stake: '帶單', wallet: '錢包', bot: '收益', team: '團隊', profile: '我的' },
+    nav: { home: '首頁', stake: '帶單', wallet: '錢包', bot: '收益', team: '團隊' },
     shell: {
       greeting: 'Hi',
       contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可啟用。',
@@ -346,7 +346,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖倉中', settled: '已結算', settleable: '可結算', pending: '待結算' },
   },
   en: {
-    nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', bot: 'Rewards', team: 'Team', profile: 'Me' },
+    nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', bot: 'Rewards', team: 'Team' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_CRUDETRUST_CONTRACT_ADDRESS is set.',
@@ -377,7 +377,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: 'Redeemed', redeemable: 'Redeemable', locked: 'Locked', settled: 'Settled', settleable: 'Settleable', pending: 'Pending' },
   },
   ja: {
-    nav: { home: 'ホーム', stake: 'ステーク', wallet: 'ウォレット', bot: '報酬', team: 'チーム', profile: 'マイ' },
+    nav: { home: 'ホーム', stake: 'ステーク', wallet: 'ウォレット', bot: '報酬', team: 'チーム' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'コントラクトアドレスが未設定のため、オンチェーン読み取りと実取引は利用できません。',
@@ -408,7 +408,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '償還済み', redeemable: '償還可能', locked: 'ロック中', settled: '精算済み', settleable: '精算可能', pending: '精算待ち' },
   },
   ko: {
-    nav: { home: '홈', stake: '스테이킹', wallet: '지갑', bot: '보상', team: '팀', profile: '내 정보' },
+    nav: { home: '홈', stake: '스테이킹', wallet: '지갑', bot: '보상', team: '팀' },
     shell: {
       greeting: 'Hi',
       contractMissing: '컨트랙트 주소가 설정되지 않아 온체인 조회와 실제 거래를 사용할 수 없습니다.',
@@ -439,7 +439,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: '상환됨', redeemable: '상환 가능', locked: '잠김', settled: '정산됨', settleable: '정산 가능', pending: '정산 대기' },
   },
   vi: {
-    nav: { home: 'Trang chủ', stake: 'Stake', wallet: 'Ví', bot: 'Thưởng', team: 'Đội nhóm', profile: 'Của tôi' },
+    nav: { home: 'Trang chủ', stake: 'Stake', wallet: 'Ví', bot: 'Thưởng', team: 'Đội nhóm' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Chưa cấu hình địa chỉ hợp đồng, tạm thời không thể đọc on-chain hoặc giao dịch thật.',
@@ -470,7 +470,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     status: { redeemed: 'Đã rút', redeemable: 'Có thể rút', locked: 'Đang khóa', settled: 'Đã quyết toán', settleable: 'Có thể quyết toán', pending: 'Chờ quyết toán' },
   },
   ms: {
-    nav: { home: 'Utama', stake: 'Stake', wallet: 'Dompet', bot: 'Ganjaran', team: 'Pasukan', profile: 'Saya' },
+    nav: { home: 'Utama', stake: 'Stake', wallet: 'Dompet', bot: 'Ganjaran', team: 'Pasukan' },
     shell: {
       greeting: 'Hi',
       contractMissing: 'Alamat kontrak belum dikonfigurasi. Bacaan on-chain dan transaksi sebenar belum tersedia.',
@@ -1707,8 +1707,7 @@ function CustomerApp() {
           />
         )}
         {nav === 'bot' && <BotRewardsScreen address={address} data={data} />}
-        {nav === 'team' && <TeamScreen data={data} />}
-        {nav === 'profile' && <ProfileScreen address={address} data={data} />}
+        {nav === 'team' && <TeamScreen address={address} data={data} />}
       </main>
 
       <nav className="mobile-frame bottom-nav" aria-label="主导航">
@@ -1717,7 +1716,6 @@ function CustomerApp() {
         <NavButton icon={<Wallet />} label={copy.nav.wallet} active={nav === 'wallet'} onClick={() => setNav('wallet')} />
         <NavButton icon={<Gift />} label={copy.nav.bot} active={nav === 'bot'} onClick={() => setNav('bot')} />
         <NavButton icon={<Users />} label={copy.nav.team} active={nav === 'team'} onClick={() => setNav('team')} />
-        <NavButton icon={<UserRound />} label={copy.nav.profile} active={nav === 'profile'} onClick={() => setNav('profile')} />
       </nav>
 
       {shouldPromptReferrer && address && (
@@ -2299,9 +2297,15 @@ function DynamicRewardDetailRow({ detail }: { detail: DynamicRewardDetail }) {
   );
 }
 
-function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
+function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
   return (
     <section className="screen-stack">
+      <section className="panel profile-panel">
+        <div className="avatar-large">{address ? address.slice(2, 4).toUpperCase() : 'IB'}</div>
+        <h2>{shortAddress(address)}</h2>
+        <p>上级 {shortAddress(data.account.referrer)}</p>
+      </section>
+      <PromotionLinkCard address={address} />
       <section className="panel">
         <InfoLine
           label="我的推荐人"
@@ -2336,6 +2340,21 @@ function TeamScreen({ data }: { data: ReturnType<typeof useIronBrotherData> }) {
         ) : (
           <EmptyState title="暂无直推数据" detail="直推关系由合约 getDirectReferrals 直接读取。" />
         )}
+      </section>
+      <section className="panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Account</p>
+            <h2>我的资料</h2>
+          </div>
+          <UserRound size={18} />
+        </div>
+        <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
+        <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
+        <InfoLine label="网络" value="BSC Testnet" />
+        <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
+        <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
+        <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
       </section>
     </section>
   );
@@ -2403,27 +2422,6 @@ function PromotionLinkCard({ address }: { address?: Address }) {
       ) : (
         <EmptyState title="暂无推广链接" detail="连接钱包后自动生成你的专属推广链接。" />
       )}
-    </section>
-  );
-}
-
-function ProfileScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
-  return (
-    <section className="screen-stack">
-      <section className="panel profile-panel">
-        <div className="avatar-large">{address ? address.slice(2, 4).toUpperCase() : 'IB'}</div>
-        <h2>{shortAddress(address)}</h2>
-        <p>上级 {shortAddress(data.account.referrer)}</p>
-      </section>
-      <PromotionLinkCard address={address} />
-      <section className="panel">
-        <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
-        <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
-        <InfoLine label="网络" value="BSC Testnet" />
-        <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
-        <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
-        <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
-      </section>
     </section>
   );
 }
