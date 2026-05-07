@@ -713,6 +713,23 @@ function dynamicRewardDetailFromHistory(row: unknown, upline: Address, historyIn
   };
 }
 
+function dynamicRewardDetailFromEvent(event: ChainEventRecord, upline: Address, historyIndex: number): DynamicRewardDetail | undefined {
+  if (event.eventName !== 'DynamicRewardSettled') return undefined;
+  const eventUpline = historyAddress(event.args.upline);
+  const source = historyAddress(event.args.source);
+  if (!source || !eventUpline || eventUpline.toLowerCase() !== upline.toLowerCase()) return undefined;
+
+  return {
+    source,
+    upline: eventUpline,
+    day: historyBigInt(event.args.day),
+    generation: historyNumber(event.args.generation),
+    volume: historyBigInt(event.args.volume),
+    reward: historyBigInt(event.args.reward),
+    historyIndex,
+  };
+}
+
 function chineseDateLabel(timestampSeconds: bigint) {
   const timestampMs = Number(timestampSeconds) * 1000;
   if (!Number.isFinite(timestampMs)) return '--';
@@ -4283,7 +4300,8 @@ function useChainEvents(eventNames: readonly string[], enabled = true) {
 }
 
 function useDynamicRewardDetails(upline?: Address) {
-  const query = useReadContract({
+  const publicClient = usePublicClient();
+  const historyQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
     functionName: 'getDynamicRewardHistory',
@@ -4294,23 +4312,68 @@ function useDynamicRewardDetails(upline?: Address) {
       refetchOnWindowFocus: false,
     },
   });
+  const eventQuery = useQuery({
+    queryKey: ['dynamicRewardEvents', CONTRACT_ADDRESS, upline],
+    enabled: Boolean(isContractConfigured && upline && publicClient),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (!publicClient || !upline) return [] as ChainEventRecord[];
 
-  const rows = useMemo(
+      const client = publicClient as unknown as ChainEventClient;
+      const latest = await client.getBlockNumber();
+      const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
+      const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
+      const logs = await getContractEventsOnceOrChunked(
+        client,
+        {
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          eventName: 'DynamicRewardSettled',
+          args: { upline },
+        },
+        fromBlock,
+        latest,
+      );
+
+      return logs.sort((a, b) => {
+        const blockDiff = Number(b.blockNumber - a.blockNumber);
+        return blockDiff === 0 ? Number(b.logIndex - a.logIndex) : blockDiff;
+      });
+    },
+  });
+
+  const historyRows = useMemo(
     () =>
-      ((query.data as readonly unknown[] | undefined) ?? [])
+      ((historyQuery.data as readonly unknown[] | undefined) ?? [])
         .map((row, index) => (upline ? dynamicRewardDetailFromHistory(row, upline, index) : undefined))
         .filter((row): row is DynamicRewardDetail => Boolean(row))
         .sort((left, right) => {
           const dayDiff = Number(right.day - left.day);
           return dayDiff === 0 ? right.historyIndex - left.historyIndex : dayDiff;
         }),
-    [query.data, upline],
+    [historyQuery.data, upline],
   );
+  const eventRows = useMemo(
+    () =>
+      ((eventQuery.data as ChainEventRecord[] | undefined) ?? [])
+        .map((event, index) => (upline ? dynamicRewardDetailFromEvent(event, upline, index) : undefined))
+        .filter((row): row is DynamicRewardDetail => Boolean(row))
+        .sort((left, right) => {
+          const dayDiff = Number(right.day - left.day);
+          return dayDiff === 0 ? right.historyIndex - left.historyIndex : dayDiff;
+        }),
+    [eventQuery.data, upline],
+  );
+  const rows = historyRows.length > 0 ? historyRows : eventRows;
+  const isLoading =
+    rows.length === 0 &&
+    ((historyQuery.isLoading && !historyQuery.isError) || (eventQuery.isLoading && !eventQuery.isError));
 
   return {
     rows,
-    isLoading: query.isLoading,
-    isError: query.isError,
+    isLoading,
+    isError: rows.length === 0 && historyQuery.isError && eventQuery.isError,
   };
 }
 
