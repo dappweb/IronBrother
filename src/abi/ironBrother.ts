@@ -540,6 +540,24 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'getDynamicRewardHistory',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'source', type: 'address' },
+          { name: 'day', type: 'uint256' },
+          { name: 'generation', type: 'uint8' },
+          { name: 'volume', type: 'uint256' },
+          { name: 'reward', type: 'uint256' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
     name: 'hasRole',
     stateMutability: 'view',
     inputs: [

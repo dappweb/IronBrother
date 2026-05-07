@@ -108,6 +108,42 @@ a {
   font-size: 20px;
 }
 
+.brand-lockup {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 104px;
+  height: 46px;
+  display: block;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.topbar .brand-lockup h1 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.admin-brand-lockup .brand-logo {
+  width: 118px;
+  height: 52px;
+}
+
+.admin-brand-lockup > div {
+  min-width: 0;
+}
+
 .topbar > div:first-child,
 .admin-topbar > div:first-child {
   min-width: 0;
@@ -130,7 +166,7 @@ a {
 
 .top-language-switcher {
   position: relative;
-  width: 132px;
+  width: 112px;
   flex: 0 0 auto;
 }
 
@@ -210,7 +246,7 @@ a {
 
 .wallet-connect-button {
   min-height: 42px;
-  max-width: 156px;
+  max-width: 138px;
   border: 0;
   border-radius: 8px;
   padding: 0 12px;
@@ -1408,6 +1444,46 @@ input {
 @media (max-width: 560px) {
   .app-shell {
     padding: 104px 10px 104px;
+  }
+
+  .topbar {
+    gap: 8px;
+  }
+
+  .topbar .brand-logo {
+    width: 82px;
+    height: 38px;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .top-language-switcher {
+    width: 42px;
+  }
+
+  .top-language-trigger {
+    padding: 0;
+    justify-content: center;
+  }
+
+  .top-language-trigger span {
+    display: none;
+  }
+
+  .wallet-connect-button {
+    max-width: 126px;
+    padding: 0 10px;
+  }
+
+  .admin-topbar {
+    flex-wrap: wrap;
+  }
+
+  .admin-brand-lockup .brand-logo {
+    width: 92px;
+    height: 42px;
   }
 
   .quick-grid,

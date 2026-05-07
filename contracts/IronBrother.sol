@@ -117,6 +117,14 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         address payer;
     }
 
+    struct DynamicRewardHistory {
+        address source;
+        uint256 day;
+        uint8 generation;
+        uint256 volume;
+        uint256 reward;
+    }
+
     mapping(address => UserAccount) public users;
     mapping(uint256 => PrincipalOrder) public principalOrders;
     mapping(uint256 => StakeOrder) public stakeOrders;
@@ -141,6 +149,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     mapping(address => bool) private registeredUserIndexed;
     bool public withdrawalApprovalDisabled;
     uint256 private _settlementCycle;
+    mapping(address => DynamicRewardHistory[]) private dynamicRewardHistories;
 
     event UserRegistered(address indexed user, address indexed referrer);
     event UserIndexed(address indexed user);
@@ -604,6 +613,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return registeredUsers;
     }
 
+    function getDynamicRewardHistory(address user) external view returns (DynamicRewardHistory[] memory) {
+        return dynamicRewardHistories[user];
+    }
+
     function getDepositReceivers() external view returns (address[DEPOSIT_RECEIVER_COUNT] memory) {
         return depositReceivers;
     }
@@ -804,6 +817,15 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
                     totalRewardBalance += reward;
                     totalDynamicRewardCredited += reward;
                     totalReward += reward;
+                    dynamicRewardHistories[upline].push(
+                        DynamicRewardHistory({
+                            source: user,
+                            day: day,
+                            generation: generation,
+                            volume: volume,
+                            reward: reward
+                        })
+                    );
                     emit DynamicRewardSettled(user, upline, day, generation, volume, reward);
                 }
             }

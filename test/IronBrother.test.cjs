@@ -256,6 +256,14 @@ describe("IronBrother", function () {
 
     const account = await ironBrother.users(alice.address);
     expect(account.rewardBalance).to.equal(U("2"));
+
+    const history = await ironBrother.getDynamicRewardHistory(alice.address);
+    expect(history).to.have.lengthOf(1);
+    expect(history[0].source).to.equal(bob.address);
+    expect(history[0].day).to.equal(day);
+    expect(history[0].generation).to.equal(1n);
+    expect(history[0].volume).to.equal(U("1000"));
+    expect(history[0].reward).to.equal(U("2"));
   });
 
   it("lets a manager bot settle the previous local day in indexed batches", async function () {
@@ -288,6 +296,11 @@ describe("IronBrother", function () {
     expect(account.rewardBalance).to.equal(U("2"));
     expect(await ironBrother.dynamicRewardSettled(alice.address, day)).to.equal(true);
     expect(await ironBrother.dynamicRewardSettled(bob.address, day)).to.equal(true);
+
+    const history = await ironBrother.getDynamicRewardHistory(alice.address);
+    expect(history).to.have.lengthOf(1);
+    expect(history[0].source).to.equal(bob.address);
+    expect(history[0].reward).to.equal(U("2"));
   });
 
   it("allows a registered user without referrer to bind one later", async function () {

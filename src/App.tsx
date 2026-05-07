@@ -208,6 +208,8 @@ type AdminUserRow = {
   address: Address;
   account: UserAccountData;
   blockNumber?: bigint;
+  logIndex?: number;
+  registeredIndex?: number;
 };
 
 type UserTreeNode = AdminUserRow & {
@@ -248,9 +250,7 @@ type DynamicRewardDetail = {
   generation: number;
   volume: bigint;
   reward: bigint;
-  blockNumber: bigint;
-  transactionHash: Hash;
-  logIndex: number;
+  historyIndex: number;
 };
 
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
@@ -264,6 +264,7 @@ const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
 const PRODUCT_TITLE_ZH = '原力';
 const PRODUCT_TITLE_EN = 'CrudeTrust';
 const PRODUCT_BRAND = '原力 CrudeTrust';
+const PRODUCT_LOGO_SRC = '/crudetrust-logo.png';
 const LANGUAGE_STORAGE_KEY = 'crudetrust.locale';
 const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
 const PROMOTION_REFERRER_PARAM = 'ref';
@@ -673,39 +674,42 @@ function uniqueAddresses(addresses: readonly (Address | string | undefined)[]) {
   return [...seen.values()];
 }
 
-function eventAddress(value: unknown): Address | undefined {
+function historyValue(row: unknown, key: string, index: number) {
+  const objectValue = typeof row === 'object' && row !== null ? (row as Record<string, unknown>)[key] : undefined;
+  if (objectValue !== undefined) return objectValue;
+  return Array.isArray(row) ? row[index] : undefined;
+}
+
+function historyAddress(value: unknown): Address | undefined {
   return typeof value === 'string' && isAddress(value) ? (value as Address) : undefined;
 }
 
-function eventBigInt(value: unknown) {
+function historyBigInt(value: unknown) {
   if (typeof value === 'bigint') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return BigInt(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
   return 0n;
 }
 
-function eventNumber(value: unknown) {
+function historyNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'bigint') return Number(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
   return 0;
 }
 
-function dynamicRewardDetailFromEvent(event: ChainEventRecord): DynamicRewardDetail | undefined {
-  const source = eventAddress(event.args.source);
-  const upline = eventAddress(event.args.upline);
-  if (!source || !upline) return undefined;
+function dynamicRewardDetailFromHistory(row: unknown, upline: Address, historyIndex: number): DynamicRewardDetail | undefined {
+  const source = historyAddress(historyValue(row, 'source', 0));
+  if (!source) return undefined;
 
   return {
     source,
     upline,
-    day: eventBigInt(event.args.day),
-    generation: eventNumber(event.args.generation),
-    volume: eventBigInt(event.args.volume),
-    reward: eventBigInt(event.args.reward),
-    blockNumber: event.blockNumber,
-    transactionHash: event.transactionHash,
-    logIndex: event.logIndex,
+    day: historyBigInt(historyValue(row, 'day', 1)),
+    generation: historyNumber(historyValue(row, 'generation', 2)),
+    volume: historyBigInt(historyValue(row, 'volume', 3)),
+    reward: historyBigInt(historyValue(row, 'reward', 4)),
+    historyIndex,
   };
 }
 
@@ -1128,8 +1132,44 @@ function compareBigIntDesc(left: bigint, right: bigint) {
   return left > right ? -1 : 1;
 }
 
+function comparePrincipalOrderLatest(left: PrincipalOrderData, right: PrincipalOrderData) {
+  const createdDiff = compareBigIntDesc(left.createdAt, right.createdAt);
+  return createdDiff !== 0 ? createdDiff : compareBigIntDesc(left.id, right.id);
+}
+
+function compareStakeOrderLatest(left: StakeOrderData, right: StakeOrderData) {
+  const createdDiff = compareBigIntDesc(left.createdAt, right.createdAt);
+  return createdDiff !== 0 ? createdDiff : compareBigIntDesc(left.id, right.id);
+}
+
+function compareWithdrawalRequestLatest(left: WithdrawalRequestData, right: WithdrawalRequestData) {
+  const requestedDiff = compareBigIntDesc(left.requestedAt, right.requestedAt);
+  return requestedDiff !== 0 ? requestedDiff : compareBigIntDesc(left.id, right.id);
+}
+
+function compareAdminUserLatest(left: AdminUserRow, right: AdminUserRow) {
+  if (left.blockNumber !== undefined && right.blockNumber !== undefined) {
+    const blockDiff = compareBigIntDesc(left.blockNumber, right.blockNumber);
+    if (blockDiff !== 0) return blockDiff;
+  } else if (left.blockNumber !== undefined || right.blockNumber !== undefined) {
+    return left.blockNumber !== undefined ? -1 : 1;
+  }
+
+  if (left.registeredIndex !== undefined && right.registeredIndex !== undefined && left.registeredIndex !== right.registeredIndex) {
+    return right.registeredIndex - left.registeredIndex;
+  }
+
+  if (left.logIndex !== undefined && right.logIndex !== undefined && left.logIndex !== right.logIndex) {
+    return right.logIndex - left.logIndex;
+  }
+
+  return left.address.localeCompare(right.address);
+}
+
 function sortUserTreeNodes(nodes: UserTreeNode[]) {
   nodes.sort((left, right) => {
+    const latestDiff = compareAdminUserLatest(left, right);
+    if (latestDiff !== 0) return latestDiff;
     const depositedDiff = compareBigIntDesc(left.account.totalDeposited, right.account.totalDeposited);
     if (depositedDiff !== 0) return depositedDiff;
     const directDiff = compareBigIntDesc(left.account.directCount, right.account.directCount);
@@ -1248,7 +1288,8 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
     () =>
       (principalOrdersQuery.data ?? [])
         .map((result) => principalOrderFromTuple(readResult(result, undefined)))
-        .filter((order): order is PrincipalOrderData => Boolean(order)),
+        .filter((order): order is PrincipalOrderData => Boolean(order))
+        .sort(comparePrincipalOrderLatest),
     [principalOrdersQuery.data],
   );
 
@@ -1256,14 +1297,16 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
     () =>
       (stakeOrdersQuery.data ?? [])
         .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
-        .filter((order): order is StakeOrderData => Boolean(order)),
+        .filter((order): order is StakeOrderData => Boolean(order))
+        .sort(compareStakeOrderLatest),
     [stakeOrdersQuery.data],
   );
   const withdrawalRequests = useMemo(
     () =>
       (withdrawalRequestsQuery.data ?? [])
         .map((result) => withdrawalRequestFromTuple(readResult(result, undefined)))
-        .filter((request): request is WithdrawalRequestData => Boolean(request)),
+        .filter((request): request is WithdrawalRequestData => Boolean(request))
+        .sort(compareWithdrawalRequestLatest),
     [withdrawalRequestsQuery.data],
   );
 
@@ -1294,25 +1337,26 @@ function useDirectReferralRows(rootAddress: Address, day: bigint, enabled = true
   });
 
   const referralAddresses = (referralsQuery.data as readonly Address[] | undefined) ?? [];
+  const latestReferralAddresses = useMemo(() => [...referralAddresses].reverse(), [referralAddresses]);
 
   const detailContracts = useMemo(
     () =>
-      referralAddresses.flatMap((referral) => [
+      latestReferralAddresses.flatMap((referral) => [
         { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'users', args: [referral] },
         { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'dailyStakeVolume', args: [referral, day] },
         { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'isValidOnDay', args: [referral, day] },
       ]),
-    [day, referralAddresses],
+    [day, latestReferralAddresses],
   );
 
   const detailQuery = useReadContracts({
     contracts: detailContracts as never,
-    query: { enabled: Boolean(isContractConfigured && enabled && referralAddresses.length > 0) },
+    query: { enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0) },
   });
 
   const rows = useMemo(
     () =>
-      referralAddresses.map((referral, index) => {
+      latestReferralAddresses.map((referral, index) => {
         const base = index * 3;
         return {
           address: referral,
@@ -1321,7 +1365,7 @@ function useDirectReferralRows(rootAddress: Address, day: bigint, enabled = true
           isValidToday: readResult(detailQuery.data?.[base + 2], false),
         };
       }),
-    [detailQuery.data, referralAddresses],
+    [detailQuery.data, latestReferralAddresses],
   );
 
   return {
@@ -1621,7 +1665,8 @@ function CustomerApp() {
     <div className="app-shell">
       <header className="mobile-frame top-frame">
         <div className="topbar">
-          <div>
+          <div className="brand-lockup">
+            <img className="brand-logo" src={PRODUCT_LOGO_SRC} alt={PRODUCT_BRAND} />
             <h1>{productTitle}</h1>
           </div>
           <div className="topbar-actions">
@@ -1786,7 +1831,10 @@ function HomeScreen({
         createdAt: order.createdAt,
         canRedeem: order.status === 0 && BigInt(nowSeconds) >= order.unlockAt,
       }))
-      .sort((a, b) => Number(b.createdAt - a.createdAt));
+      .sort((a, b) => {
+        const createdDiff = compareBigIntDesc(a.createdAt, b.createdAt);
+        return createdDiff !== 0 ? createdDiff : compareBigIntDesc(a.orderId, b.orderId);
+      });
   }, [copy, data.principalOrders, nowSeconds]);
 
   return (
@@ -2196,7 +2244,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           <MetricCard label="已索引明细" value={<MoneyAmount value={eventTotal} />} trend={`${details.rows.length} 条结算明细`} />
         </div>
         <p className="helper-line">
-          Bot 每日结算上一个 UTC+8 本地日；这里直接读取链上 DynamicRewardSettled 事件，展示来源下级、代数、流水和奖励。
+          Bot 每日结算上一个 UTC+8 本地日；这里直接读取链上动态奖励 history，展示来源下级、代数、流水和奖励。
         </p>
       </section>
 
@@ -2206,7 +2254,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
             <p className="eyebrow">Reward details</p>
             <h2>动态收益细则</h2>
           </div>
-          <span className="status-chip">{details.isLoading ? '读取中' : `${details.rows.length} 条`}</span>
+          <span className="status-chip">{details.isLoading ? '读取中' : details.isError ? '读取失败' : `${details.rows.length} 条`}</span>
         </div>
         <div className="settlement-stats reward-summary-grid">
           <InfoLine label="当前本地日" value={data.currentLocalDay.toString()} />
@@ -2216,9 +2264,11 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
         </div>
         <div className="list-stack reward-detail-list">
           {details.isLoading ? (
-            <EmptyState title="正在读取动态明细" detail="明细来自链上事件日志，确认后会自动出现在这里。" />
+            <EmptyState title="正在读取动态明细" detail="明细来自合约 history，确认后会自动出现在这里。" />
+          ) : details.isError ? (
+            <EmptyState title="动态明细读取失败" detail="链上动态奖励 history 读取失败，请稍后重试。" />
           ) : details.rows.length > 0 ? (
-            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.transactionHash}-${detail.logIndex}`} detail={detail} />)
+            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} />)
           ) : (
             <EmptyState title="暂无动态收益明细" detail="当下级流水达标并由 bot 完成每日结算后，动态奖励明细会显示在这里。" />
           )}
@@ -2234,12 +2284,11 @@ function DynamicRewardDetailRow({ detail }: { detail: DynamicRewardDetail }) {
       <div className="row-icon"><Gift size={17} /></div>
       <div>
         <strong>来自 {shortAddress(detail.source)} / {detail.generation} 代</strong>
-        <small>本地日 {detail.day.toString()} · {localDayLabel(detail.day)} · 区块 {detail.blockNumber.toString()}</small>
+        <small>本地日 {detail.day.toString()} · {localDayLabel(detail.day)}</small>
       </div>
       <div className="row-metrics">
         <span>流水 {token(detail.volume)} U</span>
         <span className="amount-positive">+{token(detail.reward)} U</span>
-        <a href={`https://testnet.bscscan.com/tx/${detail.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
       </div>
     </div>
   );
@@ -2421,9 +2470,12 @@ function AdminConsole() {
       </aside>
       <main className="admin-main">
         <header className="admin-topbar">
-          <div>
-            <p className="eyebrow">BSC Contract Console</p>
-            <h1>链上管理面板</h1>
+          <div className="brand-lockup admin-brand-lockup">
+            <img className="brand-logo" src={PRODUCT_LOGO_SRC} alt={PRODUCT_BRAND} />
+            <div>
+              <p className="eyebrow">BSC Contract Console</p>
+              <h1>链上管理面板</h1>
+            </div>
           </div>
           <WalletConnectButton />
         </header>
@@ -2508,6 +2560,8 @@ function AdminUsersPage() {
     () =>
       [...users.rows].sort((left, right) => {
         if (left.account.registered !== right.account.registered) return left.account.registered ? -1 : 1;
+        const latestDiff = compareAdminUserLatest(left, right);
+        if (latestDiff !== 0) return latestDiff;
         const depositedDiff = compareBigIntDesc(left.account.totalDeposited, right.account.totalDeposited);
         if (depositedDiff !== 0) return depositedDiff;
         return left.address.localeCompare(right.address);
@@ -2702,10 +2756,10 @@ function AdminUserDetailPanel({
   const orders = useUserOrders(address, enabled);
   const referrals = useDirectReferralRows(address, currentLocalDay, enabled);
   const teamSummary = useTeamSummary(address, enabled);
-  const latestPrincipalOrders = useMemo(() => [...orders.principalOrders].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2), [orders.principalOrders]);
-  const latestStakeOrders = useMemo(() => [...orders.stakeOrders].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2), [orders.stakeOrders]);
+  const latestPrincipalOrders = useMemo(() => [...orders.principalOrders].sort(comparePrincipalOrderLatest).slice(0, 2), [orders.principalOrders]);
+  const latestStakeOrders = useMemo(() => [...orders.stakeOrders].sort(compareStakeOrderLatest).slice(0, 2), [orders.stakeOrders]);
   const latestWithdrawalRequests = useMemo(
-    () => [...orders.withdrawalRequests].sort((left, right) => compareBigIntDesc(left.id, right.id)).slice(0, 2),
+    () => [...orders.withdrawalRequests].sort(compareWithdrawalRequestLatest).slice(0, 2),
     [orders.withdrawalRequests],
   );
 
@@ -3088,14 +3142,7 @@ function AdminWithdrawalsPage({
   const config = useContractConfig();
   const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
   const sortedRequests = useMemo(
-    () =>
-      [...withdrawals.requests].sort((left, right) => {
-        if (left.status !== right.status) {
-          if (left.status === 0) return -1;
-          if (right.status === 0) return 1;
-        }
-        return compareBigIntDesc(left.id, right.id);
-      }),
+    () => [...withdrawals.requests].sort(compareWithdrawalRequestLatest),
     [withdrawals.requests],
   );
   const rewardPoolQuery = useReadContract({
@@ -4075,10 +4122,12 @@ function useAdminOrderBook() {
   return {
     principalOrders: (principalOrdersQuery.data ?? [])
       .map((result) => principalOrderFromTuple(readResult(result, undefined)))
-      .filter((order): order is PrincipalOrderData => Boolean(order)),
+      .filter((order): order is PrincipalOrderData => Boolean(order))
+      .sort(comparePrincipalOrderLatest),
     stakeOrders: (stakeOrdersQuery.data ?? [])
       .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
-      .filter((order): order is StakeOrderData => Boolean(order)),
+      .filter((order): order is StakeOrderData => Boolean(order))
+      .sort(compareStakeOrderLatest),
   };
 }
 
@@ -4111,7 +4160,8 @@ function useAdminWithdrawalRequests() {
     () =>
       (requestsQuery.data ?? [])
         .map((result) => withdrawalRequestFromTuple(readResult(result, undefined)))
-        .filter((request): request is WithdrawalRequestData => Boolean(request)),
+        .filter((request): request is WithdrawalRequestData => Boolean(request))
+        .sort(compareWithdrawalRequestLatest),
     [requestsQuery.data],
   );
 
@@ -4195,46 +4245,34 @@ function useChainEvents(eventNames: readonly string[], enabled = true) {
 }
 
 function useDynamicRewardDetails(upline?: Address) {
-  const publicClient = usePublicClient();
-
-  const query = useQuery({
-    queryKey: ['dynamicRewardDetails', CONTRACT_ADDRESS, upline],
-    enabled: Boolean(isContractConfigured && publicClient && upline),
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      if (!publicClient || !upline) return [] as DynamicRewardDetail[];
-
-      const client = publicClient as unknown as ChainEventClient;
-      const latest = await client.getBlockNumber();
-      const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
-      const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
-
-      const logs = await getContractEventsOnceOrChunked(
-        client,
-        {
-          address: CONTRACT_ADDRESS,
-          abi: ironBrotherAbi,
-          eventName: 'DynamicRewardSettled',
-          args: { upline },
-        },
-        fromBlock,
-        latest,
-      );
-
-      return logs
-        .map(dynamicRewardDetailFromEvent)
-        .filter((row): row is DynamicRewardDetail => Boolean(row))
-        .sort((left, right) => {
-          const blockDiff = Number(right.blockNumber - left.blockNumber);
-          return blockDiff === 0 ? right.logIndex - left.logIndex : blockDiff;
-        });
+  const query = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'getDynamicRewardHistory',
+    args: upline ? [upline] : undefined,
+    query: {
+      enabled: Boolean(isContractConfigured && upline),
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
     },
   });
 
+  const rows = useMemo(
+    () =>
+      ((query.data as readonly unknown[] | undefined) ?? [])
+        .map((row, index) => (upline ? dynamicRewardDetailFromHistory(row, upline, index) : undefined))
+        .filter((row): row is DynamicRewardDetail => Boolean(row))
+        .sort((left, right) => {
+          const dayDiff = Number(right.day - left.day);
+          return dayDiff === 0 ? right.historyIndex - left.historyIndex : dayDiff;
+        }),
+    [query.data, upline],
+  );
+
   return {
-    rows: query.data ?? [],
+    rows,
     isLoading: query.isLoading,
+    isError: query.isError,
   };
 }
 
@@ -4252,6 +4290,34 @@ function useAdminUsers(extraAddress?: Address | readonly Address[]) {
   const addresses = useMemo(() => {
     const eventAddresses = shouldReadUserEvents ? (events.data ?? []).map((event) => event.args.user as Address | undefined) : [];
     return uniqueAddresses([...extraAddresses, ...indexedAddresses, ...eventAddresses]);
+  }, [events.data, extraAddresses, indexedAddresses, shouldReadUserEvents]);
+  const userOrderMeta = useMemo(() => {
+    const meta = new Map<string, Pick<AdminUserRow, 'blockNumber' | 'logIndex' | 'registeredIndex'>>();
+
+    indexedAddresses.forEach((address, index) => {
+      meta.set(address.toLowerCase(), { registeredIndex: index });
+    });
+
+    if (shouldReadUserEvents) {
+      (events.data ?? []).forEach((event, index) => {
+        const user = event.args.user as Address | undefined;
+        if (user && isAddress(user)) {
+          meta.set(user.toLowerCase(), {
+            blockNumber: event.blockNumber,
+            logIndex: event.logIndex,
+            registeredIndex: Number.MAX_SAFE_INTEGER - index,
+          });
+        }
+      });
+    }
+
+    extraAddresses.forEach((address) => {
+      if (isAddress(address) && !meta.has(address.toLowerCase())) {
+        meta.set(address.toLowerCase(), { registeredIndex: -1 });
+      }
+    });
+
+    return meta;
   }, [events.data, extraAddresses, indexedAddresses, shouldReadUserEvents]);
 
   const userContracts = useMemo(
@@ -4272,11 +4338,17 @@ function useAdminUsers(extraAddress?: Address | readonly Address[]) {
 
   const rows = useMemo(
     () =>
-      addresses.map((address, index) => ({
-        address,
-        account: userFromTuple(readResult(usersQuery.data?.[index], undefined)),
-      })),
-    [addresses, usersQuery.data],
+      addresses.map((address, index) => {
+        const meta = userOrderMeta.get(address.toLowerCase());
+        return {
+          address,
+          account: userFromTuple(readResult(usersQuery.data?.[index], undefined)),
+          blockNumber: meta?.blockNumber,
+          logIndex: meta?.logIndex,
+          registeredIndex: meta?.registeredIndex,
+        };
+      }),
+    [addresses, userOrderMeta, usersQuery.data],
   );
 
   return {
@@ -4317,7 +4389,8 @@ function useDynamicSettlementRows(rows: AdminUserRow[], day: bigint, enabled = t
             settled: readResult(detailQuery.data?.[base + 2], false),
           };
         })
-        .filter((row) => row.dailyStakeVolume > 0n),
+        .filter((row) => row.dailyStakeVolume > 0n)
+        .sort(compareAdminUserLatest),
     [detailQuery.data, registeredRows],
   );
 
