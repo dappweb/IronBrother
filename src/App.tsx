@@ -1401,111 +1401,56 @@ function useTeamSummary(rootAddress: Address, enabled = true) {
   });
 }
 
-function useIronBrotherData() {
+function useIronBrotherData(scope: NavKey = 'home') {
   const { address } = useAccount();
-  const enabled = isContractConfigured && Boolean(address);
+  const accountEnabled = isContractConfigured && Boolean(address);
   const accountAddress = address ?? zeroAddress;
+  const shouldLoadOrders = scope === 'home';
+  const shouldLoadTeam = scope === 'team';
 
-  const userQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'users',
-    args: [accountAddress],
-    query: { enabled },
-  });
-
-  const availableQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'availablePrincipal',
-    args: [accountAddress],
-    query: { enabled },
-  });
-
-  const maturedQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'maturedUnredeemedPrincipal',
-    args: [accountAddress],
-    query: { enabled },
-  });
-
-  const sessionQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'currentSession',
-    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
-  });
-
-  const sessionConfigQuery = useReadContracts({
+  const baseQuery = useReadContracts({
     contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'users', args: [accountAddress] },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'availablePrincipal', args: [accountAddress] },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'maturedUnredeemedPrincipal', args: [accountAddress] },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'currentSession' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'timezoneOffset' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningStart' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'morningEnd' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonStart' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'afternoonEnd' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'yieldBps' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawFee' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawalApprovalRequired' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'defaultReferrer' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'currentLocalDay' },
     ],
     query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
   });
 
-  const yieldQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'yieldBps',
-    query: { enabled: isContractConfigured },
-  });
-
-  const withdrawFeeQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'withdrawFee',
-    query: { enabled: isContractConfigured },
-  });
-
-  const withdrawalApprovalQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'withdrawalApprovalRequired',
-    query: { enabled: isContractConfigured },
-  });
-
-  const defaultReferrerQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'defaultReferrer',
-    query: { enabled: isContractConfigured },
-  });
-
-  const currentDayQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'currentLocalDay',
-    query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
-  });
-
-  const account = userFromTuple(userQuery.data);
-  const sessionTuple = sessionQuery.data as readonly [number, bigint] | undefined;
-  const pickSessionConfig = <T,>(index: number, fallback: T) => readResult(sessionConfigQuery.data?.[index], fallback);
-  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
-  const orders = useUserOrders(accountAddress, enabled);
-  const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, enabled);
-  const teamSummary = useTeamSummary(accountAddress, enabled);
+  const pickBase = <T,>(index: number, fallback: T) => readResult(baseQuery.data?.[index], fallback);
+  const account = userFromTuple(pickBase(0, undefined));
+  const sessionTuple = pickBase(3, [0, 0n] as readonly [number, bigint]);
+  const currentLocalDay = pickBase(13, 0n);
+  const orders = useUserOrders(accountAddress, accountEnabled && shouldLoadOrders);
+  const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, accountEnabled && shouldLoadTeam);
+  const teamSummary = useTeamSummary(accountAddress, accountEnabled && shouldLoadTeam);
 
   return {
     account,
-    availablePrincipal: (availableQuery.data as bigint | undefined) ?? 0n,
-    maturedUnredeemed: (maturedQuery.data as bigint | undefined) ?? 0n,
+    availablePrincipal: pickBase(1, 0n),
+    maturedUnredeemed: pickBase(2, 0n),
     currentSession: Number(sessionTuple?.[0] ?? 0),
     sessionSettleAt: sessionTuple?.[1] ?? 0n,
-    timezoneOffset: pickSessionConfig(0, BigInt(EAST8_TIMEZONE_SECONDS)),
-    morningStart: pickSessionConfig(1, 9 * SECONDS_PER_HOUR),
-    morningEnd: pickSessionConfig(2, 12 * SECONDS_PER_HOUR),
-    afternoonStart: pickSessionConfig(3, 14 * SECONDS_PER_HOUR),
-    afternoonEnd: pickSessionConfig(4, 17 * SECONDS_PER_HOUR),
-    yieldBps: (yieldQuery.data as bigint | undefined) ?? 100n,
-    withdrawFee: (withdrawFeeQuery.data as bigint | undefined) ?? 10n * 10n ** 18n,
-    withdrawalApprovalRequired: (withdrawalApprovalQuery.data as boolean | undefined) ?? true,
-    defaultReferrer: (defaultReferrerQuery.data as Address | undefined) ?? zeroAddress,
+    timezoneOffset: pickBase(4, BigInt(EAST8_TIMEZONE_SECONDS)),
+    morningStart: pickBase(5, 9 * SECONDS_PER_HOUR),
+    morningEnd: pickBase(6, 12 * SECONDS_PER_HOUR),
+    afternoonStart: pickBase(7, 14 * SECONDS_PER_HOUR),
+    afternoonEnd: pickBase(8, 17 * SECONDS_PER_HOUR),
+    yieldBps: pickBase(9, 100n),
+    withdrawFee: pickBase(10, 10n * 10n ** 18n),
+    withdrawalApprovalRequired: pickBase(11, true),
+    defaultReferrer: pickBase(12, zeroAddress),
     currentLocalDay,
     principalOrderIds: orders.principalOrderIds,
     stakeOrderIds: orders.stakeOrderIds,
@@ -1516,9 +1461,9 @@ function useIronBrotherData() {
     directReferrals: directReferrals.rows,
     teamSummary: teamSummary.data ?? emptyTeamSummary,
     isTeamSummaryLoading: teamSummary.isLoading,
-    isAccountLoading: userQuery.isLoading,
-    isSessionLoading: sessionQuery.isLoading,
-    isDefaultReferrerLoading: defaultReferrerQuery.isLoading,
+    isAccountLoading: baseQuery.isLoading,
+    isSessionLoading: baseQuery.isLoading,
+    isDefaultReferrerLoading: baseQuery.isLoading,
   };
 }
 
@@ -1641,7 +1586,7 @@ function CustomerApp() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
-  const data = useIronBrotherData();
+  const data = useIronBrotherData(nav);
   const wrongNetwork = isConnected && chainId !== bscTestnet.id;
   const copy = LOCALE_COPY[locale];
   const productTitle = productTitleForLocale(locale);
@@ -2162,34 +2107,37 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
         : '';
 
   return (
-    <section className="panel">
-      <div className="section-title">
+    <section className="panel reward-wallet-panel">
+      <div className="section-title reward-wallet-title">
         <div>
           <p className="eyebrow">Reward wallet</p>
           <h2>收益钱包</h2>
         </div>
-        <strong><MoneyAmount value={data.account.rewardBalance} /></strong>
+        <div className="wallet-balance-summary">
+          <span>可用收益</span>
+          <strong><MoneyAmount value={data.account.rewardBalance} /></strong>
+        </div>
       </div>
-      <div className="calc-grid">
+      <div className="calc-grid reward-wallet-metrics">
         <MetricCard label="静态累计" value={<MoneyAmount value={data.account.totalStaticReward} />} trend="带单按次结算" />
         <MetricCard label="动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="每日 0 点后可结算" />
       </div>
-      <div className="form-grid">
-        <label>
+      <div className="form-grid reward-wallet-form">
+        <label className="wallet-field">
           复投金额
           <input value={reinvestAmount} onChange={(event) => setReinvestAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
           <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
-        <label>
+        <label className="wallet-field">
           提现金额
           <input value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
           <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
       </div>
-      <p className="helper-line">{withdrawHelper}</p>
+      <p className="helper-line reward-wallet-helper">{withdrawHelper}</p>
       {reinvestValidation && <p className="field-error">{reinvestValidation}</p>}
       {withdrawValidation && <p className="field-error">{withdrawValidation}</p>}
-      <div className="split-buttons">
+      <div className="split-buttons reward-wallet-actions">
         <button
           className="secondary-button"
           disabled={disabled || reinvestParsed <= 0n || Boolean(reinvestValidation)}
@@ -4174,6 +4122,38 @@ function useAdminWithdrawalRequests() {
   };
 }
 
+type ChainEventClient = {
+  getBlockNumber: () => Promise<bigint>;
+  getContractEvents: (args: Record<string, unknown>) => Promise<ChainEventRecord[]>;
+};
+
+async function getContractEventsOnceOrChunked(
+  client: ChainEventClient,
+  args: Record<string, unknown>,
+  fromBlock: bigint,
+  latest: bigint,
+) {
+  try {
+    return await client.getContractEvents({
+      ...args,
+      fromBlock,
+      toBlock: latest,
+    });
+  } catch {
+    const logs: ChainEventRecord[] = [];
+    for (let start = fromBlock; start <= latest; start += EVENT_CHUNK_BLOCKS + 1n) {
+      const end = start + EVENT_CHUNK_BLOCKS > latest ? latest : start + EVENT_CHUNK_BLOCKS;
+      const chunk = await client.getContractEvents({
+        ...args,
+        fromBlock: start,
+        toBlock: end,
+      });
+      logs.push(...chunk);
+    }
+    return logs;
+  }
+}
+
 function useChainEvents(eventNames: readonly string[], enabled = true) {
   const publicClient = usePublicClient();
 
@@ -4181,31 +4161,29 @@ function useChainEvents(eventNames: readonly string[], enabled = true) {
     queryKey: ['ironBrotherEvents', CONTRACT_ADDRESS, eventNames.join('|')],
     enabled: Boolean(enabled && isContractConfigured && publicClient),
     staleTime: 30_000,
-    refetchInterval: enabled ? 60_000 : false,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       if (!publicClient) return [] as ChainEventRecord[];
 
-      const client = publicClient as unknown as {
-        getBlockNumber: () => Promise<bigint>;
-        getContractEvents: (args: Record<string, unknown>) => Promise<ChainEventRecord[]>;
-      };
+      const client = publicClient as unknown as ChainEventClient;
       const latest = await client.getBlockNumber();
       const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
       const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
       const logs: ChainEventRecord[] = [];
 
       for (const eventName of eventNames) {
-        for (let start = fromBlock; start <= latest; start += EVENT_CHUNK_BLOCKS + 1n) {
-          const end = start + EVENT_CHUNK_BLOCKS > latest ? latest : start + EVENT_CHUNK_BLOCKS;
-          const chunk = await client.getContractEvents({
-            address: CONTRACT_ADDRESS,
-            abi: ironBrotherAbi,
-            eventName,
-            fromBlock: start,
-            toBlock: end,
-          });
-          logs.push(...chunk);
-        }
+        logs.push(
+          ...(await getContractEventsOnceOrChunked(
+            client,
+            {
+              address: CONTRACT_ADDRESS,
+              abi: ironBrotherAbi,
+              eventName,
+            },
+            fromBlock,
+            latest,
+          )),
+        );
       }
 
       return logs.sort((a, b) => {
@@ -4223,31 +4201,26 @@ function useDynamicRewardDetails(upline?: Address) {
     queryKey: ['dynamicRewardDetails', CONTRACT_ADDRESS, upline],
     enabled: Boolean(isContractConfigured && publicClient && upline),
     staleTime: 30_000,
-    refetchInterval: upline ? 60_000 : false,
+    refetchOnWindowFocus: false,
     queryFn: async () => {
       if (!publicClient || !upline) return [] as DynamicRewardDetail[];
 
-      const client = publicClient as unknown as {
-        getBlockNumber: () => Promise<bigint>;
-        getContractEvents: (args: Record<string, unknown>) => Promise<ChainEventRecord[]>;
-      };
+      const client = publicClient as unknown as ChainEventClient;
       const latest = await client.getBlockNumber();
       const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
       const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
-      const logs: ChainEventRecord[] = [];
 
-      for (let start = fromBlock; start <= latest; start += EVENT_CHUNK_BLOCKS + 1n) {
-        const end = start + EVENT_CHUNK_BLOCKS > latest ? latest : start + EVENT_CHUNK_BLOCKS;
-        const chunk = await client.getContractEvents({
+      const logs = await getContractEventsOnceOrChunked(
+        client,
+        {
           address: CONTRACT_ADDRESS,
           abi: ironBrotherAbi,
           eventName: 'DynamicRewardSettled',
           args: { upline },
-          fromBlock: start,
-          toBlock: end,
-        });
-        logs.push(...chunk);
-      }
+        },
+        fromBlock,
+        latest,
+      );
 
       return logs
         .map(dynamicRewardDetailFromEvent)

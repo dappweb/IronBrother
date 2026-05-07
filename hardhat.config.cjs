@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
+require("./scripts/load-env.cjs");
 
 const BSC_RPC_URL = process.env.BSC_RPC_URL || "";
 const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || process.env.BSC_RPC_URL || "";

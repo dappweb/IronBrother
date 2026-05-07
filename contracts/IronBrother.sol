@@ -140,6 +140,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     address[] private registeredUsers;
     mapping(address => bool) private registeredUserIndexed;
     bool public withdrawalApprovalDisabled;
+    uint256 private _settlementCycle;
 
     event UserRegistered(address indexed user, address indexed referrer);
     event UserIndexed(address indexed user);
@@ -207,6 +208,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         maxYieldBps = 500;
         withdrawFee = 10 ether;
         validVolumeThreshold = 1_000 ether;
+        _settlementCycle = 1 days;
         timezoneOffset = EAST8_TIMEZONE_OFFSET;
         morningStart = 9 hours;
         morningEnd = 12 hours;
@@ -550,6 +552,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return _localDay(block.timestamp);
     }
 
+    function settlementCycle() public view returns (uint256) {
+        uint256 configuredCycle = _settlementCycle;
+        return configuredCycle == 0 ? 1 days : configuredCycle;
+    }
+
     function eligibleGeneration(address user, uint256 day) public view returns (uint8) {
         if (users[user].whitelist40) {
             return MAX_GENERATION;
@@ -711,11 +718,17 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit ConfigUpdated("VALID_VOLUME_THRESHOLD", newThreshold);
     }
 
+    function setSettlementCycle(uint256 newSettlementCycle) external onlySuperAdmin {
+        require(newSettlementCycle >= 1 minutes && newSettlementCycle <= 1 days, "invalid settlement cycle");
+        _settlementCycle = newSettlementCycle;
+        emit ConfigUpdated("SETTLEMENT_CYCLE", newSettlementCycle);
+    }
+
     function setSessionTimes(uint32 newMorningStart, uint32 newMorningEnd, uint32 newAfternoonStart, uint32 newAfternoonEnd) external onlySuperAdmin {
         require(newMorningStart < newMorningEnd, "invalid morning");
         require(newMorningEnd <= newAfternoonStart, "sessions overlap");
         require(newAfternoonStart < newAfternoonEnd, "invalid afternoon");
-        require(newAfternoonEnd <= 1 days, "invalid day");
+        require(newAfternoonEnd <= settlementCycle(), "invalid day");
 
         morningStart = newMorningStart;
         morningEnd = newMorningEnd;
@@ -900,20 +913,20 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         userPrincipalOrderIds[user].push(orderId);
     }
 
-    function _localDay(uint256 timestamp) internal pure returns (uint256) {
+    function _localDay(uint256 timestamp) internal view returns (uint256) {
         int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) / 1 days;
+        return uint256(adjusted) / settlementCycle();
     }
 
-    function _localSecondOfDay(uint256 timestamp) internal pure returns (uint256) {
+    function _localSecondOfDay(uint256 timestamp) internal view returns (uint256) {
         int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) % 1 days;
+        return uint256(adjusted) % settlementCycle();
     }
 
-    function _localDayStartUtc(uint256 day) internal pure returns (uint256) {
-        int256 timestamp = int256(day * 1 days) - EAST8_TIMEZONE_OFFSET;
+    function _localDayStartUtc(uint256 day) internal view returns (uint256) {
+        int256 timestamp = int256(day * settlementCycle()) - EAST8_TIMEZONE_OFFSET;
         require(timestamp >= 0, "invalid day start");
         return uint256(timestamp);
     }

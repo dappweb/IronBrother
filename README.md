@@ -96,6 +96,17 @@ npm run bot:dynamic:settle:testnet
 
 By default the bot settles the previous local day in batches of 50 indexed users. Override `DYNAMIC_SETTLEMENT_DAY`, `DYNAMIC_SETTLEMENT_BATCH_SIZE`, or `DYNAMIC_SETTLEMENT_START_CURSOR` when backfilling or resuming a stopped run. The bot wallet must have `MANAGER_ROLE`.
 
+Run a short-cycle dynamic reward smoke test on BSC Testnet:
+
+```bash
+set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set PRIVATE_KEY=super-admin-private-key
+set IRONBROTHER_PROXY=deployed-proxy-address
+npm run test:dynamic:cycle:testnet
+```
+
+The smoke test temporarily sets the settlement cycle to `DYNAMIC_TEST_SETTLEMENT_CYCLE_SECONDS` (default 120 seconds), registers a child wallet under the signer, stakes test USDT, waits for the cycle to close, runs bot settlement, and restores the original cycle/session config by default. Set `DYNAMIC_TEST_RESTORE_CONFIG=false` only if you intentionally want to keep the shortened testnet cycle.
+
 ## Cloudflare Pages
 
 Cloudflare Pages should build from the repository root. The failed log below means Pages built the old `main` commit that only contained `README.md`, so `/opt/buildhome/repo/package.json` did not exist. Push a full project commit to `main`, then configure two branch environments:

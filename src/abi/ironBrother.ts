@@ -252,6 +252,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'settlementCycle',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'eligibleGeneration',
     stateMutability: 'view',
     inputs: [
@@ -843,6 +850,13 @@ export const ironBrotherAbi = [
     name: 'setValidVolumeThreshold',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newThreshold', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setSettlementCycle',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newSettlementCycle', type: 'uint256' }],
     outputs: [],
   },
   {

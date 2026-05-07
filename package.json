@@ -14,9 +14,10 @@
     "bot:dynamic:settle": "hardhat run scripts/bot-daily-dynamic-settlement.cjs",
     "bot:dynamic:settle:testnet": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bscTestnet",
     "bot:dynamic:settle:bsc": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bsc",
-    "deploy:pages": "wrangler pages deploy dist --project-name crudetrust",
-    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name crudetrust --branch main",
-    "deploy:pages:test": "npm run build && wrangler pages deploy dist --project-name crudetrust --branch test"
+    "test:dynamic:cycle:testnet": "hardhat run scripts/test-dynamic-settlement-cycle.cjs --network bscTestnet",
+    "deploy:pages": "wrangler pages deploy dist --project-name ironbrother",
+    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch main",
+    "deploy:pages:test": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch test"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.10",

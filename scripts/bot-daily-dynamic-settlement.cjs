@@ -25,7 +25,10 @@ function formatToken(value) {
 }
 
 async function main() {
-  const proxyAddress = process.env.IRONBROTHER_PROXY || process.env.VITE_CRUDETRUST_CONTRACT_ADDRESS;
+  const proxyAddress =
+    process.env.IRONBROTHER_PROXY ||
+    process.env.VITE_CRUDETRUST_CONTRACT_ADDRESS ||
+    process.env.VITE_IRONBROTHER_CONTRACT_ADDRESS;
   if (!proxyAddress || !hre.ethers.isAddress(proxyAddress)) {
     throw new Error("Set IRONBROTHER_PROXY to the deployed proxy address");
   }

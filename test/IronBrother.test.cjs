@@ -13,6 +13,16 @@ async function setNextLocalHour(hour) {
   await network.provider.send("evm_mine");
 }
 
+async function setNextCycleSecond(cycleSeconds, second) {
+  const latest = await ethers.provider.getBlock("latest");
+  const now = latest.timestamp;
+  const offset = 8 * 60 * 60;
+  const cycleStart = Math.floor((now + offset) / cycleSeconds) * cycleSeconds - offset;
+  const target = cycleStart + second;
+  await network.provider.send("evm_setNextBlockTimestamp", [target > now ? target : target + cycleSeconds]);
+  await network.provider.send("evm_mine");
+}
+
 describe("IronBrother", function () {
   async function deployFixture() {
     const [
@@ -160,6 +170,7 @@ describe("IronBrother", function () {
   it("uses east-eight session windows and lets admin update morning and afternoon ranges", async function () {
     const { ironBrother } = await deployFixture();
 
+    expect(await ironBrother.settlementCycle()).to.equal(BigInt(DAY));
     expect(await ironBrother.timezoneOffset()).to.equal(8n * 60n * 60n);
 
     await setNextLocalHour(8);
@@ -181,6 +192,34 @@ describe("IronBrother", function () {
 
     await expect(ironBrother.setTimezoneOffset(7 * 60 * 60)).to.be.revertedWith("timezone fixed east8");
     await expect(ironBrother.setTimezoneOffset(8 * 60 * 60)).to.emit(ironBrother, "ConfigUpdated");
+  });
+
+  it("can shorten the settlement cycle for dynamic reward testing", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await expect(ironBrother.setSettlementCycle(120)).to.emit(ironBrother, "ConfigUpdated");
+    await ironBrother.setSessionTimes(0, 60, 60, 120);
+
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+    await setNextCycleSecond(120, 10);
+    const day = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+
+    expect(await ironBrother.dailyStakeVolume(bob.address, day)).to.equal(U("1000"));
+    expect(await ironBrother.dailyDirectValidCount(alice.address, day)).to.equal(1n);
+    await expect(ironBrother.settleDynamicRewardForUser(bob.address, day)).to.be.revertedWith("day not closed");
+
+    await setNextCycleSecond(120, 10);
+    expect(await ironBrother.currentLocalDay()).to.be.greaterThan(day);
+
+    await expect(ironBrother.botSettleDailyDynamicRewards(day, 0, 100))
+      .to.emit(ironBrother, "DynamicRewardSettled")
+      .withArgs(bob.address, alice.address, day, 1, U("1000"), U("2"));
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(U("2"));
+    expect(account.totalDynamicReward).to.equal(U("2"));
+    expect(await ironBrother.totalDynamicRewardCredited()).to.equal(U("2"));
   });
 
   it("moves matured principal to reward wallet on redemption", async function () {
