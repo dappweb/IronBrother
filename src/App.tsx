@@ -116,6 +116,8 @@ type TxFlowStep = {
   request: () => Promise<Hash>;
 };
 
+type ContractWriteRequest = Parameters<ReturnType<typeof useWriteContract>['writeContractAsync']>[0];
+
 type ErrorLike = {
   name?: unknown;
   message?: unknown;
@@ -245,6 +247,7 @@ const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
 const LANGUAGE_STORAGE_KEY = 'ironbrother.locale';
 const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
 const TEAM_SUMMARY_MAX_DEPTH = 40;
+const TX_GAS_BUFFER_BPS = 12_000n;
 const DEFAULT_TX_ERROR = '交易失败，请检查钱包、余额和链上状态后重试。';
 
 const LANGUAGE_OPTIONS: readonly { key: LocaleKey; label: string }[] = [
@@ -820,6 +823,16 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
   }
 
   if (
+    lower.includes('unknown transaction type') ||
+    lower.includes('unsupported transaction type') ||
+    lower.includes('cannot estimate gas') ||
+    lower.includes('gas required exceeds allowance') ||
+    lower.includes('intrinsic gas too low')
+  ) {
+    return { error: '钱包无法识别或估算这笔交易，请确认当前网络为 BSC Testnet、钱包有足够 BNB 支付 Gas 后重试。', errorKind: 'wallet', rawError };
+  }
+
+  if (
     lower.includes('http request failed') ||
     lower.includes('failed to fetch') ||
     lower.includes('network error') ||
@@ -897,6 +910,10 @@ function secondsToDays(value?: bigint | number) {
 function tokenInput(value?: bigint) {
   if (!value) return '0';
   return formatUnits(value, 18);
+}
+
+function withGasBuffer(gas: bigint) {
+  return (gas * TX_GAS_BUFFER_BPS + 9_999n) / 10_000n;
 }
 
 function bpsInput(value?: bigint | number) {
@@ -1311,11 +1328,38 @@ function useIronBrotherData() {
 function useTxRunner() {
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
-  const { writeContractAsync } = useWriteContract();
+  const { address } = useAccount();
+  const { writeContractAsync: wagmiWriteContractAsync } = useWriteContract();
   const [tx, setTx] = useState<TxState>({
     label: '',
     status: 'idle',
   });
+
+  async function writeContractAsync(request: ContractWriteRequest) {
+    if (!address) {
+      throw new Error('wallet is not connected');
+    }
+    if (!publicClient) {
+      throw new Error('RPC client is not initialized');
+    }
+
+    const [gasPrice, gas] = await Promise.all([
+      publicClient.getGasPrice(),
+      publicClient.estimateContractGas({
+        ...request,
+        account: address,
+      } as never),
+    ]);
+
+    return wagmiWriteContractAsync({
+      ...request,
+      account: address,
+      chainId: bscTestnet.id,
+      type: 'legacy',
+      gasPrice,
+      gas: withGasBuffer(gas),
+    } as ContractWriteRequest);
+  }
 
   async function runTx(label: string, request: () => Promise<Hash>) {
     if (!publicClient) {
@@ -1671,12 +1715,14 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
   const estimatedReward = (parsedAmount * data.yieldBps) / 10_000n;
   const sessionSettleLabel = data.sessionSettleAt > 0n ? dateTime(data.sessionSettleAt) : '未开放';
   const stakingWindowOpen = data.currentSession === 1 || data.currentSession === 2;
+  const amountExceedsAvailable = parsedAmount > data.availablePrincipal;
   const sessionGuardMessage = data.isSessionLoading
     ? '正在读取链上场次，请稍候。'
     : stakingWindowOpen
       ? ''
       : '当前场次未开放，请等待下一场开启。';
-  const stakeDisabled = disabled || !stakingWindowOpen || data.isSessionLoading || parsedAmount <= 0n;
+  const amountGuardMessage = amountExceedsAvailable ? '带单金额不能超过可带单余额。' : '';
+  const stakeDisabled = disabled || !stakingWindowOpen || data.isSessionLoading || parsedAmount <= 0n || amountExceedsAvailable;
 
   function submitStake() {
     if (stakeDisabled) return;
@@ -1719,6 +1765,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
           确认带单
         </button>
         {sessionGuardMessage && <p className="field-error">{sessionGuardMessage}</p>}
+        {amountGuardMessage && <p className="field-error">{amountGuardMessage}</p>}
         <TxStatus tx={tx} />
       </section>
 
