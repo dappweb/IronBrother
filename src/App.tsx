@@ -95,6 +95,7 @@ type LocaleCopy = {
     stake: string;
     unlock: string;
     settle: string;
+    redeem: string;
   };
   status: {
     redeemed: string;
@@ -248,7 +249,8 @@ const SESSION_STATUS_REFETCH_MS = 30_000;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
-const LANGUAGE_STORAGE_KEY = 'ironbrother.locale';
+const PRODUCT_BRAND = '原力 CrudeTrust';
+const LANGUAGE_STORAGE_KEY = 'crudetrust.locale';
 const DEFAULT_LOCALE: LocaleKey = 'zh-CN';
 const PROMOTION_REFERRER_PARAM = 'ref';
 const TOKEN_SYMBOL = 'USDT';
@@ -271,7 +273,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     nav: { home: '首页', stake: '带单', wallet: '钱包', team: '团队', profile: '我的' },
     shell: {
       greeting: 'Hi',
-      contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可启用。',
+      contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可启用。',
       switchNetwork: '切换到 BSC Testnet',
     },
     language: { eyebrow: 'Language', title: '语言切换' },
@@ -292,17 +294,17 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: '最新订单',
       orderUnit: '笔',
       noOrdersTitle: '暂无订单',
-      noOrdersDetail: '连接钱包后，将直接读取该地址的本金订单和带单订单。',
+      noOrdersDetail: '连接钱包后，将直接读取该地址的入金订单。',
     },
     session: { morning: '上午场', afternoon: '下午场', closed: '休息中', canStake: '可带单', pending: '待开放' },
-    order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算' },
+    order: { deposit: '入金订单', reinvest: '复投订单', stake: '带单订单', unlock: '解锁', settle: '结算', redeem: '赎回' },
     status: { redeemed: '已赎回', redeemable: '可赎回', locked: '锁仓中', settled: '已结算', settleable: '可结算', pending: '待结算' },
   },
   'zh-TW': {
     nav: { home: '首頁', stake: '帶單', wallet: '錢包', team: '團隊', profile: '我的' },
     shell: {
       greeting: 'Hi',
-      contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_IRONBROTHER_CONTRACT_ADDRESS 即可啟用。',
+      contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可啟用。',
       switchNetwork: '切換到 BSC Testnet',
     },
     language: { eyebrow: 'Language', title: '語言切換' },
@@ -323,17 +325,17 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: '最新訂單',
       orderUnit: '筆',
       noOrdersTitle: '暫無訂單',
-      noOrdersDetail: '連接錢包後，將直接讀取該地址的本金訂單和帶單訂單。',
+      noOrdersDetail: '連接錢包後，將直接讀取該地址的入金訂單。',
     },
     session: { morning: '上午場', afternoon: '下午場', closed: '休息中', canStake: '可帶單', pending: '待開放' },
-    order: { deposit: '入金訂單', reinvest: '複投訂單', stake: '帶單訂單', unlock: '解鎖', settle: '結算' },
+    order: { deposit: '入金訂單', reinvest: '複投訂單', stake: '帶單訂單', unlock: '解鎖', settle: '結算', redeem: '贖回' },
     status: { redeemed: '已贖回', redeemable: '可贖回', locked: '鎖倉中', settled: '已結算', settleable: '可結算', pending: '待結算' },
   },
   en: {
     nav: { home: 'Home', stake: 'Stake', wallet: 'Wallet', team: 'Team', profile: 'Me' },
     shell: {
       greeting: 'Hi',
-      contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_IRONBROTHER_CONTRACT_ADDRESS is set.',
+      contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_CRUDETRUST_CONTRACT_ADDRESS is set.',
       switchNetwork: 'Switch to BSC Testnet',
     },
     language: { eyebrow: 'Language', title: 'Language' },
@@ -354,10 +356,10 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: 'Latest Orders',
       orderUnit: 'orders',
       noOrdersTitle: 'No on-chain orders',
-      noOrdersDetail: 'Connect a wallet to read principal and staking orders for this address.',
+      noOrdersDetail: 'Connect a wallet to read deposit orders for this address.',
     },
     session: { morning: 'Morning', afternoon: 'Afternoon', closed: 'Closed', canStake: 'Open', pending: 'Pending' },
-    order: { deposit: 'Deposit Order', reinvest: 'Reinvest Order', stake: 'Stake Order', unlock: 'Unlock', settle: 'Settle' },
+    order: { deposit: 'Deposit Order', reinvest: 'Reinvest Order', stake: 'Stake Order', unlock: 'Unlock', settle: 'Settle', redeem: 'Redeem' },
     status: { redeemed: 'Redeemed', redeemable: 'Redeemable', locked: 'Locked', settled: 'Settled', settleable: 'Settleable', pending: 'Pending' },
   },
   ja: {
@@ -385,10 +387,10 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: '最新注文',
       orderUnit: '件',
       noOrdersTitle: 'オンチェーン注文なし',
-      noOrdersDetail: 'ウォレット接続後、このアドレスの元本とステーク注文を直接読み取ります。',
+      noOrdersDetail: 'ウォレット接続後、このアドレスの入金注文を直接読み取ります。',
     },
     session: { morning: '午前枠', afternoon: '午後枠', closed: '休止中', canStake: '受付中', pending: '待機中' },
-    order: { deposit: '入金注文', reinvest: '再投資注文', stake: 'ステーク注文', unlock: '解除', settle: '精算' },
+    order: { deposit: '入金注文', reinvest: '再投資注文', stake: 'ステーク注文', unlock: '解除', settle: '精算', redeem: '償還' },
     status: { redeemed: '償還済み', redeemable: '償還可能', locked: 'ロック中', settled: '精算済み', settleable: '精算可能', pending: '精算待ち' },
   },
   ko: {
@@ -416,10 +418,10 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: '최근 주문',
       orderUnit: '건',
       noOrdersTitle: '온체인 주문 없음',
-      noOrdersDetail: '지갑을 연결하면 이 주소의 원금 및 스테이킹 주문을 직접 읽습니다.',
+      noOrdersDetail: '지갑을 연결하면 이 주소의 입금 주문을 직접 읽습니다.',
     },
     session: { morning: '오전 세션', afternoon: '오후 세션', closed: '휴식 중', canStake: '가능', pending: '대기' },
-    order: { deposit: '입금 주문', reinvest: '재투자 주문', stake: '스테이킹 주문', unlock: '잠금해제', settle: '정산' },
+    order: { deposit: '입금 주문', reinvest: '재투자 주문', stake: '스테이킹 주문', unlock: '잠금해제', settle: '정산', redeem: '상환' },
     status: { redeemed: '상환됨', redeemable: '상환 가능', locked: '잠김', settled: '정산됨', settleable: '정산 가능', pending: '정산 대기' },
   },
   vi: {
@@ -447,10 +449,10 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: 'Lệnh mới nhất',
       orderUnit: 'lệnh',
       noOrdersTitle: 'Chưa có lệnh on-chain',
-      noOrdersDetail: 'Kết nối ví để đọc trực tiếp lệnh gốc và stake của địa chỉ này.',
+      noOrdersDetail: 'Kết nối ví để đọc trực tiếp lệnh nạp của địa chỉ này.',
     },
     session: { morning: 'Phiên sáng', afternoon: 'Phiên chiều', closed: 'Đang nghỉ', canStake: 'Có thể stake', pending: 'Chưa mở' },
-    order: { deposit: 'Lệnh nạp', reinvest: 'Lệnh tái đầu tư', stake: 'Lệnh stake', unlock: 'Mở khóa', settle: 'Quyết toán' },
+    order: { deposit: 'Lệnh nạp', reinvest: 'Lệnh tái đầu tư', stake: 'Lệnh stake', unlock: 'Mở khóa', settle: 'Quyết toán', redeem: 'Rút gốc' },
     status: { redeemed: 'Đã rút', redeemable: 'Có thể rút', locked: 'Đang khóa', settled: 'Đã quyết toán', settleable: 'Có thể quyết toán', pending: 'Chờ quyết toán' },
   },
   ms: {
@@ -478,10 +480,10 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
       latestOrders: 'Pesanan Terkini',
       orderUnit: 'pesanan',
       noOrdersTitle: 'Tiada pesanan on-chain',
-      noOrdersDetail: 'Sambungkan dompet untuk membaca pesanan prinsipal dan stake alamat ini.',
+      noOrdersDetail: 'Sambungkan dompet untuk membaca pesanan deposit alamat ini.',
     },
     session: { morning: 'Sesi pagi', afternoon: 'Sesi petang', closed: 'Rehat', canStake: 'Dibuka', pending: 'Menunggu' },
-    order: { deposit: 'Pesanan Deposit', reinvest: 'Pesanan Labur Semula', stake: 'Pesanan Stake', unlock: 'Buka kunci', settle: 'Selesai' },
+    order: { deposit: 'Pesanan Deposit', reinvest: 'Pesanan Labur Semula', stake: 'Pesanan Stake', unlock: 'Buka kunci', settle: 'Selesai', redeem: 'Tebus' },
     status: { redeemed: 'Ditebus', redeemable: 'Boleh tebus', locked: 'Dikunci', settled: 'Selesai', settleable: 'Boleh selesai', pending: 'Menunggu selesai' },
   },
 };
@@ -1615,7 +1617,7 @@ function CustomerApp() {
       <header className="mobile-frame top-frame">
         <div className="topbar">
           <div>
-            <p className="eyebrow">IronBrother</p>
+            <p className="eyebrow">{PRODUCT_BRAND}</p>
             <h1>{copy.shell.greeting}, {shortAddress(address)}</h1>
           </div>
           <div className="topbar-actions">
@@ -1636,7 +1638,7 @@ function CustomerApp() {
       </header>
 
       <main className="mobile-frame content-frame">
-        {nav === 'home' && <HomeScreen data={data} copy={copy} onNavigate={setNav} />}
+        {nav === 'home' && <HomeScreen data={data} copy={copy} disabled={!isConnected || wrongNetwork || !isContractConfigured} onNavigate={setNav} />}
         {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'wallet' && (
           <WalletScreen
@@ -1753,36 +1755,35 @@ function BindReferrerModal({
 function HomeScreen({
   data,
   copy,
+  disabled,
   onNavigate,
 }: {
   data: ReturnType<typeof useIronBrotherData>;
   copy: LocaleCopy;
+  disabled: boolean;
   onNavigate: (nav: NavKey) => void;
 }) {
+  const { runTx, tx, writeContractAsync } = useTxRunner();
   const currentSessionLabel = sessionLabelForLocale(data.currentSession, copy);
   const morningRange = sessionTimeRange(data.morningStart, data.morningEnd);
   const afternoonRange = sessionTimeRange(data.afternoonStart, data.afternoonEnd);
   const nowSeconds = useNowSeconds();
+  const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
   const recentOrders = useMemo(() => {
-    const principal = data.principalOrders.map((order) => ({
-      id: `principal-${order.id.toString()}`,
-      label: `${principalSourceLabelForLocale(order.source, copy)} #${order.id.toString()}`,
-      amount: order.amount,
-      status: principalStatusLabelForLocale(order, copy, nowSeconds),
-      time: principalOrderHomeTime(order, copy, nowSeconds),
-      createdAt: order.createdAt,
-    }));
-    const stakes = data.stakeOrders.map((order) => ({
-      id: `stake-${order.id.toString()}`,
-      label: `${copy.order.stake} #${order.id.toString()}`,
-      amount: order.amount,
-      status: stakeStatusLabelForLocale(order, copy, nowSeconds),
-      time: `${sessionLabelForLocale(order.session, copy)} / ${copy.order.settle} ${dateTime(order.settleAt)}`,
-      createdAt: order.createdAt,
-    }));
-
-    return [...principal, ...stakes].sort((a, b) => Number(b.createdAt - a.createdAt));
-  }, [copy, data.principalOrders, data.stakeOrders, nowSeconds]);
+    return data.principalOrders
+      .filter((order) => order.source === 0)
+      .map((order) => ({
+        id: `principal-${order.id.toString()}`,
+        orderId: order.id,
+        label: `${principalSourceLabelForLocale(order.source, copy)} #${order.id.toString()}`,
+        amount: order.amount,
+        status: principalStatusLabelForLocale(order, copy, nowSeconds),
+        time: principalOrderHomeTime(order, copy, nowSeconds),
+        createdAt: order.createdAt,
+        canRedeem: order.status === 0 && BigInt(nowSeconds) >= order.unlockAt,
+      }))
+      .sort((a, b) => Number(b.createdAt - a.createdAt));
+  }, [copy, data.principalOrders, nowSeconds]);
 
   return (
     <section className="screen-stack">
@@ -1831,11 +1832,39 @@ function HomeScreen({
         </div>
         {recentOrders.length > 0 ? (
           recentOrders.map((order) => (
-            <OrderRow key={order.id} label={order.label} amount={order.amount} status={order.status} time={order.time} />
+            <OrderRow
+              key={order.id}
+              label={order.label}
+              amount={order.amount}
+              status={order.status}
+              time={order.time}
+              action={
+                order.canRedeem ? (
+                  <button
+                    className="row-action-button"
+                    type="button"
+                    disabled={disabled || transactionBusy}
+                    onClick={() =>
+                      runTx(`${copy.order.redeem} #${order.orderId.toString()}`, () =>
+                        writeContractAsync({
+                          address: CONTRACT_ADDRESS,
+                          abi: ironBrotherAbi,
+                          functionName: 'redeemPrincipal',
+                          args: [order.orderId],
+                        }),
+                      )
+                    }
+                  >
+                    {copy.order.redeem}
+                  </button>
+                ) : undefined
+              }
+            />
           ))
         ) : (
           <EmptyState title={copy.home.noOrdersTitle} detail={copy.home.noOrdersDetail} />
         )}
+        <TxStatus tx={tx} />
       </section>
     </section>
   );
@@ -1919,7 +1948,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
         <TxStatus tx={tx} />
       </section>
 
-      <StakeOrderList orders={data.stakeOrders} />
+      <StakeOrderList orders={data.stakeOrders} disabled={disabled} />
     </section>
   );
 }
@@ -2344,7 +2373,7 @@ function AdminConsole() {
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <div>
-          <p className="eyebrow">IronBrother</p>
+          <p className="eyebrow">{PRODUCT_BRAND}</p>
           <h1>Admin</h1>
         </div>
         <a href="/">客户页面</a>
@@ -2802,11 +2831,14 @@ function AdminStakeOrdersPage() {
 }
 
 function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean; canApprove: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { address } = useAccount();
   const [dynamicUser, setDynamicUser] = useState('');
   const [dynamicDay, setDynamicDay] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
   const [stakeIds, setStakeIds] = useState('');
   const [fundAmount, setFundAmount] = useState('1000');
+  const [contractWithdrawReceiver, setContractWithdrawReceiver] = useState('');
+  const [contractWithdrawAmount, setContractWithdrawAmount] = useState('');
   const currentDayQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -2843,7 +2875,20 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
       return 0n;
     }
   }, [fundAmount]);
-  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'PrincipalRedeemed', 'Reinvested']);
+  const contractWithdrawParsed = useMemo(() => {
+    try {
+      return parseTokenInput(contractWithdrawAmount);
+    } catch {
+      return 0n;
+    }
+  }, [contractWithdrawAmount]);
+  const resolvedContractWithdrawReceiver = contractWithdrawReceiver.trim() || address || '';
+  const canWithdrawContractFunds =
+    canApprove &&
+    contractWithdrawParsed > 0n &&
+    contractWithdrawParsed <= rewardPoolBalance &&
+    isAddress(resolvedContractWithdrawReceiver);
+  const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'ContractFundsWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
     if (!dynamicDay && currentLocalDay > 0n) {
@@ -3064,6 +3109,37 @@ function AdminRewardsPage({ canWrite, canApprove, runner }: { canWrite: boolean;
         >
           充值奖励池
         </button>
+        <div className="form-grid spaced">
+          <label>
+            合约出金接收地址
+            <input
+              value={contractWithdrawReceiver}
+              onChange={(event) => setContractWithdrawReceiver(event.target.value)}
+              placeholder={address ?? '0x...'}
+            />
+          </label>
+          <label>
+            合约出金金额 U
+            <input value={contractWithdrawAmount} onChange={(event) => setContractWithdrawAmount(event.target.value)} inputMode="decimal" />
+          </label>
+        </div>
+        <button
+          className="secondary-button full-button"
+          disabled={!canWithdrawContractFunds}
+          onClick={() =>
+            runner.runTx('提走合约 USDT', () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'withdrawContractFunds',
+                args: [safeAddress(resolvedContractWithdrawReceiver), contractWithdrawParsed],
+              }),
+            )
+          }
+        >
+          提走合约 USDT
+        </button>
+        <p className="helper-line">仅 Super Admin 可提走合约奖励池当前持有的 USDT。</p>
         <div className="list-stack">
           {withdrawals.requests.length > 0 ? (
             withdrawals.requests.map((request) => (
@@ -4297,7 +4373,19 @@ function SessionRow({ title, time, state, amount }: { title: string; time: strin
   );
 }
 
-function OrderRow({ label, amount, status, time }: { label: string; amount: bigint; status: string; time: React.ReactNode }) {
+function OrderRow({
+  label,
+  amount,
+  status,
+  time,
+  action,
+}: {
+  label: string;
+  amount: bigint;
+  status: string;
+  time: React.ReactNode;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="list-row">
       <div className="row-icon"><Landmark size={17} /></div>
@@ -4308,6 +4396,7 @@ function OrderRow({ label, amount, status, time }: { label: string; amount: bigi
       <div className="row-right">
         <MoneyAmount value={amount} />
         <small>{status}</small>
+        {action}
       </div>
     </div>
   );
@@ -4361,7 +4450,11 @@ function PrincipalOrderList({ orders }: { orders: PrincipalOrderData[] }) {
   );
 }
 
-function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
+function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabled: boolean }) {
+  const { runTx, tx, writeContractAsync } = useTxRunner();
+  const nowSeconds = useNowSeconds();
+  const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+
   return (
     <section className="panel">
       <div className="section-title">
@@ -4369,18 +4462,44 @@ function StakeOrderList({ orders }: { orders: StakeOrderData[] }) {
         <span>{orders.length} 笔</span>
       </div>
       {orders.length > 0 ? (
-        orders.map((order) => (
-          <OrderRow
-            key={order.id.toString()}
-            label={`带单订单 #${order.id.toString()}`}
-            amount={order.amount}
-            status={stakeStatusLabel(order)}
-            time={<>{sessionLabel(order.session)} / 收益 <MoneyAmount value={order.reward} /> / 结算 {dateTime(order.settleAt)}</>}
-          />
-        ))
+        orders.map((order) => {
+          const canRedeem = !order.settled && BigInt(nowSeconds) >= order.settleAt;
+
+          return (
+            <OrderRow
+              key={order.id.toString()}
+              label={`带单订单 #${order.id.toString()}`}
+              amount={order.amount}
+              status={stakeStatusLabel(order)}
+              time={<>{sessionLabel(order.session)} / 收益 <MoneyAmount value={order.reward} /> / 结算 {dateTime(order.settleAt)}</>}
+              action={
+                canRedeem ? (
+                  <button
+                    className="row-action-button"
+                    type="button"
+                    disabled={disabled || transactionBusy}
+                    onClick={() =>
+                      runTx(`赎回带单 #${order.id.toString()}`, () =>
+                        writeContractAsync({
+                          address: CONTRACT_ADDRESS,
+                          abi: ironBrotherAbi,
+                          functionName: 'settleStake',
+                          args: [order.id],
+                        }),
+                      )
+                    }
+                  >
+                    赎回
+                  </button>
+                ) : undefined
+              }
+            />
+          );
+        })
       ) : (
         <EmptyState title="暂无带单订单" detail="带单后会从 stakeOrders(id) 读取显示。" />
       )}
+      <TxStatus tx={tx} />
     </section>
   );
 }

@@ -532,6 +532,18 @@ a {
   gap: 2px;
 }
 
+.row-action-button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .list-row strong,
 .session-row strong,
 .admin-list-row strong {

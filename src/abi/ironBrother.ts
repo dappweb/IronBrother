@@ -145,6 +145,15 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'ContractFundsWithdrawn',
+    inputs: [
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'receiver', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
     name: 'Whitelist40Updated',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
@@ -668,6 +677,16 @@ export const ironBrotherAbi = [
     name: 'fundRewards',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'withdrawContractFunds',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'receiver', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
     outputs: [],
   },
   {

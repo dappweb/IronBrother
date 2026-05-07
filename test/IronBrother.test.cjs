@@ -297,4 +297,24 @@ describe("IronBrother", function () {
     expect(await usdt.balanceOf(feeReceiver.address)).to.equal(U("10"));
     expect(await usdt.balanceOf(alice.address)).to.equal(U("9040"));
   });
+
+  it("lets only the super admin withdraw USDT held by the contract", async function () {
+    const { owner, alice, bob, usdt, ironBrother } = await deployFixture();
+    const contractAddress = await ironBrother.getAddress();
+
+    await ironBrother.fundRewards(U("100"));
+    expect(await usdt.balanceOf(contractAddress)).to.equal(U("100"));
+
+    await expect(ironBrother.connect(alice).withdrawContractFunds(bob.address, U("10"))).to.be.revertedWith("not super admin");
+    await expect(ironBrother.withdrawContractFunds(ethers.ZeroAddress, U("10"))).to.be.revertedWith("receiver required");
+    await expect(ironBrother.withdrawContractFunds(bob.address, 0)).to.be.revertedWith("amount required");
+    await expect(ironBrother.withdrawContractFunds(bob.address, U("101"))).to.be.revertedWith("insufficient contract balance");
+
+    await expect(ironBrother.withdrawContractFunds(bob.address, U("60")))
+      .to.emit(ironBrother, "ContractFundsWithdrawn")
+      .withArgs(owner.address, bob.address, U("60"));
+
+    expect(await usdt.balanceOf(contractAddress)).to.equal(U("40"));
+    expect(await usdt.balanceOf(bob.address)).to.equal(U("10060"));
+  });
 });

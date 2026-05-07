@@ -164,6 +164,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     event WithdrawalApproved(address indexed user, uint256 indexed requestId, address indexed payer, uint256 amount, uint256 fee, uint256 netAmount);
     event WithdrawalRejected(address indexed user, uint256 indexed requestId, address indexed operator, uint256 amount);
     event RewardsFunded(address indexed funder, uint256 amount);
+    event ContractFundsWithdrawn(address indexed operator, address indexed receiver, uint256 amount);
     event ConfigUpdated(bytes32 indexed key, uint256 value);
     event AddressConfigUpdated(bytes32 indexed key, address value);
     event Whitelist40Updated(address indexed user, bool enabled);
@@ -449,6 +450,15 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         require(amount > 0, "amount required");
         usdt.safeTransferFrom(msg.sender, address(this), amount);
         emit RewardsFunded(msg.sender, amount);
+    }
+
+    function withdrawContractFunds(address receiver, uint256 amount) external nonReentrant onlySuperAdmin {
+        require(receiver != address(0), "receiver required");
+        require(amount > 0, "amount required");
+        require(usdt.balanceOf(address(this)) >= amount, "insufficient contract balance");
+
+        usdt.safeTransfer(receiver, amount);
+        emit ContractFundsWithdrawn(msg.sender, receiver, amount);
     }
 
     function settleDynamicRewardForUser(address user, uint256 day) external nonReentrant {

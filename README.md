@@ -1,4 +1,4 @@
-# IronBrother
+# 原力 CrudeTrust
 
 BSC USDT staking DApp with on-chain accounting, five rotating project deposit wallets, Admin-approved withdrawals, a customer mobile UI, a simplified Admin console, and Cloudflare Pages deployment.
 
@@ -24,7 +24,7 @@ Set these values in `.env.local` for BSC Testnet:
 VITE_BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
 VITE_WALLETCONNECT_PROJECT_ID=your-walletconnect-project-id
 VITE_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
-VITE_IRONBROTHER_CONTRACT_ADDRESS=
+VITE_CRUDETRUST_CONTRACT_ADDRESS=
 ```
 
 On BSC Testnet, use `TEST_USDT_ADDRESS` if you already have a test USDT token. If not set, the testnet deployment script deploys `MockUSDT` and writes the address to `deployments/bsc-testnet.json`.
@@ -36,6 +36,7 @@ On BSC Testnet, use `TEST_USDT_ADDRESS` if you already have a test USDT token. I
 - User withdrawals call `requestWithdrawRewards(amount)` and create a pending withdrawal request. The reward balance is reserved until Admin approves or rejects it.
 - Admin approval calls `approveWithdrawal(requestId)`. The Admin/payout wallet first approves USDT to the contract, then the approval transaction transfers the net amount to the user and the fee to `feeReceiver`.
 - Admin rejection calls `rejectWithdrawal(requestId)` and restores the reserved reward balance.
+- Super Admin can call `withdrawContractFunds(receiver, amount)` to transfer USDT held by the contract to a receiver address.
 
 The BSC mainnet BEP-20 USDT address for production is:
 
@@ -69,7 +70,7 @@ set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
 npm run deploy:testnet
 ```
 
-After deployment, set `VITE_IRONBROTHER_CONTRACT_ADDRESS` and `VITE_USDT_ADDRESS` in Cloudflare Pages and `.env.local`.
+After deployment, set `VITE_CRUDETRUST_CONTRACT_ADDRESS` and `VITE_USDT_ADDRESS` in Cloudflare Pages and `.env.local`. `VITE_IRONBROTHER_CONTRACT_ADDRESS` is still accepted as a legacy fallback.
 
 Upgrade the BSC Testnet proxy:
 
@@ -100,7 +101,7 @@ Set these environment variables in both Cloudflare environments. Use production 
 VITE_BSC_TESTNET_RPC_URL
 VITE_WALLETCONNECT_PROJECT_ID
 VITE_USDT_ADDRESS
-VITE_IRONBROTHER_CONTRACT_ADDRESS
+VITE_CRUDETRUST_CONTRACT_ADDRESS
 ```
 
 Build command:

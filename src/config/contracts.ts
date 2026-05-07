@@ -19,7 +19,9 @@ const configuredUsdtAddress = import.meta.env.VITE_USDT_ADDRESS;
 
 export const BSC_USDT_ADDRESS = resolveAddress(configuredUsdtAddress, bscTestnetDeployment.usdt);
 
-const configuredAddress = import.meta.env.VITE_IRONBROTHER_CONTRACT_ADDRESS;
+const configuredAddress =
+  import.meta.env.VITE_CRUDETRUST_CONTRACT_ADDRESS ||
+  import.meta.env.VITE_IRONBROTHER_CONTRACT_ADDRESS;
 
 export const IRONBROTHER_CONTRACT_ADDRESS = resolveAddress(
   configuredAddress,
