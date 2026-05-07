@@ -577,6 +577,11 @@ a {
   grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto);
 }
 
+.reward-detail-list .reward-detail-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
 .reward-detail-row strong,
 .reward-detail-row small {
   overflow-wrap: anywhere;
@@ -587,7 +592,36 @@ a {
 }
 
 .reward-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 12px;
+}
+
+.reward-summary-grid .info-line {
+  min-height: 76px;
+  align-items: flex-start;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+}
+
+.reward-summary-grid .info-line span,
+.reward-summary-grid .info-line strong {
+  width: 100%;
+}
+
+.reward-summary-grid .info-line span {
+  line-height: 1.25;
+}
+
+.reward-summary-grid .info-line strong {
+  overflow-wrap: anywhere;
+}
+
+.reward-detail-list .row-metrics {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  padding-left: 48px;
 }
 
 .admin-users-layout {
@@ -1300,6 +1334,10 @@ input {
   .admin-users-layout,
   .settlement-stats {
     grid-template-columns: 1fr;
+  }
+
+  .reward-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .action-grid {
