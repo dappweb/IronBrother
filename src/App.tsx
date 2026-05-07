@@ -1973,7 +1973,7 @@ function WalletScreen({
       <DepositPanel disabled={disabled} suggestedReferrer={suggestedReferrer} />
       <WalletActions data={data} disabled={disabled} />
       <WithdrawalRequestList requests={data.withdrawalRequests} />
-      <PrincipalOrderList orders={data.principalOrders} />
+      <PrincipalOrderList orders={data.principalOrders} disabled={disabled} />
     </section>
   );
 }
@@ -2064,8 +2064,6 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
   const [withdrawAmount, setWithdrawAmount] = useState(() => rewardBalanceInput);
   const previousReinvestDefaultRef = useRef(reinvestAmount);
   const previousWithdrawDefaultRef = useRef(withdrawAmount);
-  const [redeemId, setRedeemId] = useState('1');
-  const [stakeId, setStakeId] = useState('1');
 
   useEffect(() => {
     const nextDefaultAmount = tokenInput(data.account.rewardBalance);
@@ -2170,50 +2168,6 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           }
         >
           {withdrawActionLabel}
-        </button>
-      </div>
-      <div className="form-grid">
-        <label>
-          赎回订单 ID
-          <input value={redeemId} onChange={(event) => setRedeemId(event.target.value)} inputMode="numeric" />
-        </label>
-        <label>
-          结算带单 ID
-          <input value={stakeId} onChange={(event) => setStakeId(event.target.value)} inputMode="numeric" />
-        </label>
-      </div>
-      <div className="split-buttons">
-        <button
-          className="secondary-button"
-          disabled={disabled}
-          onClick={() =>
-            runTx('赎回本金', () =>
-              writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'redeemPrincipal',
-                args: [BigInt(redeemId || '0')],
-              }),
-            )
-          }
-        >
-          赎回本金
-        </button>
-        <button
-          className="secondary-button"
-          disabled={disabled}
-          onClick={() =>
-            runTx('结算带单', () =>
-              writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'settleStake',
-                args: [BigInt(stakeId || '0')],
-              }),
-            )
-          }
-        >
-          结算带单
         </button>
       </div>
       <TxStatus tx={tx} />
@@ -4432,7 +4386,11 @@ function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[]
   );
 }
 
-function PrincipalOrderList({ orders }: { orders: PrincipalOrderData[] }) {
+function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]; disabled: boolean }) {
+  const { runTx, tx, writeContractAsync } = useTxRunner();
+  const nowSeconds = useNowSeconds();
+  const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+
   return (
     <section className="panel">
       <div className="section-title">
@@ -4440,18 +4398,44 @@ function PrincipalOrderList({ orders }: { orders: PrincipalOrderData[] }) {
         <span>{orders.length} 笔</span>
       </div>
       {orders.length > 0 ? (
-        orders.map((order) => (
-          <OrderRow
-            key={order.id.toString()}
-            label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
-            amount={order.amount}
-            status={principalStatusLabel(order)}
-            time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
-          />
-        ))
+        orders.map((order) => {
+          const canRedeem = order.status === 0 && BigInt(nowSeconds) >= order.unlockAt;
+
+          return (
+            <OrderRow
+              key={order.id.toString()}
+              label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
+              amount={order.amount}
+              status={principalStatusLabel(order)}
+              time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
+              action={
+                canRedeem ? (
+                  <button
+                    className="row-action-button"
+                    type="button"
+                    disabled={disabled || transactionBusy}
+                    onClick={() =>
+                      runTx(`赎回本金 #${order.id.toString()}`, () =>
+                        writeContractAsync({
+                          address: CONTRACT_ADDRESS,
+                          abi: ironBrotherAbi,
+                          functionName: 'redeemPrincipal',
+                          args: [order.id],
+                        }),
+                      )
+                    }
+                  >
+                    赎回
+                  </button>
+                ) : undefined
+              }
+            />
+          );
+        })
       ) : (
         <EmptyState title="暂无本金订单" detail="入金和复投后会从 principalOrders(id) 读取显示。" />
       )}
+      <TxStatus tx={tx} />
     </section>
   );
 }
@@ -4469,7 +4453,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
       </div>
       {orders.length > 0 ? (
         orders.map((order) => {
-          const canRedeem = !order.settled && BigInt(nowSeconds) >= order.settleAt;
+          const canSettle = !order.settled && BigInt(nowSeconds) >= order.settleAt;
 
           return (
             <OrderRow
@@ -4479,13 +4463,13 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
               status={stakeStatusLabel(order)}
               time={<>{sessionLabel(order.session)} / 收益 <MoneyAmount value={order.reward} /> / 结算 {dateTime(order.settleAt)}</>}
               action={
-                canRedeem ? (
+                canSettle ? (
                   <button
                     className="row-action-button"
                     type="button"
                     disabled={disabled || transactionBusy}
                     onClick={() =>
-                      runTx(`赎回带单 #${order.id.toString()}`, () =>
+                      runTx(`结算带单 #${order.id.toString()}`, () =>
                         writeContractAsync({
                           address: CONTRACT_ADDRESS,
                           abi: ironBrotherAbi,
@@ -4495,7 +4479,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
                       )
                     }
                   >
-                    赎回
+                    结算
                   </button>
                 ) : undefined
               }
