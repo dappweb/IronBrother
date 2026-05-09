@@ -8,10 +8,10 @@ export const bscRpcUrl =
   'https://data-seed-prebsc-1-s1.bnbchain.org:8545';
 
 export const walletConnectProjectId =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'ironbrother-local-dev';
+  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'crudetrust-local-dev';
 
 export const wagmiConfig = getDefaultConfig({
-  appName: 'IronBrother',
+  appName: 'CrudeTrust',
   projectId: walletConnectProjectId,
   chains: [bscTestnet],
   ssr: false,

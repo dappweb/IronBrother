@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("@openzeppelin/hardhat-upgrades");
+require("./scripts/load-env.cjs");
 
 const BSC_RPC_URL = process.env.BSC_RPC_URL || "";
 const BSC_TESTNET_RPC_URL = process.env.BSC_TESTNET_RPC_URL || process.env.BSC_RPC_URL || "";
@@ -10,10 +11,15 @@ module.exports = {
   solidity: {
     version: "0.8.24",
     settings: {
+      evmVersion: "shanghai",
       optimizer: {
         enabled: true,
-        runs: 200
-      }
+        runs: 1
+      },
+      metadata: {
+        bytecodeHash: "none"
+      },
+      viaIR: true
     }
   },
   networks: {

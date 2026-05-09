@@ -9,12 +9,45 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
+    name: 'UserIndexed',
+    inputs: [{ name: 'user', type: 'address', indexed: true }],
+  },
+  {
+    type: 'event',
+    name: 'DefaultReferrerUpdated',
+    inputs: [{ name: 'defaultReferrer', type: 'address', indexed: true }],
+  },
+  {
+    type: 'event',
+    name: 'OwnerTransferred',
+    inputs: [
+      { name: 'previousOwner', type: 'address', indexed: true },
+      { name: 'newOwner', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
     name: 'Deposited',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
       { name: 'orderId', type: 'uint256', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
     ],
+  },
+  {
+    type: 'event',
+    name: 'DepositRouted',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'receiver', type: 'address', indexed: true },
+      { name: 'receiverIndex', type: 'uint8', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'DepositReceiversUpdated',
+    inputs: [{ name: 'receivers', type: 'address[5]', indexed: false }],
   },
   {
     type: 'event',
@@ -71,12 +104,66 @@ export const ironBrotherAbi = [
   },
   {
     type: 'event',
-    name: 'RewardWithdrawn',
+    name: 'DynamicRewardBotSettled',
+    inputs: [
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'day', type: 'uint256', indexed: true },
+      { name: 'cursor', type: 'uint256', indexed: false },
+      { name: 'processed', type: 'uint256', indexed: false },
+      { name: 'rewardedUsers', type: 'uint256', indexed: false },
+      { name: 'totalReward', type: 'uint256', indexed: false },
+      { name: 'nextCursor', type: 'uint256', indexed: false },
+      { name: 'finished', type: 'bool', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'WithdrawalRequested',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
       { name: 'amount', type: 'uint256', indexed: false },
       { name: 'fee', type: 'uint256', indexed: false },
       { name: 'netAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'WithdrawalApproved',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
+      { name: 'payer', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
+      { name: 'netAmount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'WithdrawalRejected',
+    inputs: [
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'requestId', type: 'uint256', indexed: true },
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'RewardsFunded',
+    inputs: [
+      { name: 'funder', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'ContractFundsWithdrawn',
+    inputs: [
+      { name: 'operator', type: 'address', indexed: true },
+      { name: 'receiver', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
     ],
   },
   {
@@ -100,6 +187,20 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'bytes32' }],
+  },
+  {
+    type: 'function',
+    name: 'DEPOSIT_RECEIVER_COUNT',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'MAX_BOT_SETTLEMENT_BATCH',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
   },
   {
     type: 'function',
@@ -151,6 +252,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'settlementCycle',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'eligibleGeneration',
     stateMutability: 'view',
     inputs: [
@@ -179,6 +287,20 @@ export const ironBrotherAbi = [
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalApprovalDisabled',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalApprovalRequired',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'bool' }],
   },
   {
     type: 'function',
@@ -245,6 +367,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'defaultReferrer',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
     name: 'timezoneOffset',
     stateMutability: 'view',
     inputs: [],
@@ -288,6 +417,20 @@ export const ironBrotherAbi = [
   {
     type: 'function',
     name: 'nextStakeOrderId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'nextDepositReceiverIndex',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'nextWithdrawalRequestId',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint256' }],
@@ -350,6 +493,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'totalPendingWithdrawalAmount',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'dailyStakeVolume',
     stateMutability: 'view',
     inputs: [
@@ -390,6 +540,24 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'getDynamicRewardHistory',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [
+      {
+        type: 'tuple[]',
+        components: [
+          { name: 'source', type: 'address' },
+          { name: 'day', type: 'uint256' },
+          { name: 'generation', type: 'uint8' },
+          { name: 'volume', type: 'uint256' },
+          { name: 'reward', type: 'uint256' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
     name: 'hasRole',
     stateMutability: 'view',
     inputs: [
@@ -414,10 +582,31 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'getUserWithdrawalRequestIds',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ type: 'uint256[]' }],
+  },
+  {
+    type: 'function',
     name: 'getDirectReferrals',
     stateMutability: 'view',
     inputs: [{ name: 'user', type: 'address' }],
     outputs: [{ type: 'address[]' }],
+  },
+  {
+    type: 'function',
+    name: 'getAllUsers',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address[]' }],
+  },
+  {
+    type: 'function',
+    name: 'getDepositReceivers',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address[5]' }],
   },
   {
     type: 'function',
@@ -451,6 +640,31 @@ export const ironBrotherAbi = [
       { name: 'settleAt', type: 'uint256' },
       { name: 'settled', type: 'bool' },
     ],
+  },
+  {
+    type: 'function',
+    name: 'withdrawalRequests',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'id', type: 'uint256' },
+      { name: 'user', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'fee', type: 'uint256' },
+      { name: 'netAmount', type: 'uint256' },
+      { name: 'requestedAt', type: 'uint256' },
+      { name: 'processedAt', type: 'uint256' },
+      { name: 'status', type: 'uint8' },
+      { name: 'operator', type: 'address' },
+      { name: 'payer', type: 'address' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'register',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'referrer', type: 'address' }],
+    outputs: [],
   },
   {
     type: 'function',
@@ -499,9 +713,40 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
-    name: 'withdrawRewards',
+    name: 'requestWithdrawRewards',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'fundRewards',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'withdrawContractFunds',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'receiver', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'approveWithdrawal',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'requestId', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'rejectWithdrawal',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'requestId', type: 'uint256' }],
     outputs: [],
   },
   {
@@ -522,6 +767,44 @@ export const ironBrotherAbi = [
       { name: 'userList', type: 'address[]' },
       { name: 'day', type: 'uint256' },
     ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'settleDynamicRewardForSourceDays',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'userList', type: 'address[]' },
+      { name: 'dayList', type: 'uint256[]' },
+    ],
+    outputs: [
+      { name: 'processed', type: 'uint256' },
+      { name: 'rewardedUsers', type: 'uint256' },
+      { name: 'totalReward', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'botSettleDailyDynamicRewards',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'day', type: 'uint256' },
+      { name: 'cursor', type: 'uint256' },
+      { name: 'limit', type: 'uint256' },
+    ],
+    outputs: [
+      { name: 'processed', type: 'uint256' },
+      { name: 'rewardedUsers', type: 'uint256' },
+      { name: 'totalReward', type: 'uint256' },
+      { name: 'nextCursor', type: 'uint256' },
+      { name: 'finished', type: 'bool' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'syncRegisteredUsers',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'accountList', type: 'address[]' }],
     outputs: [],
   },
   {
@@ -568,6 +851,13 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'setWithdrawalApprovalRequired',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'required', type: 'bool' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setFeeReceiver',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newFeeReceiver', type: 'address' }],
@@ -575,9 +865,30 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'setDepositReceivers',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newDepositReceivers', type: 'address[5]' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setDefaultReferrer',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newDefaultReferrer', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setValidVolumeThreshold',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newThreshold', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'setSettlementCycle',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newSettlementCycle', type: 'uint256' }],
     outputs: [],
   },
   {
@@ -637,6 +948,13 @@ export const ironBrotherAbi = [
       { name: 'account', type: 'address' },
       { name: 'enabled', type: 'bool' },
     ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'transferOwner',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'newOwner', type: 'address' }],
     outputs: [],
   },
   {

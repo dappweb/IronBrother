@@ -14,6 +14,9 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
+    uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
+    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 100;
+    int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
 
@@ -57,6 +60,12 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         Redeemed
     }
 
+    enum WithdrawalStatus {
+        Pending,
+        Paid,
+        Rejected
+    }
+
     struct UserAccount {
         address referrer;
         uint256 principalBalance;
@@ -95,6 +104,27 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         bool settled;
     }
 
+    struct WithdrawalRequest {
+        uint256 id;
+        address user;
+        uint256 amount;
+        uint256 fee;
+        uint256 netAmount;
+        uint256 requestedAt;
+        uint256 processedAt;
+        WithdrawalStatus status;
+        address operator;
+        address payer;
+    }
+
+    struct DynamicRewardHistory {
+        address source;
+        uint256 day;
+        uint8 generation;
+        uint256 volume;
+        uint256 reward;
+    }
+
     mapping(address => UserAccount) public users;
     mapping(uint256 => PrincipalOrder) public principalOrders;
     mapping(uint256 => StakeOrder) public stakeOrders;
@@ -108,9 +138,26 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     mapping(address => mapping(uint256 => uint256)) public dailyDirectValidCount;
     mapping(address => mapping(uint256 => bool)) public dynamicRewardSettled;
     mapping(uint8 => uint16) public generationRateBps;
+    address public defaultReferrer;
+    address[DEPOSIT_RECEIVER_COUNT] private depositReceivers;
+    uint8 public nextDepositReceiverIndex;
+    uint256 public nextWithdrawalRequestId;
+    uint256 public totalPendingWithdrawalAmount;
+    mapping(uint256 => WithdrawalRequest) public withdrawalRequests;
+    mapping(address => uint256[]) private userWithdrawalRequestIds;
+    address[] private registeredUsers;
+    mapping(address => bool) private registeredUserIndexed;
+    bool public withdrawalApprovalDisabled;
+    uint256 private _settlementCycle;
+    mapping(address => DynamicRewardHistory[]) private dynamicRewardHistories;
 
     event UserRegistered(address indexed user, address indexed referrer);
+    event UserIndexed(address indexed user);
+    event DefaultReferrerUpdated(address indexed defaultReferrer);
+    event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
     event Deposited(address indexed user, uint256 indexed orderId, uint256 amount);
+    event DepositRouted(address indexed user, address indexed receiver, uint8 indexed receiverIndex, uint256 amount);
+    event DepositReceiversUpdated(address[DEPOSIT_RECEIVER_COUNT] receivers);
     event PrincipalRedeemed(address indexed user, uint256 indexed orderId, uint256 amount);
     event Reinvested(address indexed user, uint256 indexed orderId, uint256 amount);
     event StakeCreated(
@@ -124,8 +171,12 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     );
     event StakeSettled(address indexed user, uint256 indexed stakeId, uint256 principal, uint256 reward);
     event DynamicRewardSettled(address indexed source, address indexed upline, uint256 day, uint8 generation, uint256 volume, uint256 reward);
-    event RewardWithdrawn(address indexed user, uint256 amount, uint256 fee, uint256 netAmount);
+    event DynamicRewardBotSettled(address indexed operator, uint256 indexed day, uint256 cursor, uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished);
+    event WithdrawalRequested(address indexed user, uint256 indexed requestId, uint256 amount, uint256 fee, uint256 netAmount);
+    event WithdrawalApproved(address indexed user, uint256 indexed requestId, address indexed payer, uint256 amount, uint256 fee, uint256 netAmount);
+    event WithdrawalRejected(address indexed user, uint256 indexed requestId, address indexed operator, uint256 amount);
     event RewardsFunded(address indexed funder, uint256 amount);
+    event ContractFundsWithdrawn(address indexed operator, address indexed receiver, uint256 amount);
     event ConfigUpdated(bytes32 indexed key, uint256 value);
     event AddressConfigUpdated(bytes32 indexed key, address value);
     event Whitelist40Updated(address indexed user, bool enabled);
@@ -166,14 +217,18 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         maxYieldBps = 500;
         withdrawFee = 10 ether;
         validVolumeThreshold = 1_000 ether;
-        timezoneOffset = 8 hours;
+        _settlementCycle = 1 days;
+        timezoneOffset = EAST8_TIMEZONE_OFFSET;
         morningStart = 9 hours;
         morningEnd = 12 hours;
         afternoonStart = 14 hours;
         afternoonEnd = 17 hours;
         nextPrincipalOrderId = 1;
         nextStakeOrderId = 1;
+        nextWithdrawalRequestId = 1;
         _reentrancyStatus = 1;
+        defaultReferrer = owner_;
+        _setDepositReceivers([owner_, owner_, owner_, owner_, owner_]);
 
         _grantRole(DEFAULT_ADMIN_ROLE, owner_);
         _grantRole(MANAGER_ROLE, owner_);
@@ -195,6 +250,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         _register(msg.sender, referrer);
     }
 
+    function setDefaultReferrer(address newDefaultReferrer) external onlySuperAdmin {
+        defaultReferrer = newDefaultReferrer;
+        emit DefaultReferrerUpdated(newDefaultReferrer);
+    }
+
     function deposit(uint256 amount, address referrer) external nonReentrant whenNotPaused {
         _validateAmount(amount);
         _register(msg.sender, referrer);
@@ -202,7 +262,8 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         UserAccount storage account = users[msg.sender];
         require(account.principalBalance + amount <= maxPrincipal, "principal cap exceeded");
 
-        usdt.safeTransferFrom(msg.sender, address(this), amount);
+        (address receiver, uint8 receiverIndex) = _nextDepositReceiver();
+        usdt.safeTransferFrom(msg.sender, receiver, amount);
 
         account.principalBalance += amount;
         account.totalDeposited += amount;
@@ -211,6 +272,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         uint256 orderId = _createPrincipalOrder(msg.sender, amount, PrincipalSource.Deposit);
 
         emit Deposited(msg.sender, orderId, amount);
+        emit DepositRouted(msg.sender, receiver, receiverIndex, amount);
     }
 
     function stake(uint256 amount) external nonReentrant whenNotPaused {
@@ -303,29 +365,113 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit Reinvested(msg.sender, orderId, amount);
     }
 
-    function withdrawRewards(uint256 amount) external nonReentrant whenNotPaused {
-        UserAccount storage account = users[msg.sender];
-        require(account.rewardBalance >= amount, "insufficient reward balance");
-        require(amount > withdrawFee, "amount must exceed fee");
+    function requestWithdrawRewards(uint256 amount) external nonReentrant whenNotPaused {
+        _requestWithdrawal(amount);
+    }
 
-        account.rewardBalance -= amount;
-        uint256 netAmount = amount - withdrawFee;
-        account.totalWithdrawn += netAmount;
-        totalRewardBalance -= amount;
-        totalWithdrawnAmount += amount;
+    function withdrawalApprovalRequired() public view returns (bool) {
+        return !withdrawalApprovalDisabled;
+    }
 
-        usdt.safeTransfer(msg.sender, netAmount);
-        if (withdrawFee > 0) {
-            usdt.safeTransfer(feeReceiver, withdrawFee);
+    function approveWithdrawal(uint256 requestId) external nonReentrant whenNotPaused onlySuperAdmin {
+        WithdrawalRequest storage request = withdrawalRequests[requestId];
+        require(request.user != address(0), "no withdrawal");
+        require(request.status == WithdrawalStatus.Pending, "closed");
+
+        request.status = WithdrawalStatus.Paid;
+        request.processedAt = block.timestamp;
+        request.operator = msg.sender;
+        request.payer = msg.sender;
+        totalPendingWithdrawalAmount -= request.amount;
+
+        UserAccount storage account = users[request.user];
+        account.totalWithdrawn += request.netAmount;
+        totalWithdrawnAmount += request.amount;
+
+        usdt.safeTransferFrom(msg.sender, request.user, request.netAmount);
+        if (request.fee > 0) {
+            usdt.safeTransferFrom(msg.sender, feeReceiver, request.fee);
         }
 
-        emit RewardWithdrawn(msg.sender, amount, withdrawFee, netAmount);
+        emit WithdrawalApproved(request.user, requestId, msg.sender, request.amount, request.fee, request.netAmount);
+    }
+
+    function rejectWithdrawal(uint256 requestId) external nonReentrant whenNotPaused onlySuperAdmin {
+        WithdrawalRequest storage request = withdrawalRequests[requestId];
+        require(request.user != address(0), "no withdrawal");
+        require(request.status == WithdrawalStatus.Pending, "closed");
+
+        request.status = WithdrawalStatus.Rejected;
+        request.processedAt = block.timestamp;
+        request.operator = msg.sender;
+        totalPendingWithdrawalAmount -= request.amount;
+
+        UserAccount storage account = users[request.user];
+        account.rewardBalance += request.amount;
+        totalRewardBalance += request.amount;
+
+        emit WithdrawalRejected(request.user, requestId, msg.sender, request.amount);
+    }
+
+    function _requestWithdrawal(uint256 amount) internal {
+        UserAccount storage account = users[msg.sender];
+        require(account.rewardBalance >= amount, "insufficient reward balance");
+        uint256 fee = withdrawFee;
+        require(amount > fee, "amount must exceed fee");
+
+        uint256 netAmount = amount - fee;
+        bool requiresApproval = withdrawalApprovalRequired();
+        if (!requiresApproval) {
+            require(usdt.balanceOf(address(this)) >= amount, "insufficient payout balance");
+        }
+
+        account.rewardBalance -= amount;
+        totalRewardBalance -= amount;
+        uint256 requestId = _nextWithdrawalId();
+        withdrawalRequests[requestId] = WithdrawalRequest({
+            id: requestId,
+            user: msg.sender,
+            amount: amount,
+            fee: fee,
+            netAmount: netAmount,
+            requestedAt: block.timestamp,
+            processedAt: requiresApproval ? 0 : block.timestamp,
+            status: requiresApproval ? WithdrawalStatus.Pending : WithdrawalStatus.Paid,
+            operator: requiresApproval ? address(0) : msg.sender,
+            payer: requiresApproval ? address(0) : address(this)
+        });
+        userWithdrawalRequestIds[msg.sender].push(requestId);
+
+        emit WithdrawalRequested(msg.sender, requestId, amount, fee, netAmount);
+
+        if (requiresApproval) {
+            totalPendingWithdrawalAmount += amount;
+            return;
+        }
+
+        account.totalWithdrawn += netAmount;
+        totalWithdrawnAmount += amount;
+        usdt.safeTransfer(msg.sender, netAmount);
+        if (fee > 0) {
+            usdt.safeTransfer(feeReceiver, fee);
+        }
+
+        emit WithdrawalApproved(msg.sender, requestId, address(this), amount, fee, netAmount);
     }
 
     function fundRewards(uint256 amount) external nonReentrant {
         require(amount > 0, "amount required");
         usdt.safeTransferFrom(msg.sender, address(this), amount);
         emit RewardsFunded(msg.sender, amount);
+    }
+
+    function withdrawContractFunds(address receiver, uint256 amount) external nonReentrant onlySuperAdmin {
+        require(receiver != address(0), "receiver required");
+        require(amount > 0, "amount required");
+        require(usdt.balanceOf(address(this)) >= amount, "insufficient contract balance");
+
+        usdt.safeTransfer(receiver, amount);
+        emit ContractFundsWithdrawn(msg.sender, receiver, amount);
     }
 
     function settleDynamicRewardForUser(address user, uint256 day) external nonReentrant {
@@ -336,6 +482,73 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         for (uint256 i = 0; i < userList.length; i++) {
             _settleDynamicRewardForUser(userList[i], day);
         }
+    }
+
+    function settleDynamicRewardForSourceDays(address[] calldata userList, uint256[] calldata dayList)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward)
+    {
+        require(userList.length == dayList.length, "length mismatch");
+        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+
+        for (uint256 i = 0; i < userList.length; i++) {
+            uint256 day = dayList[i];
+            require(day < currentLocalDay(), "day not closed");
+
+            address user = userList[i];
+            if (dynamicRewardSettled[user][day]) {
+                continue;
+            }
+
+            uint256 reward = _settleDynamicRewardForUserUnchecked(user, day);
+            processed += 1;
+            if (reward > 0) {
+                rewardedUsers += 1;
+                totalReward += reward;
+            }
+        }
+    }
+
+    function botSettleDailyDynamicRewards(uint256 day, uint256 cursor, uint256 limit)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyRole(MANAGER_ROLE)
+        returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished)
+    {
+        require(day < currentLocalDay(), "day not closed");
+        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+
+        uint256 userCount = registeredUsers.length;
+        if (cursor >= userCount) {
+            emit DynamicRewardBotSettled(msg.sender, day, cursor, 0, 0, 0, userCount, true);
+            return (0, 0, 0, userCount, true);
+        }
+
+        uint256 end = cursor + limit;
+        if (end > userCount) {
+            end = userCount;
+        }
+
+        for (uint256 i = cursor; i < end; i++) {
+            address account = registeredUsers[i];
+            if (dynamicRewardSettled[account][day]) {
+                continue;
+            }
+
+            uint256 reward = _settleDynamicRewardForUserUnchecked(account, day);
+            processed += 1;
+            if (reward > 0) {
+                rewardedUsers += 1;
+                totalReward += reward;
+            }
+        }
+
+        nextCursor = end;
+        finished = nextCursor >= userCount;
+        emit DynamicRewardBotSettled(msg.sender, day, cursor, processed, rewardedUsers, totalReward, nextCursor, finished);
     }
 
     function availablePrincipal(address user) public view returns (uint256) {
@@ -375,27 +588,17 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return _localDay(block.timestamp);
     }
 
+    function settlementCycle() public view returns (uint256) {
+        uint256 configuredCycle = _settlementCycle;
+        return configuredCycle == 0 ? 1 days : configuredCycle;
+    }
+
     function eligibleGeneration(address user, uint256 day) public view returns (uint8) {
         if (users[user].whitelist40) {
             return MAX_GENERATION;
         }
 
         uint256 directValid = dailyDirectValidCount[user][day];
-        if (directValid == 0) {
-            return 0;
-        }
-        if (directValid == 1) {
-            return 1;
-        }
-        if (directValid == 2) {
-            return 2;
-        }
-        if (directValid == 3) {
-            return 3;
-        }
-        if (directValid < 11) {
-            return 10;
-        }
         if (directValid >= MAX_GENERATION) {
             return MAX_GENERATION;
         }
@@ -410,8 +613,32 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         return userStakeOrderIds[user];
     }
 
+    function getUserWithdrawalRequestIds(address user) external view returns (uint256[] memory) {
+        return userWithdrawalRequestIds[user];
+    }
+
     function getDirectReferrals(address user) external view returns (address[] memory) {
         return directReferrals[user];
+    }
+
+    function getAllUsers() external view returns (address[] memory) {
+        return registeredUsers;
+    }
+
+    function getDynamicRewardHistory(address user) external view returns (DynamicRewardHistory[] memory) {
+        return dynamicRewardHistories[user];
+    }
+
+    function getDepositReceivers() external view returns (address[DEPOSIT_RECEIVER_COUNT] memory) {
+        return depositReceivers;
+    }
+
+    function syncRegisteredUsers(address[] calldata accountList) external onlySuperAdmin {
+        for (uint256 i = 0; i < accountList.length; i++) {
+            address account = accountList[i];
+            require(users[account].registered, "not registered");
+            _indexRegisteredUser(account);
+        }
     }
 
     function setAdmin(address account, bool enabled) external onlySuperAdmin {
@@ -424,6 +651,23 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
             _revokeRole(DEFAULT_ADMIN_ROLE, account);
             _revokeRole(MANAGER_ROLE, account);
         }
+    }
+
+    function transferOwner(address newOwner) external onlySuperAdmin {
+        require(newOwner != address(0), "owner required");
+        require(newOwner != msg.sender, "owner unchanged");
+
+        _grantRole(DEFAULT_ADMIN_ROLE, newOwner);
+        _grantRole(MANAGER_ROLE, newOwner);
+        _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _revokeRole(MANAGER_ROLE, msg.sender);
+
+        if (defaultReferrer == msg.sender) {
+            defaultReferrer = newOwner;
+            emit DefaultReferrerUpdated(newOwner);
+        }
+
+        emit OwnerTransferred(msg.sender, newOwner);
     }
 
     function setManager(address account, bool enabled) external onlySuperAdmin {
@@ -478,10 +722,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit ConfigUpdated("WITHDRAW_FEE", newWithdrawFee);
     }
 
+    function setWithdrawalApprovalRequired(bool required) external onlySuperAdmin {
+        withdrawalApprovalDisabled = !required;
+        emit ConfigUpdated("WITHDRAWAL_APPROVAL_REQUIRED", required ? 1 : 0);
+    }
+
     function setFeeReceiver(address newFeeReceiver) external onlySuperAdmin {
         require(newFeeReceiver != address(0), "fee receiver required");
         feeReceiver = newFeeReceiver;
         emit AddressConfigUpdated("FEE_RECEIVER", newFeeReceiver);
+    }
+
+    function setDepositReceivers(address[DEPOSIT_RECEIVER_COUNT] calldata newDepositReceivers) external onlySuperAdmin {
+        _setDepositReceivers(newDepositReceivers);
     }
 
     function setValidVolumeThreshold(uint256 newThreshold) external onlySuperAdmin {
@@ -490,11 +743,17 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit ConfigUpdated("VALID_VOLUME_THRESHOLD", newThreshold);
     }
 
+    function setSettlementCycle(uint256 newSettlementCycle) external onlySuperAdmin {
+        require(newSettlementCycle >= 1 minutes && newSettlementCycle <= 1 days, "invalid settlement cycle");
+        _settlementCycle = newSettlementCycle;
+        emit ConfigUpdated("SETTLEMENT_CYCLE", newSettlementCycle);
+    }
+
     function setSessionTimes(uint32 newMorningStart, uint32 newMorningEnd, uint32 newAfternoonStart, uint32 newAfternoonEnd) external onlySuperAdmin {
         require(newMorningStart < newMorningEnd, "invalid morning");
         require(newMorningEnd <= newAfternoonStart, "sessions overlap");
         require(newAfternoonStart < newAfternoonEnd, "invalid afternoon");
-        require(newAfternoonEnd <= 1 days, "invalid day");
+        require(newAfternoonEnd <= settlementCycle(), "invalid day");
 
         morningStart = newMorningStart;
         morningEnd = newMorningEnd;
@@ -508,9 +767,9 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function setTimezoneOffset(int256 newTimezoneOffset) external onlySuperAdmin {
-        require(newTimezoneOffset >= -12 hours && newTimezoneOffset <= 14 hours, "offset out of range");
-        timezoneOffset = newTimezoneOffset;
-        emit ConfigUpdated("TIMEZONE_OFFSET", uint256(newTimezoneOffset + 12 hours));
+        require(newTimezoneOffset == EAST8_TIMEZONE_OFFSET, "timezone fixed east8");
+        timezoneOffset = EAST8_TIMEZONE_OFFSET;
+        emit ConfigUpdated("TIMEZONE_OFFSET", uint256(20 hours));
     }
 
     function setGenerationRate(uint8 generation, uint16 rateBps) external onlySuperAdmin {
@@ -546,15 +805,16 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit StakeSettled(stakeOrder.user, stakeId, stakeOrder.amount, stakeOrder.reward);
     }
 
-    function _settleDynamicRewardForUser(address user, uint256 day) internal whenNotPaused {
+    function _settleDynamicRewardForUser(address user, uint256 day) internal whenNotPaused returns (uint256 totalReward) {
         require(day < currentLocalDay(), "day not closed");
         require(!dynamicRewardSettled[user][day], "dynamic settled");
 
+        return _settleDynamicRewardForUserUnchecked(user, day);
+    }
+
+    function _settleDynamicRewardForUserUnchecked(address user, uint256 day) internal returns (uint256 totalReward) {
         dynamicRewardSettled[user][day] = true;
         uint256 volume = dailyStakeVolume[user][day];
-        if (volume < validVolumeThreshold) {
-            return;
-        }
 
         address upline = users[user].referrer;
         for (uint8 generation = 1; generation <= MAX_GENERATION && upline != address(0); generation++) {
@@ -565,6 +825,16 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
                     users[upline].totalDynamicReward += reward;
                     totalRewardBalance += reward;
                     totalDynamicRewardCredited += reward;
+                    totalReward += reward;
+                    dynamicRewardHistories[upline].push(
+                        DynamicRewardHistory({
+                            source: user,
+                            day: day,
+                            generation: generation,
+                            volume: volume,
+                            reward: reward
+                        })
+                    );
                     emit DynamicRewardSettled(user, upline, day, generation, volume, reward);
                 }
             }
@@ -574,25 +844,84 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
     function _register(address user, address referrer) internal {
         UserAccount storage account = users[user];
+        address resolvedReferrer = _resolveReferrer(user, referrer);
         if (account.registered) {
+            _indexRegisteredUser(user);
+            if (account.referrer == address(0) && resolvedReferrer != address(0)) {
+                _bindReferrer(user, resolvedReferrer);
+            }
             return;
         }
 
-        require(referrer != user, "self referrer");
-        if (referrer != address(0)) {
-            if (!users[referrer].registered) {
-                users[referrer].registered = true;
-                totalUsers += 1;
-                emit UserRegistered(referrer, address(0));
-            }
-            account.referrer = referrer;
-            directReferrals[referrer].push(user);
-            users[referrer].directCount += 1;
+        if (resolvedReferrer != address(0)) {
+            _bindReferrer(user, resolvedReferrer);
         }
 
         account.registered = true;
+        _indexRegisteredUser(user);
         totalUsers += 1;
-        emit UserRegistered(user, referrer);
+        emit UserRegistered(user, resolvedReferrer);
+    }
+
+    function _resolveReferrer(address user, address referrer) internal view returns (address) {
+        if (referrer != address(0)) {
+            return referrer;
+        }
+        if (defaultReferrer != address(0) && defaultReferrer != user) {
+            return defaultReferrer;
+        }
+        return address(0);
+    }
+
+    function _bindReferrer(address user, address referrer) internal {
+        require(referrer != user, "self referrer");
+        UserAccount storage account = users[user];
+
+        if (!users[referrer].registered) {
+            users[referrer].registered = true;
+            _indexRegisteredUser(referrer);
+            totalUsers += 1;
+            emit UserRegistered(referrer, address(0));
+        }
+
+        account.referrer = referrer;
+        directReferrals[referrer].push(user);
+        users[referrer].directCount += 1;
+    }
+
+    function _indexRegisteredUser(address user) internal {
+        if (user == address(0) || registeredUserIndexed[user]) {
+            return;
+        }
+
+        registeredUsers.push(user);
+        registeredUserIndexed[user] = true;
+        emit UserIndexed(user);
+    }
+
+    function _setDepositReceivers(address[DEPOSIT_RECEIVER_COUNT] memory newDepositReceivers) internal {
+        for (uint8 i = 0; i < DEPOSIT_RECEIVER_COUNT; i++) {
+            require(newDepositReceivers[i] != address(0), "receiver required");
+            depositReceivers[i] = newDepositReceivers[i];
+        }
+        if (nextDepositReceiverIndex >= DEPOSIT_RECEIVER_COUNT) {
+            nextDepositReceiverIndex = 0;
+        }
+        emit DepositReceiversUpdated(newDepositReceivers);
+    }
+
+    function _nextDepositReceiver() internal returns (address receiver, uint8 receiverIndex) {
+        receiverIndex = nextDepositReceiverIndex;
+        receiver = depositReceivers[receiverIndex];
+        require(receiver != address(0), "receiver missing");
+        nextDepositReceiverIndex = uint8((uint256(receiverIndex) + 1) % DEPOSIT_RECEIVER_COUNT);
+    }
+
+    function _nextWithdrawalId() internal returns (uint256 requestId) {
+        if (nextWithdrawalRequestId == 0) {
+            nextWithdrawalRequestId = 1;
+        }
+        requestId = nextWithdrawalRequestId++;
     }
 
     function _validateAmount(uint256 amount) internal view {
@@ -616,19 +945,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function _localDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + timezoneOffset;
+        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) / 1 days;
+        return uint256(adjusted) / settlementCycle();
     }
 
     function _localSecondOfDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + timezoneOffset;
+        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
         require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) % 1 days;
+        return uint256(adjusted) % settlementCycle();
     }
 
     function _localDayStartUtc(uint256 day) internal view returns (uint256) {
-        int256 timestamp = int256(day * 1 days) - timezoneOffset;
+        int256 timestamp = int256(day * settlementCycle()) - EAST8_TIMEZONE_OFFSET;
         require(timestamp >= 0, "invalid day start");
         return uint256(timestamp);
     }

@@ -35,7 +35,29 @@ export function safeAddress(value: string): Address {
 
 export function dateTime(timestamp?: bigint) {
   if (!timestamp || timestamp === 0n) return '--';
-  return new Date(Number(timestamp) * 1000).toLocaleString('zh-CN', {
+  const timestampMs = Number(timestamp) * 1000;
+  if (!Number.isFinite(timestampMs)) return '--';
+
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false,
-  });
+    hourCycle: 'h23',
+    timeZone: 'Asia/Shanghai',
+  }).formatToParts(new Date(timestampMs));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value;
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const hour = part('hour');
+  const minute = part('minute');
+  const second = part('second');
+
+  return year && month && day && hour && minute && second
+    ? `${year}年${month}月${day}日 ${hour}:${minute}:${second}`
+    : '--';
 }
