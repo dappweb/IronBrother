@@ -39,6 +39,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
+import {
+  calculatePendingDynamicRewardRows,
+  sumPendingDynamicRewards,
+  type PendingDynamicRewardEligibility,
+  type PendingDynamicRewardRate,
+  type PendingDynamicRewardRow,
+  type PendingDynamicRewardSource,
+} from './lib/dynamicRewards';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team';
@@ -222,6 +230,24 @@ type DynamicSettlementRow = AdminUserRow & {
   settled: boolean;
 };
 
+type DynamicSettlementSourceDayRow = DynamicSettlementRow & {
+  day: bigint;
+};
+
+type DynamicSettlementGroup = {
+  day: bigint;
+  addresses: Address[];
+  totalVolume: bigint;
+  validCount: number;
+};
+
+type AllDynamicSettlementData = {
+  rows: DynamicSettlementSourceDayRow[];
+  pendingRows: DynamicSettlementSourceDayRow[];
+  groups: DynamicSettlementGroup[];
+  sourceDayCount: number;
+};
+
 type WithdrawalRequestData = {
   id: bigint;
   user: Address;
@@ -253,11 +279,40 @@ type DynamicRewardDetail = {
   historyIndex: number;
 };
 
+type DynamicRewardSourceNode = {
+  address: Address;
+  generation: number;
+};
+
+type DynamicRewardSourceDay = DynamicRewardSourceNode & {
+  day: bigint;
+};
+
+type DynamicRewardSourceResult = {
+  nodes: DynamicRewardSourceNode[];
+  isSourceLimitReached: boolean;
+};
+
+type PendingDynamicRewardQueryData = {
+  rows: PendingDynamicRewardRow[];
+  total: bigint;
+  scannedDays: bigint[];
+  sourceCount: number;
+  isSourceLimitReached: boolean;
+};
+
+type PublicContractClient = NonNullable<ReturnType<typeof usePublicClient>>;
+
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 const CONTRACT_ADDRESS = IRONBROTHER_CONTRACT_ADDRESS ?? zeroAddress;
 const EVENT_LOOKBACK_BLOCKS = 200_000n;
 const EVENT_CHUNK_BLOCKS = 20_000n;
 const SESSION_STATUS_REFETCH_MS = 30_000;
+const PENDING_DYNAMIC_LOOKBACK_PERIODS = 5;
+const PENDING_DYNAMIC_MAX_PERIODS = 60;
+const PENDING_DYNAMIC_MAX_SOURCES = 400;
+const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
+const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
@@ -544,8 +599,8 @@ const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['stake missing', '带单订单不存在，请检查订单 ID。'],
   ['stake settled', '该带单订单已经结算。'],
   ['settlement pending', '带单订单尚未到结算时间。'],
-  ['day not closed', '只能结算已结束的本地日期。'],
-  ['dynamic settled', '该用户当天动态奖励已经结算。'],
+  ['day not closed', '只能结算已结束的周期。'],
+  ['dynamic settled', '该用户该周期动态奖励已经结算。'],
   ['self referrer', '推荐人不能填写当前钱包自己。'],
   ['amount too low', '金额低于合约最低限制。'],
   ['amount too high', '金额高于合约最高限制。'],
@@ -730,27 +785,282 @@ function dynamicRewardDetailFromEvent(event: ChainEventRecord, upline: Address, 
   };
 }
 
-function chineseDateLabel(timestampSeconds: bigint) {
+function recentClosedDynamicDays(currentLocalDay: bigint, limit = PENDING_DYNAMIC_LOOKBACK_PERIODS) {
+  const days: bigint[] = [];
+  for (let offset = 1n; days.length < limit && currentLocalDay > offset; offset += 1n) {
+    days.push(currentLocalDay - offset);
+  }
+  return days;
+}
+
+async function readDirectReferralAddresses(publicClient: PublicContractClient, root: Address) {
+  try {
+    const referrals = await publicClient.readContract({
+      address: CONTRACT_ADDRESS,
+      abi: ironBrotherAbi,
+      functionName: 'getDirectReferrals',
+      args: [root],
+    });
+    return ((referrals as readonly string[] | undefined) ?? []).filter((value): value is Address => isAddress(value));
+  } catch {
+    return [] as Address[];
+  }
+}
+
+async function collectDynamicRewardSources(
+  publicClient: PublicContractClient,
+  root: Address,
+  maxGeneration: number,
+): Promise<DynamicRewardSourceResult> {
+  if (maxGeneration <= 0) return { nodes: [], isSourceLimitReached: false };
+
+  const seen = new Set<string>([root.toLowerCase()]);
+  let frontier: Address[] = [root];
+  const nodes: DynamicRewardSourceNode[] = [];
+  let isSourceLimitReached = false;
+
+  for (let generation = 1; generation <= maxGeneration && frontier.length > 0; generation += 1) {
+    const referralGroups = await Promise.all(frontier.map((account) => readDirectReferralAddresses(publicClient, account)));
+    const nextFrontier: Address[] = [];
+
+    referralGroups.flat().forEach((referral) => {
+      const key = referral.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      if (nodes.length >= PENDING_DYNAMIC_MAX_SOURCES) {
+        isSourceLimitReached = true;
+        return;
+      }
+
+      nodes.push({ address: referral, generation });
+      if (generation < maxGeneration) {
+        nextFrontier.push(referral);
+      }
+    });
+
+    if (isSourceLimitReached) break;
+    frontier = nextFrontier;
+  }
+
+  return { nodes, isSourceLimitReached };
+}
+
+function uniqueDynamicSourceDays(sourceDays: readonly DynamicRewardSourceDay[]) {
+  const seen = new Set<string>();
+  const rows: DynamicRewardSourceDay[] = [];
+
+  sourceDays.forEach((row) => {
+    const key = `${row.address.toLowerCase()}-${row.day.toString()}-${row.generation}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  });
+
+  return rows;
+}
+
+function uniqueDynamicDays(sourceDays: readonly DynamicRewardSourceDay[]) {
+  const seen = new Set<string>();
+  return sourceDays
+    .map((row) => row.day)
+    .filter((day) => {
+      const key = day.toString();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => (left === right ? 0 : left > right ? -1 : 1))
+    .slice(0, PENDING_DYNAMIC_MAX_PERIODS);
+}
+
+async function collectStakeOrderSourceDays(publicClient: PublicContractClient, sources: readonly DynamicRewardSourceNode[]) {
+  const sourceDays = await Promise.all(
+    sources.map(async (source) => {
+      try {
+        const orderIds = await publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'getUserStakeOrderIds',
+          args: [source.address],
+        });
+        const selectedIds = [...((orderIds as readonly bigint[] | undefined) ?? [])].slice(
+          -PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE,
+        );
+        const orders = await Promise.all(
+          selectedIds.map(async (id) => {
+            try {
+              return stakeOrderFromTuple(
+                await publicClient.readContract({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'stakeOrders',
+                  args: [id],
+                }),
+              );
+            } catch {
+              return undefined;
+            }
+          }),
+        );
+
+        return orders
+          .filter((order): order is StakeOrderData => Boolean(order && order.day > 0n))
+          .map((order) => ({ ...source, day: order.day }));
+      } catch {
+        return [] as DynamicRewardSourceDay[];
+      }
+    }),
+  );
+
+  return uniqueDynamicSourceDays(sourceDays.flat());
+}
+
+function uniqueSettlementSourceDays(sourceDays: readonly Pick<DynamicSettlementSourceDayRow, 'address' | 'day'>[]) {
+  const seen = new Set<string>();
+  const rows: Pick<DynamicSettlementSourceDayRow, 'address' | 'day'>[] = [];
+
+  sourceDays.forEach((row) => {
+    const key = `${row.address.toLowerCase()}-${row.day.toString()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  });
+
+  return rows;
+}
+
+async function collectAdminSettlementSourceDays(
+  publicClient: PublicContractClient,
+  addresses: readonly Address[],
+  currentLocalDay: bigint,
+) {
+  if (currentLocalDay <= 0n) return [] as Pick<DynamicSettlementSourceDayRow, 'address' | 'day'>[];
+
+  const sourceDays = await Promise.all(
+    addresses.map(async (address) => {
+      try {
+        const orderIds = await publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'getUserStakeOrderIds',
+          args: [address],
+        });
+        const orders = await Promise.all(
+          [...((orderIds as readonly bigint[] | undefined) ?? [])].map(async (id) => {
+            try {
+              return stakeOrderFromTuple(
+                await publicClient.readContract({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'stakeOrders',
+                  args: [id],
+                }),
+              );
+            } catch {
+              return undefined;
+            }
+          }),
+        );
+
+        return orders
+          .filter((order): order is StakeOrderData => Boolean(order && order.day > 0n && order.day < currentLocalDay))
+          .map((order) => ({ address, day: order.day }));
+      } catch {
+        return [] as Pick<DynamicSettlementSourceDayRow, 'address' | 'day'>[];
+      }
+    }),
+  );
+
+  return uniqueSettlementSourceDays(sourceDays.flat());
+}
+
+function groupDynamicSettlementRows(rows: readonly DynamicSettlementSourceDayRow[]) {
+  const groups = new Map<string, DynamicSettlementGroup>();
+
+  rows.forEach((row) => {
+    const key = row.day.toString();
+    const group =
+      groups.get(key) ??
+      ({
+        day: row.day,
+        addresses: [],
+        totalVolume: 0n,
+        validCount: 0,
+      } satisfies DynamicSettlementGroup);
+
+    group.addresses.push(row.address);
+    group.totalVolume += row.dailyStakeVolume;
+    if (row.isValidOnDay) group.validCount += 1;
+    groups.set(key, group);
+  });
+
+  return [...groups.values()].sort((left, right) => (left.day === right.day ? 0 : left.day < right.day ? -1 : 1));
+}
+
+function chunkAddresses(addresses: readonly Address[], chunkSize = ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
+  const chunks: Address[][] = [];
+  for (let index = 0; index < addresses.length; index += chunkSize) {
+    chunks.push(addresses.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+function chunkSettlementSourceDays(
+  rows: readonly DynamicSettlementSourceDayRow[],
+  chunkSize = ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE,
+) {
+  const chunks: DynamicSettlementSourceDayRow[][] = [];
+  for (let index = 0; index < rows.length; index += chunkSize) {
+    chunks.push(rows.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
+function comparePendingDynamicRewardRows(left: PendingDynamicRewardRow, right: PendingDynamicRewardRow) {
+  if (left.day !== right.day) return left.day > right.day ? -1 : 1;
+  if (left.generation !== right.generation) return left.generation - right.generation;
+  if (left.reward !== right.reward) return left.reward > right.reward ? -1 : 1;
+  return left.source.localeCompare(right.source);
+}
+
+function shanghaiDateTimeParts(timestampSeconds: bigint) {
   const timestampMs = Number(timestampSeconds) * 1000;
-  if (!Number.isFinite(timestampMs)) return '--';
+  if (!Number.isFinite(timestampMs)) return undefined;
 
   const parts = new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
     timeZone: 'Asia/Shanghai',
   }).formatToParts(new Date(timestampMs));
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
+  const part = (type: string) => parts.find((item) => item.type === type)?.value;
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const hour = part('hour');
+  const minute = part('minute');
 
-  return year && month && day ? `${year}年${month}月${day}日` : '--';
+  return year && month && day && hour && minute ? { year, month, day, hour, minute } : undefined;
+}
+
+function shanghaiDateTimeLabel(timestampSeconds: bigint) {
+  const parts = shanghaiDateTimeParts(timestampSeconds);
+  return parts ? `${parts.year}年${parts.month}月${parts.day}日 ${parts.hour}:${parts.minute}` : '--';
 }
 
 function effectiveSettlementCycle(day: bigint, settlementCycle: bigint) {
   if (day <= 0n) return 0n;
   const fallbackCycle = settlementCycle > 0n ? settlementCycle : BigInt(SECONDS_PER_DAY);
   const dailyLocalDay = BigInt(currentUnixSeconds() + EAST8_TIMEZONE_SECONDS) / BigInt(SECONDS_PER_DAY);
+
+  if (fallbackCycle !== BigInt(SECONDS_PER_DAY) && dailyLocalDay > 0n && day <= dailyLocalDay * 2n) {
+    return BigInt(SECONDS_PER_DAY);
+  }
 
   if (fallbackCycle === BigInt(SECONDS_PER_DAY) && dailyLocalDay > 0n && day > dailyLocalDay * 2n) {
     const inferredCycle = BigInt(currentUnixSeconds() + EAST8_TIMEZONE_SECONDS) / day;
@@ -762,13 +1072,60 @@ function effectiveSettlementCycle(day: bigint, settlementCycle: bigint) {
   return fallbackCycle;
 }
 
-function localDayLabel(day: bigint, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
-  if (day <= 0n) return '--';
+function localPeriodBounds(day: bigint, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
+  if (day <= 0n) return undefined;
   const cycle = effectiveSettlementCycle(day, settlementCycle);
-  if (cycle <= 0n) return '--';
+  if (cycle <= 0n) return undefined;
   const startAt = day * cycle - BigInt(EAST8_TIMEZONE_SECONDS);
-  if (startAt < 0n) return '--';
-  return chineseDateLabel(startAt);
+  if (startAt < 0n) return undefined;
+  return { startAt, endAt: startAt + cycle };
+}
+
+function localPeriodLabel(day: bigint, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
+  const bounds = localPeriodBounds(day, settlementCycle);
+  if (!bounds) return '--';
+  return `${shanghaiDateTimeLabel(bounds.startAt)} - ${shanghaiDateTimeLabel(bounds.endAt)}`;
+}
+
+function localPeriodInputValue(day: bigint, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
+  const bounds = localPeriodBounds(day, settlementCycle);
+  if (!bounds) return '';
+
+  const localDate = new Date(Number(bounds.startAt + BigInt(EAST8_TIMEZONE_SECONDS)) * 1000);
+  const year = localDate.getUTCFullYear();
+  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
+  const date = String(localDate.getUTCDate()).padStart(2, '0');
+  const hours = String(localDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+  return `${year}-${month}-${date}T${hours}:${minutes}`;
+}
+
+function shanghaiInputToTimestamp(value: string) {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) return 0n;
+
+  const [, year, month, day, hour, minute] = match;
+  const utcMs =
+    Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)) -
+    EAST8_TIMEZONE_SECONDS * 1000;
+  if (!Number.isFinite(utcMs)) return 0n;
+  return BigInt(Math.floor(utcMs / 1000));
+}
+
+function localPeriodDayFromInput(value: string, settlementCycle: bigint = BigInt(SECONDS_PER_DAY)) {
+  const cycle = settlementCycle > 0n ? settlementCycle : BigInt(SECONDS_PER_DAY);
+  const timestamp = shanghaiInputToTimestamp(value);
+  const adjusted = timestamp + BigInt(EAST8_TIMEZONE_SECONDS);
+  return adjusted > 0n ? adjusted / cycle : 0n;
+}
+
+function settlementCycleLabel(value?: bigint | number) {
+  const seconds = secondsNumber(value);
+  if (seconds <= 0) return '--';
+  if (seconds % SECONDS_PER_DAY === 0) return `${seconds / SECONDS_PER_DAY} 天`;
+  if (seconds % SECONDS_PER_HOUR === 0) return `${seconds / SECONDS_PER_HOUR} 小时`;
+  if (seconds % 60 === 0) return `${seconds / 60} 分钟`;
+  return `${seconds} 秒`;
 }
 
 function recentIds(nextId?: bigint, limit = 40) {
@@ -1151,6 +1508,17 @@ function daysToSeconds(value: string) {
 function secondsToDays(value?: bigint | number) {
   const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
   return String(numeric / (24 * 60 * 60));
+}
+
+function settlementCycleMinutesToSeconds(value: string) {
+  const numeric = Number(value.trim() || '0');
+  if (!Number.isFinite(numeric)) return 0n;
+  return BigInt(Math.round(numeric * 60));
+}
+
+function secondsToSettlementCycleMinutes(value?: bigint | number) {
+  const numeric = typeof value === 'bigint' ? Number(value) : value ?? 0;
+  return String(numeric / 60);
 }
 
 function tokenInput(value?: bigint) {
@@ -2281,9 +2649,11 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
 
 function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
   const details = useDynamicRewardDetails(address);
-  const eventTotal = useMemo(() => details.rows.reduce((sum, row) => sum + row.reward, 0n), [details.rows]);
+  const pendingRewards = usePendingDynamicRewards(address, data.currentLocalDay);
   const latestDetail = details.rows[0];
   const settlementCycle = data.settlementCycle;
+  const pendingRows = pendingRewards.data?.rows ?? [];
+  const pendingTotal = pendingRewards.data?.total ?? 0n;
 
   return (
     <section className="screen-stack">
@@ -2295,9 +2665,13 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           </div>
           <Gift size={18} />
         </div>
-        <div className="calc-grid">
+        <div className="calc-grid dynamic-reward-grid">
           <MetricCard label="链上动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="已进入收益钱包" />
-          <MetricCard label="已索引明细" value={<MoneyAmount value={eventTotal} />} trend={`${details.rows.length} 条结算明细`} />
+          <MetricCard
+            label="待结算动态"
+            value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />}
+            trend={pendingRewards.isError ? '读取失败' : `${pendingRows.length} 条待结算明细`}
+          />
         </div>
       </section>
 
@@ -2310,8 +2684,8 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           <span className="status-chip">{details.isLoading ? '读取中' : details.isError ? '读取失败' : `${details.rows.length} 条`}</span>
         </div>
         <div className="settlement-stats reward-summary-grid">
-          <InfoLine label="本地日" value={localDayLabel(data.currentLocalDay, settlementCycle)} />
-          <InfoLine label="最近结算" value={latestDetail ? localDayLabel(latestDetail.day, settlementCycle) : '--'} />
+          <InfoLine label="当前周期" value={localPeriodLabel(data.currentLocalDay, settlementCycle)} />
+          <InfoLine label="最近结算" value={latestDetail ? localPeriodLabel(latestDetail.day, settlementCycle) : '--'} />
           <InfoLine label="最近来源" value={latestDetail ? shortAddress(latestDetail.source) : '--'} />
           <InfoLine label="最近奖励" value={latestDetail ? <MoneyAmount value={latestDetail.reward} prefix="+" /> : '--'} />
         </div>
@@ -2327,7 +2701,53 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           )}
         </div>
       </section>
+
+      <section className="panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Pending rewards</p>
+            <h2>待结算动态收益</h2>
+          </div>
+          <span className="status-chip">{pendingRewards.isLoading ? '读取中' : pendingRewards.isError ? '读取失败' : `${pendingRows.length} 条`}</span>
+        </div>
+        <div className="settlement-stats reward-summary-grid">
+          <InfoLine label="扫描周期" value={`最近 ${pendingRewards.data?.scannedDays.length ?? PENDING_DYNAMIC_LOOKBACK_PERIODS} 期`} />
+          <InfoLine
+            label="团队来源"
+            value={`${pendingRewards.data?.sourceCount ?? 0} 个${pendingRewards.data?.isSourceLimitReached ? '+' : ''}`}
+          />
+          <InfoLine label="待结算笔数" value={`${pendingRows.length} 笔`} />
+          <InfoLine label="待结算金额" value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
+        </div>
+        <div className="list-stack reward-detail-list">
+          {pendingRewards.isLoading ? (
+            <EmptyState title="正在读取待结算动态收益" detail="正在读取直推关系、已关闭周期流水和动态奖励比例。" />
+          ) : pendingRewards.isError ? (
+            <EmptyState title="待结算动态收益读取失败" detail="链上读取失败，请检查网络后重试。" />
+          ) : pendingRows.length > 0 ? (
+            pendingRows.map((row) => <PendingDynamicRewardListRow key={`${row.source}-${row.day}-${row.generation}`} row={row} settlementCycle={settlementCycle} />)
+          ) : (
+            <EmptyState title="暂无待结算动态收益" detail="下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。" />
+          )}
+        </div>
+      </section>
     </section>
+  );
+}
+
+function PendingDynamicRewardListRow({ row, settlementCycle }: { row: PendingDynamicRewardRow; settlementCycle: bigint }) {
+  return (
+    <div className="admin-list-row reward-detail-row pending-reward-row">
+      <div className="row-icon"><Clock3 size={17} /></div>
+      <div>
+        <strong>待结算 {shortAddress(row.source)} / {row.generation} 代</strong>
+        <small>周期 {localPeriodLabel(row.day, settlementCycle)} / 比例 {bpsToPercent(row.rateBps)}</small>
+      </div>
+      <div className="row-metrics">
+        <span>流水 {token(row.volume)} U</span>
+        <span className="amount-positive">+{token(row.reward)} U</span>
+      </div>
+    </div>
   );
 }
 
@@ -2337,7 +2757,7 @@ function DynamicRewardDetailRow({ detail, settlementCycle }: { detail: DynamicRe
       <div className="row-icon"><Gift size={17} /></div>
       <div>
         <strong>来自 {shortAddress(detail.source)} / {detail.generation} 代</strong>
-        <small>本地日 {localDayLabel(detail.day, settlementCycle)}</small>
+        <small>周期 {localPeriodLabel(detail.day, settlementCycle)}</small>
       </div>
       <div className="row-metrics">
         <span>流水 {token(detail.volume)} U</span>
@@ -2403,7 +2823,7 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
         <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
         <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
         <InfoLine label="网络" value="BSC Testnet" />
-        <InfoLine label="本地日编号" value={data.currentLocalDay.toString()} />
+        <InfoLine label="当前周期" value={localPeriodLabel(data.currentLocalDay, data.settlementCycle)} />
         <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
         <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
       </section>
@@ -2950,6 +3370,7 @@ function AdminPrincipalOrdersPage() {
 
 function AdminStakeOrdersPage() {
   const orderBook = useAdminOrderBook();
+  const config = useContractConfig();
 
   return (
     <section className="admin-panel">
@@ -2962,7 +3383,7 @@ function AdminStakeOrdersPage() {
       </div>
       <div className="list-stack">
         {orderBook.stakeOrders.length > 0 ? (
-          orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
+          orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={config.settlementCycle} />)
         ) : (
           <EmptyState title="暂无带单订单" detail="用户完成带单后，订单会自动显示在这里。" />
         )}
@@ -2973,22 +3394,39 @@ function AdminStakeOrdersPage() {
 
 function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
   const [dynamicUser, setDynamicUser] = useState('');
-  const [dynamicDay, setDynamicDay] = useState('');
+  const [dynamicPeriodStart, setDynamicPeriodStart] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
   const [stakeIds, setStakeIds] = useState('');
-  const currentDayQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'currentLocalDay',
+  const currentPeriodQuery = useReadContracts({
+    contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'currentLocalDay' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'settlementCycle' },
+    ],
     query: { enabled: isContractConfigured, refetchInterval: SESSION_STATUS_REFETCH_MS },
   });
-  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
-  const settlementDay = parseBigIntInput(dynamicDay);
+  const currentLocalDay = readResult(currentPeriodQuery.data?.[0], 0n);
+  const settlementCycle = readResult(currentPeriodQuery.data?.[1], BigInt(SECONDS_PER_DAY));
+  const settlementDay = useMemo(
+    () => localPeriodDayFromInput(dynamicPeriodStart, settlementCycle),
+    [dynamicPeriodStart, settlementCycle],
+  );
   const dayClosed = settlementDay > 0n && settlementDay < currentLocalDay;
+  const currentPeriodLabel = localPeriodLabel(currentLocalDay, settlementCycle);
+  const selectedPeriodLabel = settlementDay > 0n ? localPeriodLabel(settlementDay, settlementCycle) : '--';
   const users = useAdminUsers();
   const settlement = useDynamicSettlementRows(users.rows, settlementDay, settlementDay > 0n);
+  const allSettlement = useAllDynamicSettlementRows(users.rows, currentLocalDay);
   const oneClickAddresses = settlement.pendingRows.map((row) => row.address);
   const validPendingCount = settlement.pendingRows.filter((row) => row.isValidOnDay).length;
+  const allPendingRows = allSettlement.data?.pendingRows ?? [];
+  const allSettlementGroups = allSettlement.data?.groups ?? [];
+  const allPendingVolume = allPendingRows.reduce((sum, row) => sum + row.dailyStakeVolume, 0n);
+  const allValidPendingCount = allPendingRows.filter((row) => row.isValidOnDay).length;
+  const allSettlementBatches = useMemo(
+    () => chunkSettlementSourceDays(allPendingRows),
+    [allPendingRows],
+  );
+  const allSettlementTxCount = allSettlementBatches.length;
   const orderBook = useAdminOrderBook();
   const currentDayStakeOrders = orderBook.stakeOrders.filter((order) => order.day === currentLocalDay);
   const unsettledStakeOrders = orderBook.stakeOrders.filter((order) => !order.settled);
@@ -2997,20 +3435,82 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
   const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'DynamicRewardBotSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'ContractFundsWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
 
   useEffect(() => {
-    if (!dynamicDay && currentLocalDay > 0n) {
-      setDynamicDay((currentLocalDay - 1n).toString());
+    if (!dynamicPeriodStart && currentLocalDay > 0n) {
+      setDynamicPeriodStart(localPeriodInputValue(currentLocalDay - 1n, settlementCycle));
     }
-  }, [currentLocalDay, dynamicDay]);
+  }, [currentLocalDay, dynamicPeriodStart, settlementCycle]);
+
+  function runAllDynamicSettlement() {
+    const steps = allSettlementBatches.map((rows, index, batches): TxFlowStep => ({
+      label: batches.length > 1 ? `全量批次 ${index + 1}/${batches.length}` : '全部待结算',
+      request: () =>
+        runner.writeContractAsync({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'settleDynamicRewardForSourceDays',
+          args: [rows.map((row) => row.address), rows.map((row) => row.day)],
+        }),
+    }));
+
+    if (steps.length === 0) return;
+    runner.runTxFlow('全量一键动态结算', steps);
+  }
 
   return (
     <section className="screen-stack">
       <section className="admin-panel">
         <div className="section-title">
           <div>
-            <p className="eyebrow">Daily settlement</p>
+            <p className="eyebrow">Cycle settlement</p>
             <h2>收益结算</h2>
           </div>
           <Clock3 size={20} />
+        </div>
+        <div className="settlement-box">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">Auto settlement</p>
+              <h2>全量一键动态结算</h2>
+            </div>
+            <span className="status-chip">
+              {allSettlement.isLoading ? '扫描中' : allSettlement.isError ? '读取失败' : `${allPendingRows.length} 待结算`}
+            </span>
+          </div>
+          <div className="settlement-stats">
+            <InfoLine label="扫描用户" value={`${users.rows.filter((row) => row.account.registered).length} 人`} />
+            <InfoLine label="未结算周期" value={`${allSettlementGroups.length} 个`} />
+            <InfoLine label="有效流水用户" value={`${allValidPendingCount} 人`} />
+            <InfoLine label="预计交易" value={`${allSettlementTxCount} 笔`} />
+            <InfoLine label="未结算流水" value={`${token(allPendingVolume)} U`} />
+          </div>
+          <button
+            className="primary-button"
+            disabled={!canWrite || users.isLoading || allSettlement.isLoading || allSettlementGroups.length === 0}
+            onClick={runAllDynamicSettlement}
+          >
+            自动结算全部未结算动态奖励
+          </button>
+          <p className="helper-line">
+            系统会自动扫描所有已登记用户的已关闭带单周期，并按周期分组提交结算；不需要手动输入地址或周期。
+          </p>
+          <div className="settlement-preview">
+            {allSettlement.isLoading ? (
+              <span>正在扫描所有带单周期...</span>
+            ) : allSettlement.isError ? (
+              <span>全量待结算读取失败，请刷新后重试。</span>
+            ) : allSettlementGroups.length > 0 ? (
+              allSettlementGroups.slice(0, 8).map((group) => (
+                <div className="settlement-row" key={group.day.toString()}>
+                  <span>周期 {group.day.toString()}</span>
+                  <span>{group.addresses.length} 用户 / 有效 {group.validCount}</span>
+                  <span>{token(group.totalVolume)} U</span>
+                </div>
+              ))
+            ) : (
+              <span>暂无未结算动态奖励。</span>
+            )}
+            {allSettlementGroups.length > 8 && <span>还有 {allSettlementGroups.length - 8} 个周期未显示。</span>}
+          </div>
         </div>
         <div className="form-grid">
           <label>
@@ -3018,20 +3518,30 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             <input value={dynamicUser} onChange={(event) => setDynamicUser(event.target.value)} placeholder="0x..." />
           </label>
           <label>
-            本地日编号
-            <input value={dynamicDay} onChange={(event) => setDynamicDay(event.target.value)} placeholder="例如 20579" />
+            结算周期开始时间
+            <input
+              type="datetime-local"
+              value={dynamicPeriodStart}
+              onChange={(event) => setDynamicPeriodStart(event.target.value)}
+              onBlur={() => {
+                if (settlementDay > 0n) {
+                  setDynamicPeriodStart(localPeriodInputValue(settlementDay, settlementCycle));
+                }
+              }}
+            />
+            <small>所选周期：{selectedPeriodLabel}</small>
           </label>
         </div>
         <button
           className="primary-button compact"
-          disabled={!canWrite || !dynamicDay || !isAddress(dynamicUser)}
+          disabled={!canWrite || settlementDay <= 0n || !isAddress(dynamicUser)}
           onClick={() =>
             runner.runTx('结算动态奖励', () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
                 functionName: 'settleDynamicRewardForUser',
-                args: [safeAddress(dynamicUser), parseBigIntInput(dynamicDay)],
+                args: [safeAddress(dynamicUser), settlementDay],
               }),
             )
           }
@@ -3041,14 +3551,14 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         <div className="settlement-box">
           <div className="section-title">
             <div>
-              <p className="eyebrow">Daily batch</p>
-              <h2>每日一键动态结算</h2>
+              <p className="eyebrow">Cycle batch</p>
+              <h2>周期一键动态结算</h2>
             </div>
             <span className="status-chip">{oneClickAddresses.length} 待结算</span>
           </div>
           <div className="settlement-stats">
-            <InfoLine label="当前本地日" value={currentLocalDay.toString()} />
-            <InfoLine label="结算日期" value={dynamicDay || '--'} />
+            <InfoLine label="当前周期" value={currentPeriodLabel} />
+            <InfoLine label="结算周期" value={selectedPeriodLabel} />
             <InfoLine label="有流水用户" value={`${settlement.rows.length} 人`} />
             <InfoLine label="有效流水用户" value={`${validPendingCount} 人`} />
           </div>
@@ -3056,7 +3566,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             className="primary-button"
             disabled={!canWrite || !dayClosed || oneClickAddresses.length === 0}
             onClick={() =>
-              runner.runTx('每日一键动态结算', () =>
+              runner.runTx('一键动态结算', () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -3066,12 +3576,12 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
               )
             }
           >
-            每日一键动态结算
+            一键结算所选周期
           </button>
           <p className="helper-line">
             {dayClosed
-              ? '将结算所选日期内已产生流水且尚未结算的用户。'
-              : '只能结算已经结束的本地日期，通常选择当前本地日的前一天。'}
+              ? '将结算所选周期内已产生流水且尚未结算的用户。'
+              : '只能结算已经结束的周期，通常选择当前周期的上一期。'}
           </p>
           <div className="settlement-preview">
             {settlement.isLoading ? (
@@ -3081,7 +3591,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
                 <div className="settlement-row" key={row.address}>
                   <span>{shortAddress(row.address)}</span>
                   <span>{token(row.dailyStakeVolume)} U</span>
-                  <span>{row.isValidOnDay ? '有效' : '未达门槛'}</span>
+                  <span>{row.isValidOnDay ? '有效直推' : '普通流水'}</span>
                 </div>
               ))
             ) : (
@@ -3103,14 +3613,14 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         <div className="split-buttons">
           <button
             className="secondary-button"
-            disabled={!canWrite || parseAddressList(batchUsers).length === 0 || !dynamicDay}
+            disabled={!canWrite || parseAddressList(batchUsers).length === 0 || settlementDay <= 0n}
             onClick={() =>
               runner.runTx('批量结算动态奖励', () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
                   functionName: 'settleDynamicRewardForUsers',
-                  args: [parseAddressList(batchUsers), parseBigIntInput(dynamicDay)],
+                  args: [parseAddressList(batchUsers), settlementDay],
                 }),
               )
             }
@@ -3145,15 +3655,15 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
           <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
         </div>
         <div className="settlement-stats">
-          <InfoLine label="当前本地日" value={currentLocalDay.toString()} />
-          <InfoLine label="今日带单笔数" value={`${currentDayStakeOrders.length} 笔`} />
-          <InfoLine label="今日带单流水" value={`${token(currentDayStakeVolume)} U`} />
+          <InfoLine label="当前周期" value={currentPeriodLabel} />
+          <InfoLine label="本周期带单笔数" value={`${currentDayStakeOrders.length} 笔`} />
+          <InfoLine label="本周期带单流水" value={`${token(currentDayStakeVolume)} U`} />
           <InfoLine label="未结算带单" value={`${unsettledStakeOrders.length} 笔`} />
           <InfoLine label="最近带单流水" value={`${token(recentStakeVolume)} U`} />
         </div>
         <div className="list-stack">
           {orderBook.stakeOrders.length > 0 ? (
-            orderBook.stakeOrders.slice(0, 8).map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} />)
+            orderBook.stakeOrders.slice(0, 8).map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={settlementCycle} />)
           ) : (
             <EmptyState title="暂无带单流水" detail="这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。" />
           )}
@@ -3404,6 +3914,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [maxPrincipal, setMaxPrincipal] = useState('1000');
   const [lockDays, setLockDays] = useState('30');
   const [threshold, setThreshold] = useState('1000');
+  const [settlementCycleMinutes, setSettlementCycleMinutes] = useState('1440');
   const [feeReceiver, setFeeReceiver] = useState('');
   const [defaultReferrer, setDefaultReferrer] = useState('');
   const [depositReceivers, setDepositReceivers] = useState<string[]>(['', '', '', '', '']);
@@ -3417,6 +3928,9 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const canSaveDefaultReferrer = canEdit && (defaultReferrerInput === '' || isAddress(defaultReferrerInput));
   const depositReceiverInputs = depositReceivers.map((receiver) => receiver.trim());
   const canSaveDepositReceivers = canEdit && depositReceiverInputs.length === 5 && depositReceiverInputs.every((receiver) => isAddress(receiver));
+  const settlementCycleSeconds = settlementCycleMinutesToSeconds(settlementCycleMinutes);
+  const canSaveSettlementCycle =
+    canEdit && settlementCycleSeconds >= 60n && settlementCycleSeconds <= BigInt(SECONDS_PER_DAY);
 
   useEffect(() => {
     if (!isContractConfigured) return;
@@ -3429,6 +3943,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
     setMaxPrincipal(tokenInput(config.maxPrincipal));
     setLockDays(secondsToDays(config.lockPeriod));
     setThreshold(tokenInput(config.validVolumeThreshold));
+    setSettlementCycleMinutes(secondsToSettlementCycleMinutes(config.settlementCycle));
     setFeeReceiver(config.feeReceiver === zeroAddress ? '' : config.feeReceiver);
     setDefaultReferrer(config.defaultReferrer === zeroAddress ? '' : config.defaultReferrer);
     setDepositReceivers([0, 1, 2, 3, 4].map((index) => config.depositReceivers[index] ?? ''));
@@ -3444,6 +3959,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         <AdminCard icon={<Settings />} label="当前收益率" value={bpsToPercent(config.yieldBps)} />
         <AdminCard icon={<Send />} label="提现手续费" value={`${token(config.withdrawFee)} U`} />
         <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
+        <AdminCard icon={<Repeat2 />} label="动态结算周期" value={settlementCycleLabel(config.settlementCycle)} />
         <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
         <AdminCard icon={<Users />} label="默认推荐人" value={config.defaultReferrer === zeroAddress ? '未设置' : shortAddress(config.defaultReferrer)} />
         <AdminCard icon={<Shield />} label="提现审批" value={config.withdrawalApprovalRequired ? '开启' : '关闭'} />
@@ -3701,32 +4217,97 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         </div>
       </section>
 
-      <section className="admin-panel">
+      <section className="admin-panel schedule-config-panel">
         <div className="section-title">
-          <h2>场次与代数</h2>
-          <Users size={20} />
+          <div>
+            <p className="eyebrow">Admin</p>
+            <h2>动态结算与上下场次</h2>
+          </div>
+          <Clock3 size={20} />
         </div>
-        <div className="form-grid">
+        <p className="helper-line">测试环境可把结算周期调短，并把上午场、下午场压缩到同一个周期内。</p>
+        <div className="form-grid schedule-config-grid">
+          <label>
+            动态奖励结算周期（分钟）
+            <input
+              type="number"
+              value={settlementCycleMinutes}
+              onChange={(event) => setSettlementCycleMinutes(event.target.value)}
+              inputMode="decimal"
+              min="1"
+              max="1440"
+              placeholder="1-1440"
+            />
+            <small>当前：{settlementCycleLabel(config.settlementCycle)}；范围 1-1440 分钟</small>
+          </label>
           <label>
             场次时区
             <input value="UTC+8（东八区，链上自动识别）" readOnly />
           </label>
           <label>
-            上午开始时间
+            上午场开始
             <input value={morningStart} onChange={(event) => setMorningStart(event.target.value)} placeholder="09:00" inputMode="numeric" />
           </label>
           <label>
-            上午结束时间
+            上午场结束
             <input value={morningEnd} onChange={(event) => setMorningEnd(event.target.value)} placeholder="12:00" inputMode="numeric" />
           </label>
           <label>
-            下午开始时间
+            下午场开始
             <input value={afternoonStart} onChange={(event) => setAfternoonStart(event.target.value)} placeholder="14:00" inputMode="numeric" />
           </label>
           <label>
-            下午结束时间
+            下午场结束
             <input value={afternoonEnd} onChange={(event) => setAfternoonEnd(event.target.value)} placeholder="17:00" inputMode="numeric" />
           </label>
+        </div>
+        <div className="split-buttons">
+          <button
+            className="secondary-button"
+            disabled={!canSaveSettlementCycle}
+            onClick={() =>
+              runner.runTx('设置动态奖励结算周期', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setSettlementCycle',
+                  args: [settlementCycleSeconds],
+                }),
+              )
+            }
+          >
+            保存动态结算周期
+          </button>
+          <button
+            className="secondary-button"
+            disabled={!canEdit}
+            onClick={() =>
+              runner.runTx('设置带单场次', () =>
+                runner.writeContractAsync({
+                  address: CONTRACT_ADDRESS,
+                  abi: ironBrotherAbi,
+                  functionName: 'setSessionTimes',
+                  args: [
+                    sessionTimeToSeconds(morningStart),
+                    sessionTimeToSeconds(morningEnd),
+                    sessionTimeToSeconds(afternoonStart),
+                    sessionTimeToSeconds(afternoonEnd),
+                  ],
+                }),
+              )
+            }
+          >
+            保存上下午时间范围
+          </button>
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <h2>代数与合约状态</h2>
+          <Users size={20} />
+        </div>
+        <div className="form-grid">
           <label>
             代数
             <input value={generation} onChange={(event) => setGeneration(event.target.value)} />
@@ -3736,27 +4317,6 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             <input value={generationRate} onChange={(event) => setGenerationRate(event.target.value)} />
           </label>
         </div>
-        <button
-          className="secondary-button full-button"
-          disabled={!canEdit}
-          onClick={() =>
-            runner.runTx('设置带单场次', () =>
-              runner.writeContractAsync({
-                address: CONTRACT_ADDRESS,
-                abi: ironBrotherAbi,
-                functionName: 'setSessionTimes',
-                args: [
-                  sessionTimeToSeconds(morningStart),
-                  sessionTimeToSeconds(morningEnd),
-                  sessionTimeToSeconds(afternoonStart),
-                  sessionTimeToSeconds(afternoonEnd),
-                ],
-              }),
-            )
-          }
-        >
-          保存上下午时间范围
-        </button>
         <button
           className="secondary-button full-button"
           disabled={!canEdit}
@@ -4063,6 +4623,7 @@ function useContractConfig() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'maxYieldBps' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'withdrawFee' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'validVolumeThreshold' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'settlementCycle' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'feeReceiver' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'defaultReferrer' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'getDepositReceivers' },
@@ -4089,17 +4650,18 @@ function useContractConfig() {
     maxYieldBps: pick(6, 0n),
     withdrawFee: pick(7, 0n),
     validVolumeThreshold: pick(8, 0n),
-    feeReceiver: pick(9, zeroAddress),
-    defaultReferrer: pick(10, zeroAddress),
-    depositReceivers: pick(11, [] as readonly Address[]),
-    nextDepositReceiverIndex: pick(12, 0),
-    timezoneOffset: pick(13, BigInt(EAST8_TIMEZONE_SECONDS)),
-    morningStart: pick(14, 0),
-    morningEnd: pick(15, 0),
-    afternoonStart: pick(16, 0),
-    afternoonEnd: pick(17, 0),
-    paused: pick(18, false),
-    withdrawalApprovalRequired: pick(19, true),
+    settlementCycle: pick(9, BigInt(SECONDS_PER_DAY)),
+    feeReceiver: pick(10, zeroAddress),
+    defaultReferrer: pick(11, zeroAddress),
+    depositReceivers: pick(12, [] as readonly Address[]),
+    nextDepositReceiverIndex: pick(13, 0),
+    timezoneOffset: pick(14, BigInt(EAST8_TIMEZONE_SECONDS)),
+    morningStart: pick(15, 0),
+    morningEnd: pick(16, 0),
+    afternoonStart: pick(17, 0),
+    afternoonEnd: pick(18, 0),
+    paused: pick(19, false),
+    withdrawalApprovalRequired: pick(20, true),
   };
 
   return {
@@ -4114,6 +4676,7 @@ function useContractConfig() {
       config.maxYieldBps,
       config.withdrawFee,
       config.validVolumeThreshold,
+      config.settlementCycle,
       config.feeReceiver,
       config.defaultReferrer,
       config.depositReceivers.join(','),
@@ -4368,13 +4931,145 @@ function useDynamicRewardDetails(upline?: Address) {
   const rows = historyRows.length > 0 ? historyRows : eventRows;
   const isLoading =
     rows.length === 0 &&
-    ((historyQuery.isLoading && !historyQuery.isError) || (eventQuery.isLoading && !eventQuery.isError));
+    ((historyQuery.isLoading && !historyQuery.isError) ||
+      (eventQuery.isLoading && !eventQuery.isError));
 
   return {
     rows,
     isLoading,
     isError: rows.length === 0 && historyQuery.isError && eventQuery.isError,
   };
+}
+
+function usePendingDynamicRewards(upline: Address | undefined, currentLocalDay: bigint) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['pendingDynamicRewards', CONTRACT_ADDRESS, upline, currentLocalDay.toString()],
+    enabled: Boolean(isContractConfigured && publicClient && upline && currentLocalDay > 0n),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    queryFn: async (): Promise<PendingDynamicRewardQueryData> => {
+      if (!publicClient || !upline) {
+        return { rows: [], total: 0n, scannedDays: [], sourceCount: 0, isSourceLimitReached: false };
+      }
+
+      const recentDays = recentClosedDynamicDays(currentLocalDay);
+      const sourceResult = await collectDynamicRewardSources(publicClient, upline, TEAM_SUMMARY_MAX_DEPTH);
+      if (sourceResult.nodes.length === 0) {
+        return { rows: [], total: 0n, scannedDays: recentDays, sourceCount: 0, isSourceLimitReached: false };
+      }
+
+      const recentSourceDays = sourceResult.nodes.flatMap((node) => recentDays.map((day) => ({ ...node, day })));
+      const stakeOrderSourceDays = await collectStakeOrderSourceDays(publicClient, sourceResult.nodes);
+      const allSourceDays = uniqueDynamicSourceDays(
+        [...recentSourceDays, ...stakeOrderSourceDays].filter((row) => row.day > 0n && row.day < currentLocalDay),
+      );
+      const scannedDays = uniqueDynamicDays(allSourceDays);
+      const scannedDaySet = new Set(scannedDays.map((day) => day.toString()));
+      const sourceDays = allSourceDays.filter((row) => scannedDaySet.has(row.day.toString()));
+
+      if (sourceDays.length === 0 || scannedDays.length === 0) {
+        return {
+          rows: [],
+          total: 0n,
+          scannedDays,
+          sourceCount: sourceResult.nodes.length,
+          isSourceLimitReached: sourceResult.isSourceLimitReached,
+        };
+      }
+
+      const eligibility = await Promise.all(
+        scannedDays.map(async (day): Promise<PendingDynamicRewardEligibility> => ({
+          day,
+          eligibleGeneration: historyNumber(
+            await publicClient.readContract({
+              address: CONTRACT_ADDRESS,
+              abi: ironBrotherAbi,
+              functionName: 'eligibleGeneration',
+              args: [upline, day],
+            }),
+          ),
+        })),
+      );
+
+      const maxSourceGeneration = Math.max(0, ...sourceDays.map((row) => row.generation));
+      const maxEligibleGeneration = Math.max(0, ...eligibility.map((row) => row.eligibleGeneration));
+      const maxGeneration = Math.min(maxSourceGeneration, maxEligibleGeneration);
+      if (maxGeneration <= 0) {
+        return {
+          rows: [],
+          total: 0n,
+          scannedDays,
+          sourceCount: sourceResult.nodes.length,
+          isSourceLimitReached: sourceResult.isSourceLimitReached,
+        };
+      }
+
+      const rates = await Promise.all(
+        Array.from({ length: maxGeneration }, async (_, index): Promise<PendingDynamicRewardRate> => {
+          const generation = index + 1;
+          return {
+            generation,
+            rateBps: historyBigInt(
+              await publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'generationRateBps',
+                args: [generation],
+              }),
+            ),
+          };
+        }),
+      );
+
+      const candidates = (
+        await Promise.all(
+          sourceDays.map(async (sourceDay): Promise<PendingDynamicRewardSource | undefined> => {
+            const eligibleOnDay = eligibility.find((row) => row.day === sourceDay.day)?.eligibleGeneration ?? 0;
+            if (eligibleOnDay < sourceDay.generation) return undefined;
+
+            const [volumeValue, settledValue] = await Promise.all([
+              publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'dailyStakeVolume',
+                args: [sourceDay.address, sourceDay.day],
+              }),
+              publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'dynamicRewardSettled',
+                args: [sourceDay.address, sourceDay.day],
+              }),
+            ]);
+
+            return {
+              source: sourceDay.address,
+              day: sourceDay.day,
+              generation: sourceDay.generation,
+              volume: historyBigInt(volumeValue),
+              settled: Boolean(settledValue),
+            };
+          }),
+        )
+      ).filter((row): row is PendingDynamicRewardSource => Boolean(row));
+
+      const rows = calculatePendingDynamicRewardRows(
+        candidates,
+        rates,
+        eligibility,
+      ).sort(comparePendingDynamicRewardRows);
+
+      return {
+        rows,
+        total: sumPendingDynamicRewards(rows),
+        scannedDays,
+        sourceCount: sourceResult.nodes.length,
+        isSourceLimitReached: sourceResult.isSourceLimitReached,
+      };
+    },
+  });
 }
 
 function useAdminUsers(extraAddress?: Address | readonly Address[]) {
@@ -4500,6 +5195,86 @@ function useDynamicSettlementRows(rows: AdminUserRow[], day: bigint, enabled = t
     pendingRows: settlementRows.filter((row) => !row.settled),
     isLoading: detailQuery.isLoading,
   };
+}
+
+function useAllDynamicSettlementRows(rows: AdminUserRow[], currentLocalDay: bigint) {
+  const publicClient = usePublicClient();
+  const registeredRows = useMemo(() => rows.filter((row) => row.account.registered), [rows]);
+  const registeredAddressKey = useMemo(
+    () => registeredRows.map((row) => row.address.toLowerCase()).join('|'),
+    [registeredRows],
+  );
+
+  return useQuery({
+    queryKey: ['allDynamicSettlementRows', CONTRACT_ADDRESS, registeredAddressKey, currentLocalDay.toString()],
+    enabled: Boolean(isContractConfigured && publicClient && currentLocalDay > 0n && registeredRows.length > 0),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    queryFn: async (): Promise<AllDynamicSettlementData> => {
+      if (!publicClient || currentLocalDay <= 0n || registeredRows.length === 0) {
+        return { rows: [], pendingRows: [], groups: [], sourceDayCount: 0 };
+      }
+
+      const rowByAddress = new Map(registeredRows.map((row) => [row.address.toLowerCase(), row]));
+      const sourceDays = await collectAdminSettlementSourceDays(
+        publicClient,
+        registeredRows.map((row) => row.address),
+        currentLocalDay,
+      );
+
+      const detailRows = (
+        await Promise.all(
+          sourceDays.map(async (sourceDay): Promise<DynamicSettlementSourceDayRow | undefined> => {
+            const baseRow = rowByAddress.get(sourceDay.address.toLowerCase());
+            if (!baseRow) return undefined;
+
+            const [volumeValue, validValue, settledValue] = await Promise.all([
+              publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'dailyStakeVolume',
+                args: [sourceDay.address, sourceDay.day],
+              }),
+              publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'isValidOnDay',
+                args: [sourceDay.address, sourceDay.day],
+              }),
+              publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'dynamicRewardSettled',
+                args: [sourceDay.address, sourceDay.day],
+              }),
+            ]);
+
+            return {
+              ...baseRow,
+              day: sourceDay.day,
+              dailyStakeVolume: historyBigInt(volumeValue),
+              isValidOnDay: Boolean(validValue),
+              settled: Boolean(settledValue),
+            };
+          }),
+        )
+      )
+        .filter((row): row is DynamicSettlementSourceDayRow => Boolean(row && row.dailyStakeVolume > 0n))
+        .sort((left, right) => {
+          if (left.day !== right.day) return left.day < right.day ? -1 : 1;
+          return compareAdminUserLatest(left, right);
+        });
+
+      const pendingRows = detailRows.filter((row) => !row.settled);
+
+      return {
+        rows: detailRows,
+        pendingRows,
+        groups: groupDynamicSettlementRows(pendingRows),
+        sourceDayCount: sourceDays.length,
+      };
+    },
+  });
 }
 
 function useAdminRole(address?: Address) {
@@ -4872,10 +5647,10 @@ function DirectReferralListRow({ item, onSelect }: { item: DirectReferralRow; on
       <div className="row-icon"><Users size={17} /></div>
       <div>
         <strong>{shortAddress(item.address)}</strong>
-        <small>今日流水 <MoneyAmount value={item.dailyStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
+        <small>本周期流水 <MoneyAmount value={item.dailyStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
       </div>
       <span className={item.isValidToday ? 'amount-positive' : 'amount-muted'}>
-        {item.isValidToday ? '今日有效' : '未达标'}
+        {item.isValidToday ? '本周期有效' : '未达标'}
       </span>
     </>
   );
@@ -4912,13 +5687,19 @@ function AdminPrincipalOrderRow({ order }: { order: PrincipalOrderData }) {
   );
 }
 
-function AdminStakeOrderRow({ order }: { order: StakeOrderData }) {
+function AdminStakeOrderRow({
+  order,
+  settlementCycle = BigInt(SECONDS_PER_DAY),
+}: {
+  order: StakeOrderData;
+  settlementCycle?: bigint;
+}) {
   return (
     <div className="admin-list-row">
       <div className="row-icon"><Coins size={17} /></div>
       <div>
         <strong>带单订单 #{order.id.toString()}</strong>
-        <small>{shortAddress(order.user)} / {sessionLabel(order.session)} / Day {order.day.toString()}</small>
+        <small>{shortAddress(order.user)} / {sessionLabel(order.session)} / 周期 {localPeriodLabel(order.day, settlementCycle)}</small>
       </div>
       <div className="row-metrics">
         <span>本金 {token(order.amount)} U</span>

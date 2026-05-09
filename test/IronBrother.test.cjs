@@ -266,6 +266,93 @@ describe("IronBrother", function () {
     expect(history[0].reward).to.equal(U("2"));
   });
 
+  it("settles dynamic rewards for all staked volume within the eligible generation", async function () {
+    const { alice, bob, carol, ironBrother } = await deployFixture();
+
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+    await ironBrother.connect(carol).deposit(U("100"), alice.address);
+
+    await setNextLocalHour(10);
+    const day = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(carol).stake(U("100"));
+
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(1n);
+    expect(await ironBrother.isValidOnDay(carol.address, day)).to.equal(false);
+
+    await setNextLocalHour(10);
+    await ironBrother.settleDynamicRewardForUser(carol.address, day);
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(U("0.2"));
+  });
+
+  it("sets eligible generations equal to the daily direct valid count", async function () {
+    const { alice, bob, carol, dave, erin, ironBrother } = await deployFixture();
+    const directs = [bob, carol, dave, erin];
+
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    for (const direct of directs) {
+      await ironBrother.connect(direct).deposit(U("1000"), alice.address);
+    }
+
+    await setNextLocalHour(10);
+    const day = await ironBrother.currentLocalDay();
+    for (const direct of directs) {
+      await ironBrother.connect(direct).stake(U("1000"));
+    }
+
+    expect(await ironBrother.dailyDirectValidCount(alice.address, day)).to.equal(4n);
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(4n);
+
+    await ironBrother.setWhitelist40(alice.address, true);
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(40n);
+  });
+
+  it("settles dynamic rewards across multiple closed cycles in one transaction", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setSettlementCycle(120);
+    await ironBrother.setSessionTimes(0, 60, 60, 120);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextCycleSecond(120, 10);
+    const firstDay = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+
+    await setNextCycleSecond(120, 10);
+    await ironBrother.settleStake(1);
+    const secondDay = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+
+    await setNextCycleSecond(120, 10);
+    const preview = await ironBrother.settleDynamicRewardForSourceDays.staticCall(
+      [bob.address, bob.address],
+      [firstDay, secondDay],
+    );
+    expect(preview[0]).to.equal(2n);
+    expect(preview[1]).to.equal(2n);
+    expect(preview[2]).to.equal(U("4"));
+
+    await ironBrother.settleDynamicRewardForSourceDays([bob.address, bob.address], [firstDay, secondDay]);
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(U("4"));
+    expect(await ironBrother.dynamicRewardSettled(bob.address, firstDay)).to.equal(true);
+    expect(await ironBrother.dynamicRewardSettled(bob.address, secondDay)).to.equal(true);
+
+    const history = await ironBrother.getDynamicRewardHistory(alice.address);
+    expect(history).to.have.lengthOf(2);
+    expect(history[0].source).to.equal(bob.address);
+    expect(history[0].day).to.equal(firstDay);
+    expect(history[0].reward).to.equal(U("2"));
+    expect(history[1].source).to.equal(bob.address);
+    expect(history[1].day).to.equal(secondDay);
+    expect(history[1].reward).to.equal(U("2"));
+  });
+
   it("lets a manager bot settle the previous local day in indexed batches", async function () {
     const { owner, alice, bob, ironBrother } = await deployFixture();
 

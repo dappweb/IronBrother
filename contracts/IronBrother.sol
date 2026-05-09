@@ -484,6 +484,33 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         }
     }
 
+    function settleDynamicRewardForSourceDays(address[] calldata userList, uint256[] calldata dayList)
+        external
+        nonReentrant
+        whenNotPaused
+        returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward)
+    {
+        require(userList.length == dayList.length, "length mismatch");
+        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+
+        for (uint256 i = 0; i < userList.length; i++) {
+            uint256 day = dayList[i];
+            require(day < currentLocalDay(), "day not closed");
+
+            address user = userList[i];
+            if (dynamicRewardSettled[user][day]) {
+                continue;
+            }
+
+            uint256 reward = _settleDynamicRewardForUserUnchecked(user, day);
+            processed += 1;
+            if (reward > 0) {
+                rewardedUsers += 1;
+                totalReward += reward;
+            }
+        }
+    }
+
     function botSettleDailyDynamicRewards(uint256 day, uint256 cursor, uint256 limit)
         external
         nonReentrant
@@ -572,21 +599,6 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         }
 
         uint256 directValid = dailyDirectValidCount[user][day];
-        if (directValid == 0) {
-            return 0;
-        }
-        if (directValid == 1) {
-            return 1;
-        }
-        if (directValid == 2) {
-            return 2;
-        }
-        if (directValid == 3) {
-            return 3;
-        }
-        if (directValid < 11) {
-            return 10;
-        }
         if (directValid >= MAX_GENERATION) {
             return MAX_GENERATION;
         }
@@ -803,9 +815,6 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     function _settleDynamicRewardForUserUnchecked(address user, uint256 day) internal returns (uint256 totalReward) {
         dynamicRewardSettled[user][day] = true;
         uint256 volume = dailyStakeVolume[user][day];
-        if (volume < validVolumeThreshold) {
-            return 0;
-        }
 
         address upline = users[user].referrer;
         for (uint8 generation = 1; generation <= MAX_GENERATION && upline != address(0); generation++) {

@@ -538,6 +538,10 @@ a {
   gap: 10px;
 }
 
+.dynamic-reward-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .metric-card {
   min-height: 112px;
   padding: 14px;
@@ -1440,6 +1444,11 @@ input {
   color: #718179;
 }
 
+.info-line strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 .admin-shell {
   min-height: 100vh;
   display: grid;
@@ -1510,6 +1519,19 @@ input {
 
 .admin-panel {
   padding: 18px;
+}
+
+.schedule-config-panel {
+  border: 1px solid #dce8e1;
+  background: #fbfdfc;
+}
+
+.schedule-config-panel .helper-line {
+  margin-bottom: 14px;
+}
+
+.form-grid.schedule-config-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .admin-grid.compact-grid {
@@ -1624,6 +1646,7 @@ input {
   .quick-grid,
   .calc-grid,
   .form-grid,
+  .form-grid.schedule-config-grid,
   .split-buttons,
   .admin-grid,
   .admin-columns,

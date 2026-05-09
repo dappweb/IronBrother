@@ -771,6 +771,20 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'settleDynamicRewardForSourceDays',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'userList', type: 'address[]' },
+      { name: 'dayList', type: 'uint256[]' },
+    ],
+    outputs: [
+      { name: 'processed', type: 'uint256' },
+      { name: 'rewardedUsers', type: 'uint256' },
+      { name: 'totalReward', type: 'uint256' },
+    ],
+  },
+  {
+    type: 'function',
     name: 'botSettleDailyDynamicRewards',
     stateMutability: 'nonpayable',
     inputs: [

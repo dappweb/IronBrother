@@ -2,7 +2,7 @@
   "network": "bscTestnet",
   "chainId": 97,
   "deployedAt": "2026-05-06T08:56:48.309Z",
-  "upgradedAt": "2026-05-07T12:46:22.550Z",
+  "upgradedAt": "2026-05-09T14:02:51.273Z",
   "deployer": "0x744447d8580EB900b199e852C132F626247a36F7",
   "feeReceiver": "0x744447d8580EB900b199e852C132F626247a36F7",
   "defaultReferrer": "0x744447d8580EB900b199e852C132F626247a36F7",
@@ -15,6 +15,6 @@
   ],
   "usdt": "0xacD944e910952c020eb129C50921f180c62c3291",
   "ironBrotherProxy": "0x5D8d8Fe47EcA5B2812194e3cD149CAAeb315e72E",
-  "ironBrotherImplementation": "0xC86994F651008DC00ea8E1DCaA6ceA4ED854801f",
+  "ironBrotherImplementation": "0x813A65A78e63E3D9cDA76eB9Ca96EF0c43821018",
   "proxyKind": "uups"
 }
