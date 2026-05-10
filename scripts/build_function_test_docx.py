@@ -121,7 +121,7 @@ def set_fixed_table_layout(table, widths: list[float]):
         col = OxmlElement("w:gridCol")
         col.set(qn("w:w"), str(int(width * 1440)))
         grid.append(col)
-    table._tbl.insert(0, grid)
+    table._tbl.insert(1, grid)
 
 
 def set_cell_text(cell, text: str, bold: bool = False, size: float = 8.2, color: str = "111827", align=None):
@@ -241,7 +241,7 @@ def add_cover(document: Document):
     data = [
         ("版本", "v1.0"),
         ("日期", "2026-05-07"),
-        ("测试对象", "IronBrother DApp / Admin 后台 / BSC Testnet 合约"),
+        ("测试对象", "IronBrother DApp / Admin 后台 / BSC Mainnet 合约"),
         ("业务来源", "铁哥技术.xmind、README.md、IronBrother.sol、App.tsx"),
     ]
     for i, (key, value) in enumerate(data):

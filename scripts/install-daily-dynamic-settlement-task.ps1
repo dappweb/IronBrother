@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("bsc", "bscTestnet")]
+  [ValidateSet("bsc")]
   [string]$Network = "bsc",
 
   [string]$TaskName = "",
@@ -21,11 +21,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 if ([string]::IsNullOrWhiteSpace($TaskName)) {
-  $TaskName = if ($Network -eq "bsc") {
-    "IronBrother Daily Dynamic Settlement"
-  } else {
-    "IronBrother Testnet Daily Dynamic Settlement"
-  }
+  $TaskName = "IronBrother Daily Dynamic Settlement"
 }
 
 $runnerPath = Join-Path $ProjectRoot "scripts\run-daily-dynamic-settlement.ps1"

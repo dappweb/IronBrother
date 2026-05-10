@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("bsc", "bscTestnet")]
+  [ValidateSet("bsc")]
   [string]$Network = "bsc",
 
   [int]$BatchSize = 50,
@@ -54,7 +54,7 @@ Set-Location -LiteralPath $ProjectRoot
 Import-DotEnvFile (Join-Path $ProjectRoot ".env.local")
 Import-DotEnvFile (Join-Path $ProjectRoot ".env")
 
-$deploymentFileName = if ($Network -eq "bsc") { "bsc.json" } else { "bsc-testnet.json" }
+$deploymentFileName = "bsc.json"
 $deploymentPath = Join-Path $ProjectRoot (Join-Path "deployments" $deploymentFileName)
 if (-not (Test-Path -LiteralPath $deploymentPath)) {
   throw "Deployment file not found: $deploymentPath"
@@ -67,13 +67,8 @@ if ([string]::IsNullOrWhiteSpace($proxyAddress)) {
 }
 
 Require-Env "PRIVATE_KEY"
-if ($Network -eq "bsc") {
-  Require-Env "BSC_RPC_URL"
-  $npmScript = "bot:dynamic:settle:bsc"
-} else {
-  Require-Env "BSC_TESTNET_RPC_URL"
-  $npmScript = "bot:dynamic:settle:testnet"
-}
+Require-Env "BSC_RPC_URL"
+$npmScript = "bot:dynamic:settle:bsc"
 
 $previousProxy = [Environment]::GetEnvironmentVariable("IRONBROTHER_PROXY", "Process")
 $previousBatchSize = [Environment]::GetEnvironmentVariable("DYNAMIC_SETTLEMENT_BATCH_SIZE", "Process")

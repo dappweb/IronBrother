@@ -321,6 +321,7 @@ const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
 const HOME_LATEST_ORDER_LIMIT = 5;
 const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
+const ADMIN_USER_PAGE_SIZE = 8;
 const ADMIN_ORDER_PAGE_SIZE = 12;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
@@ -353,7 +354,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: '合约地址未配置，链上读取和真实交易暂不可用。部署后设置 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可启用。',
-      switchNetwork: '切换到 BSC Testnet',
+      switchNetwork: '切换到当前合约网络',
     },
     language: { eyebrow: 'Language', title: '语言切换' },
     home: {
@@ -384,7 +385,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: '合約地址未設定，鏈上讀取和真實交易暫不可用。部署後設定 VITE_CRUDETRUST_CONTRACT_ADDRESS 即可啟用。',
-      switchNetwork: '切換到 BSC Testnet',
+      switchNetwork: '切換到目前合約網路',
     },
     language: { eyebrow: 'Language', title: '語言切換' },
     home: {
@@ -415,7 +416,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: 'Contract address is not configured. On-chain reads and real transactions are unavailable until VITE_CRUDETRUST_CONTRACT_ADDRESS is set.',
-      switchNetwork: 'Switch to BSC Testnet',
+      switchNetwork: 'Switch network',
     },
     language: { eyebrow: 'Language', title: 'Language' },
     home: {
@@ -446,7 +447,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: 'コントラクトアドレスが未設定のため、オンチェーン読み取りと実取引は利用できません。',
-      switchNetwork: 'BSC Testnet に切替',
+      switchNetwork: 'ネットワークを切替',
     },
     language: { eyebrow: 'Language', title: '言語切替' },
     home: {
@@ -477,7 +478,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: '컨트랙트 주소가 설정되지 않아 온체인 조회와 실제 거래를 사용할 수 없습니다.',
-      switchNetwork: 'BSC Testnet으로 전환',
+      switchNetwork: '네트워크 전환',
     },
     language: { eyebrow: 'Language', title: '언어 전환' },
     home: {
@@ -508,7 +509,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: 'Chưa cấu hình địa chỉ hợp đồng, tạm thời không thể đọc on-chain hoặc giao dịch thật.',
-      switchNetwork: 'Chuyển sang BSC Testnet',
+      switchNetwork: 'Chuyển mạng',
     },
     language: { eyebrow: 'Language', title: 'Đổi ngôn ngữ' },
     home: {
@@ -539,7 +540,7 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
     shell: {
       greeting: 'Hi',
       contractMissing: 'Alamat kontrak belum dikonfigurasi. Bacaan on-chain dan transaksi sebenar belum tersedia.',
-      switchNetwork: 'Tukar ke BSC Testnet',
+      switchNetwork: 'Tukar rangkaian',
     },
     language: { eyebrow: 'Language', title: 'Tukar Bahasa' },
     home: {
@@ -1486,7 +1487,7 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('switch chain') ||
     lower.includes('not connected to requested chain')
   ) {
-    return { error: '钱包网络不正确，请切换到 BSC Testnet 后重试。', errorKind: 'network', rawError };
+    return { error: `钱包网络不正确，请切换到 ${selectedBscChain.name} 后重试。`, errorKind: 'network', rawError };
   }
 
   if (
@@ -1506,7 +1507,7 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('gas required exceeds allowance') ||
     lower.includes('intrinsic gas too low')
   ) {
-    return { error: '钱包无法识别或估算这笔交易，请确认当前网络为 BSC Testnet、钱包有足够 BNB 支付 Gas 后重试。', errorKind: 'wallet', rawError };
+    return { error: `钱包无法识别或估算这笔交易，请确认当前网络为 ${selectedBscChain.name}、钱包有足够 BNB 支付 Gas 后重试。`, errorKind: 'wallet', rawError };
   }
 
   if (
@@ -2332,7 +2333,7 @@ function CustomerApp() {
         )}
         {wrongNetwork && (
           <button className="notice danger action-notice" onClick={() => switchChain({ chainId: selectedBscChain.id })}>
-            {copy.shell.switchNetwork}
+            切换到 {selectedBscChain.name}
           </button>
         )}
       </header>
@@ -3151,7 +3152,7 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
         </div>
         <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
         <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
-        <InfoLine label="网络" value="BSC Testnet" />
+        <InfoLine label="网络" value={selectedBscChain.name} />
         <InfoLine label="当前周期" value={localPeriodLabel(data.currentLocalDay, data.settlementCycle)} />
         <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
         <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
@@ -3448,6 +3449,8 @@ function AdminUsersPage() {
       }),
     [users.rows],
   );
+  const userPageResetKey = `${search.trim().toLowerCase()}|${sortedRows.length}|${sortedRows[0]?.address ?? 'empty'}`;
+  const pagination = usePaginatedItems(sortedRows, ADMIN_USER_PAGE_SIZE, userPageResetKey);
   const selectedRow = useMemo(() => {
     if (selectedAddress) {
       const matched = users.rows.find((row) => row.address.toLowerCase() === selectedAddress.toLowerCase());
@@ -3461,6 +3464,14 @@ function AdminUsersPage() {
       setSelectedAddress(lookupAddress);
     }
   }, [lookupAddress]);
+
+  useEffect(() => {
+    if (!selectedAddress) return;
+    const selectedIndex = sortedRows.findIndex((row) => row.address.toLowerCase() === selectedAddress.toLowerCase());
+    if (selectedIndex < 0) return;
+    pagination.setPage(Math.floor(selectedIndex / ADMIN_USER_PAGE_SIZE) + 1);
+  }, [pagination.setPage, selectedAddress, sortedRows]);
+
   const registeredRows = sortedRows.filter((row) => row.account.registered);
   const totalUsersLabel = totalUsers > 0n ? `${registeredRows.length}/${totalUsers.toString()} 人` : `${registeredRows.length} 人`;
   const showPartialUserWarning = totalUsers > BigInt(registeredRows.length);
@@ -3490,7 +3501,7 @@ function AdminUsersPage() {
           )}
           <div className="list-stack">
             {sortedRows.length > 0 ? (
-              sortedRows.map((row) => (
+              pagination.items.map((row) => (
                 <AdminUserListRow
                   key={row.address}
                   row={row}
@@ -3502,6 +3513,7 @@ function AdminUsersPage() {
               <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
             )}
           </div>
+          <PaginationControls {...pagination} onPageChange={pagination.setPage} />
         </section>
 
         <AdminUserDetailPanel row={selectedRow} onSelect={setSelectedAddress} />

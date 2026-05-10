@@ -9,19 +9,13 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:bsc": "hardhat run scripts/deploy.cjs --network bsc",
-    "deploy:testnet": "hardhat run scripts/deploy-testnet.cjs --network bscTestnet",
-    "upgrade:testnet": "hardhat run scripts/upgrade-testnet.cjs --network bscTestnet",
+    "upgrade:bsc": "hardhat run scripts/upgrade.cjs --network bsc",
     "bot:dynamic:settle": "hardhat run scripts/bot-daily-dynamic-settlement.cjs",
-    "bot:dynamic:settle:testnet": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bscTestnet",
     "bot:dynamic:settle:bsc": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bsc",
     "bot:dynamic:settle:bsc:daily": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-daily-dynamic-settlement.ps1 -Network bsc",
-    "bot:dynamic:settle:testnet:daily": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-daily-dynamic-settlement.ps1 -Network bscTestnet",
     "bot:dynamic:schedule:bsc": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-daily-dynamic-settlement-task.ps1 -Network bsc",
-    "bot:dynamic:schedule:testnet": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-daily-dynamic-settlement-task.ps1 -Network bscTestnet",
-    "test:dynamic:cycle:testnet": "hardhat run scripts/test-dynamic-settlement-cycle.cjs --network bscTestnet",
     "deploy:pages": "wrangler pages deploy dist --project-name ironbrother",
-    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch main",
-    "deploy:pages:test": "tsc -b && vite build --mode test && wrangler pages deploy dist --project-name ironbrother --branch test"
+    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch main"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.10",
