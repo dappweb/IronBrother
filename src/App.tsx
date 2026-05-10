@@ -2471,7 +2471,6 @@ function HomeScreen({
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
   const recentOrders = useMemo(() => {
     return data.principalOrders
-      .filter((order) => order.source === 0)
       .map((order) => ({
         id: `principal-${order.id.toString()}`,
         orderId: order.id,
