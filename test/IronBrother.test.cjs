@@ -425,6 +425,28 @@ describe("IronBrother", function () {
     expect(history[0].reward).to.equal(U("2"));
   });
 
+  it("lets a user trigger settlement for their own pending dynamic reward", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextLocalHour(10);
+    const day = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+
+    await setNextLocalHour(10);
+    await expect(ironBrother.connect(alice).settleDynamicRewardForSourceDays([bob.address], [day]))
+      .to.emit(ironBrother, "DynamicRewardSettled")
+      .withArgs(bob.address, alice.address, day, 1, U("1000"), U("2"));
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(U("2"));
+    expect(account.totalDynamicReward).to.equal(U("2"));
+    expect(await ironBrother.dynamicRewardSettled(bob.address, day)).to.equal(true);
+  });
+
   it("allows a registered user without referrer to bind one later", async function () {
     const { alice, bob, carol, ironBrother } = await deployFixture();
 

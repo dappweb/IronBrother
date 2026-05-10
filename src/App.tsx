@@ -2876,12 +2876,29 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
 }
 
 function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
+  const runner = useTxRunner();
   const details = useDynamicRewardDetails(address);
   const pendingRewards = usePendingDynamicRewards(address, data.currentLocalDay);
   const latestDetail = details.rows[0];
   const settlementCycle = data.settlementCycle;
   const pendingRows = pendingRewards.data?.rows ?? [];
   const pendingTotal = pendingRewards.data?.total ?? 0n;
+  const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
+  const pendingSettlementBatches = useMemo(() => {
+    const sourceDays = new Map<string, { source: Address; day: bigint }>();
+    pendingRows.forEach((row) => {
+      const source = safeAddress(row.source);
+      if (source === zeroAddress) return;
+      sourceDays.set(`${source.toLowerCase()}-${row.day.toString()}`, { source, day: row.day });
+    });
+
+    const rows = [...sourceDays.values()];
+    const batches: { source: Address; day: bigint }[][] = [];
+    for (let index = 0; index < rows.length; index += ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
+      batches.push(rows.slice(index, index + ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE));
+    }
+    return batches;
+  }, [pendingRows]);
   const [visibleDetailCount, setVisibleDetailCount] = useState(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   const visibleDetails = useMemo(
     () => details.rows.slice(0, visibleDetailCount),
@@ -2894,12 +2911,28 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
     setVisibleDetailCount(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   }, [address]);
 
+  function runPendingDynamicSettlement() {
+    const steps = pendingSettlementBatches.map((rows, index, batches): TxFlowStep => ({
+      label: batches.length > 1 ? `动态收益结算 ${index + 1}/${batches.length}` : '动态收益结算',
+      request: () =>
+        runner.writeContractAsync({
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'settleDynamicRewardForSourceDays',
+          args: [rows.map((row) => row.source), rows.map((row) => row.day)],
+        }),
+    }));
+
+    if (steps.length === 0) return;
+    runner.runTxFlow('领取动态收益', steps);
+  }
+
   return (
     <section className="screen-stack">
       <section className="panel">
         <div className="section-title">
           <div>
-            <p className="eyebrow">Settlement Bot</p>
+            <p className="eyebrow">User settlement</p>
             <h2>动态收益</h2>
           </div>
           <Gift size={18} />
@@ -2971,23 +3004,62 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           <InfoLine label="待结算笔数" value={`${pendingRows.length} 笔`} />
           <InfoLine label="待结算金额" value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
         </div>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
+          onClick={runPendingDynamicSettlement}
+        >
+          领取待结算动态收益
+        </button>
+        <p className="helper-line">
+          由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。
+        </p>
         <div className="list-stack reward-detail-list">
           {pendingRewards.isLoading ? (
             <EmptyState title="正在读取待结算动态收益" detail="正在读取直推关系、已关闭周期流水和动态奖励比例。" />
           ) : pendingRewards.isError ? (
             <EmptyState title="待结算动态收益读取失败" detail="链上读取失败，请检查网络后重试。" />
           ) : pendingRows.length > 0 ? (
-            pendingRows.map((row) => <PendingDynamicRewardListRow key={`${row.source}-${row.day}-${row.generation}`} row={row} settlementCycle={settlementCycle} />)
+            pendingRows.map((row) => (
+              <PendingDynamicRewardListRow
+                key={`${row.source}-${row.day}-${row.generation}`}
+                row={row}
+                settlementCycle={settlementCycle}
+                disabled={transactionBusy}
+                onClaim={() =>
+                  runner.runTx('领取单条动态收益', () =>
+                    runner.writeContractAsync({
+                      address: CONTRACT_ADDRESS,
+                      abi: ironBrotherAbi,
+                      functionName: 'settleDynamicRewardForSourceDays',
+                      args: [[safeAddress(row.source)], [row.day]],
+                    }),
+                  )
+                }
+              />
+            ))
           ) : (
             <EmptyState title="暂无待结算动态收益" detail="下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。" />
           )}
         </div>
+        <TxStatus tx={runner.tx} />
       </section>
     </section>
   );
 }
 
-function PendingDynamicRewardListRow({ row, settlementCycle }: { row: PendingDynamicRewardRow; settlementCycle: bigint }) {
+function PendingDynamicRewardListRow({
+  row,
+  settlementCycle,
+  disabled = false,
+  onClaim,
+}: {
+  row: PendingDynamicRewardRow;
+  settlementCycle: bigint;
+  disabled?: boolean;
+  onClaim?: () => void;
+}) {
   return (
     <div className="admin-list-row reward-detail-row pending-reward-row">
       <div className="row-icon"><Clock3 size={17} /></div>
@@ -2999,6 +3071,11 @@ function PendingDynamicRewardListRow({ row, settlementCycle }: { row: PendingDyn
         <span>流水 {token(row.volume)} U</span>
         <span className="amount-positive">+{token(row.reward)} U</span>
       </div>
+      {onClaim && (
+        <button className="row-action-button" type="button" disabled={disabled} onClick={onClaim}>
+          领取
+        </button>
+      )}
     </div>
   );
 }

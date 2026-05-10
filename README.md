@@ -85,9 +85,29 @@ npm run upgrade:testnet
 
 `REGISTERED_USERS` 是可选项。升级旧代理合约时可用它调用 `syncRegisteredUsers()`，把旧用户写入新的链上用户索引，方便后台 `getAllUsers()` 读取。新注册用户会自动进入索引。
 
-## 动态奖励结算 Bot
+## 动态奖励结算
 
-智能合约本身不能自动在每天 00:00 执行任务。动态奖励结算由外部 bot 钱包发起链上交易，调用 `botSettleDailyDynamicRewards(day, cursor, limit)`，按用户索引分批结算已结束的 UTC+8 本地日。
+智能合约本身不能自动在每天 00:00 执行任务。动态奖励结算现在优先由用户在收益页主动触发：用户看到“待结算动态收益”后，点击领取按钮，前端会调用 `settleDynamicRewardForSourceDays(userList, dayList)`，把可领取的动态奖励结算进当前用户的 `rewardBalance`。结算完成后，用户可继续提现或复投。
+
+管理员/服务器 bot 仍可作为兜底工具，用于批量补跑、统一巡检或处理用户未主动领取的历史周期。
+
+### 用户触发领取
+
+- 用户钱包支付本次结算交易 gas。
+- 只能结算已结束的 UTC+8 本地周期。
+- 合约会按来源用户和周期标记 `dynamicRewardSettled[source][day]`，同一天同一来源不会重复发奖。
+- 用户领取成功后，奖励进入收益余额，不会自动把 USDT 转到用户钱包。
+- 用户提现仍需调用 `requestWithdrawRewards(amount)`，并按当前提现审批配置走审核或即时出款。
+
+用户端路径：
+
+```text
+收益 -> 待结算动态收益 -> 领取待结算动态收益
+```
+
+### Bot 兜底结算
+
+如果需要服务器代跑，动态奖励也可以由外部 bot 钱包发起链上交易，调用 `botSettleDailyDynamicRewards(day, cursor, limit)`，按用户索引分批结算已结束的 UTC+8 本地日。
 
 ### 执行前检查
 
@@ -276,4 +296,4 @@ npm run deploy:pages:test
 
 ## 备注
 
-智能合约不能自己自动执行 12:00、17:00 或 00:00 的任务。所有结算都暴露为可调用的链上函数，可由 UI/Admin 在指定时间窗口后触发，也可由动态奖励 bot 在 UTC+8 本地日结束后自动定时触发。
+智能合约不能自己自动执行 12:00、17:00 或 00:00 的任务。所有结算都暴露为可调用的链上函数。动态奖励优先由用户在收益页主动触发领取，Admin 和 bot 可作为批量兜底结算入口。
