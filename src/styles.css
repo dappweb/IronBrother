@@ -627,7 +627,7 @@ a {
   text-align: right;
 }
 
-.wallet-balance-summary span {
+.wallet-balance-summary > span {
   color: #718179;
   font-size: var(--text-xs);
   font-weight: 800;
@@ -635,8 +635,8 @@ a {
 
 .wallet-balance-summary strong {
   color: #111111;
-  font-size: var(--text-lg);
-  line-height: 1.2;
+  font-size: var(--num-md);
+  line-height: var(--leading-tight);
 }
 
 .reward-wallet-metrics,
@@ -665,6 +665,7 @@ a {
 .wallet-field input {
   padding: 11px 10px;
   background: #ffffff;
+  color: #111111;
   font-size: var(--text-base);
   font-weight: 800;
 }
@@ -1805,6 +1806,10 @@ input {
   }
 
   .reward-wallet-metrics .metric-card strong {
+    font-size: var(--text-xl);
+  }
+
+  .wallet-balance-summary strong {
     font-size: var(--text-xl);
   }
 
