@@ -78,6 +78,18 @@ describe("IronBrother", function () {
     expect(await usdt.balanceOf(await ironBrother.getAddress())).to.equal(0);
   });
 
+  it("defaults the minimum deposit amount to 0.1 USDT", async function () {
+    const { alice, depositReceivers, usdt, ironBrother } = await deployFixture();
+
+    expect(await ironBrother.minAmount()).to.equal(U("0.1"));
+    await expect(ironBrother.connect(alice).deposit(U("0.09"), ethers.ZeroAddress)).to.be.revertedWith("amount too low");
+    await expect(ironBrother.connect(alice).deposit(U("0.1"), ethers.ZeroAddress))
+      .to.emit(ironBrother, "Deposited")
+      .withArgs(alice.address, 1, U("0.1"));
+
+    expect(await usdt.balanceOf(depositReceivers[0].address)).to.equal(U("0.1"));
+  });
+
   it("routes deposits across the five configured receiver wallets", async function () {
     const { alice, bob, carol, dave, erin, depositReceivers, usdt, ironBrother } = await deployFixture();
 

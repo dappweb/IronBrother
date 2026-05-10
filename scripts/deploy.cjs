@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const hre = require("hardhat");
 
 const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955";
@@ -50,9 +52,32 @@ async function main() {
 
   const address = await ironBrother.getAddress();
   const implementation = await hre.upgrades.erc1967.getImplementationAddress(address);
+
+  const deployment = {
+    network: "bsc",
+    chainId: 56,
+    deployedAt: new Date().toISOString(),
+    deployer: deployer.address,
+    feeReceiver,
+    defaultReferrer,
+    depositReceivers,
+    usdt: BSC_USDT,
+    ironBrotherProxy: address,
+    ironBrotherImplementation: implementation,
+    proxyKind: "uups"
+  };
+
+  const outDir = path.join(__dirname, "..", "deployments");
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outDir, "bsc.json"),
+    JSON.stringify(deployment, null, 2)
+  );
+
   console.log("IronBrother proxy deployed to:", address);
   console.log("IronBrother implementation:", implementation);
   console.log("Default referrer:", await ironBrother.defaultReferrer());
+  console.log("Deployment file:", path.join("deployments", "bsc.json"));
 }
 
 main().catch((error) => {

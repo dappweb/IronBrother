@@ -5,6 +5,8 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Coins,
   Copy,
@@ -34,11 +36,12 @@ import {
   useSwitchChain,
   useWriteContract,
 } from 'wagmi';
-import { bscTestnet } from 'wagmi/chains';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
+import { bscExplorerBaseUrl, selectedBscChain } from './config/chains';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
+import { resolveAdminAccess, type AdminAccessStatus } from './lib/adminAccess';
 import {
   calculatePendingDynamicRewardRows,
   sumPendingDynamicRewards,
@@ -313,6 +316,9 @@ const PENDING_DYNAMIC_MAX_PERIODS = 60;
 const PENDING_DYNAMIC_MAX_SOURCES = 400;
 const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
 const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
+const HOME_LATEST_ORDER_LIMIT = 5;
+const USER_ORDER_PAGE_SIZE = 8;
+const ADMIN_ORDER_PAGE_SIZE = 12;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
@@ -1140,6 +1146,71 @@ function recentIds(nextId?: bigint, limit = 40) {
   return ids;
 }
 
+function usePaginatedItems<T>(items: readonly T[], pageSize: number, resetKey?: unknown) {
+  const [page, setPage] = useState(1);
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    setPage(1);
+  }, [resetKey]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(current, 1), totalPages));
+  }, [totalPages]);
+
+  const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = Math.min(page * pageSize, total);
+  const pagedItems = useMemo(() => items.slice((page - 1) * pageSize, page * pageSize), [items, page, pageSize]);
+
+  return { page, setPage, totalPages, total, start, end, items: pagedItems };
+}
+
+function PaginationControls({
+  page,
+  totalPages,
+  total,
+  start,
+  end,
+  onPageChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  start: number;
+  end: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="pagination-controls">
+      <span>{start}-{end} / {total}</span>
+      <div>
+        <button
+          type="button"
+          className="pagination-button"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          aria-label="上一页"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="pagination-page">{page} / {totalPages}</span>
+        <button
+          type="button"
+          className="pagination-button"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          aria-label="下一页"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function principalSourceLabel(source: number) {
   return source === 1 ? '复投订单' : '入金订单';
 }
@@ -1870,7 +1941,7 @@ function useIronBrotherData(scope: NavKey = 'home') {
   const { address } = useAccount();
   const accountEnabled = isContractConfigured && Boolean(address);
   const accountAddress = address ?? zeroAddress;
-  const shouldLoadOrders = scope === 'home';
+  const shouldLoadOrders = scope === 'home' || scope === 'stake' || scope === 'wallet';
   const shouldLoadTeam = scope === 'team';
 
   const baseQuery = useReadContracts({
@@ -1963,7 +2034,7 @@ function useTxRunner() {
     return wagmiWriteContractAsync({
       ...request,
       account: address,
-      chainId: bscTestnet.id,
+      chainId: selectedBscChain.id,
       type: 'legacy',
       gasPrice,
       gas: withGasBuffer(gas),
@@ -2054,7 +2125,7 @@ function CustomerApp() {
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const data = useIronBrotherData(nav);
-  const wrongNetwork = isConnected && chainId !== bscTestnet.id;
+  const wrongNetwork = isConnected && chainId !== selectedBscChain.id;
   const copy = LOCALE_COPY[locale];
   const productTitle = productTitleForLocale(locale);
   const effectiveReferrer = useMemo(() => {
@@ -2103,7 +2174,7 @@ function CustomerApp() {
           </div>
         )}
         {wrongNetwork && (
-          <button className="notice danger action-notice" onClick={() => switchChain({ chainId: bscTestnet.id })}>
+          <button className="notice danger action-notice" onClick={() => switchChain({ chainId: selectedBscChain.id })}>
             {copy.shell.switchNetwork}
           </button>
         )}
@@ -2257,7 +2328,8 @@ function HomeScreen({
       .sort((a, b) => {
         const createdDiff = compareBigIntDesc(a.createdAt, b.createdAt);
         return createdDiff !== 0 ? createdDiff : compareBigIntDesc(a.orderId, b.orderId);
-      });
+      })
+      .slice(0, HOME_LATEST_ORDER_LIMIT);
   }, [copy, data.principalOrders, nowSeconds]);
 
   return (
@@ -2901,17 +2973,25 @@ function PromotionLinkCard({ address }: { address?: Address }) {
 function AdminConsole() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const wrongNetwork = isConnected && chainId !== bscTestnet.id;
+  const wrongNetwork = isConnected && chainId !== selectedBscChain.id;
   const { switchChain } = useSwitchChain();
   const runner = useTxRunner();
   const [nav, setNav] = useState<AdminNavKey>('dashboard');
-  const dashboard = useAdminDashboard();
   const role = useAdminRole(address);
+  const accessStatus = resolveAdminAccess({
+    isContractConfigured,
+    isConnected,
+    wrongNetwork,
+    isRoleLoading: role.isLoading,
+    isSuperAdmin: role.isSuperAdmin,
+    isManager: role.isManager,
+  });
+  const adminAllowed = accessStatus === 'allowed';
+  const dashboard = useAdminDashboard(adminAllowed);
 
   const canEdit = isContractConfigured && role.isSuperAdmin && !wrongNetwork;
   const canWrite = isContractConfigured && !wrongNetwork;
   const readOnly = isContractConfigured && role.isManager && !role.isSuperAdmin;
-  const noRole = isConnected && isContractConfigured && !role.isManager && !role.isSuperAdmin;
   const navItems: { key: AdminNavKey; label: string }[] = [
     { key: 'dashboard', label: '数据看板' },
     { key: 'users', label: '用户管理' },
@@ -2932,7 +3012,7 @@ function AdminConsole() {
           <h1>Admin</h1>
         </div>
         <a href="/">客户页面</a>
-        {navItems.map((item) => (
+        {adminAllowed && navItems.map((item) => (
           <button
             key={item.key}
             className={nav === item.key ? 'side-active' : ''}
@@ -2955,32 +3035,84 @@ function AdminConsole() {
           <WalletConnectButton />
         </header>
 
-        {!isContractConfigured && <div className="notice warning">未配置合约地址，后台链上读取和写操作已禁用。</div>}
-        {wrongNetwork && (
-          <button className="notice danger action-notice" onClick={() => switchChain({ chainId: bscTestnet.id })}>
-            切换到 BSC Testnet
-          </button>
+        {adminAllowed ? (
+          <>
+            {readOnly && <div className="notice">当前钱包是 Manager，只能查看数据，不能修改合约配置。</div>}
+
+            {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
+            {nav === 'users' && <AdminUsersPage />}
+            {nav === 'principal' && <AdminPrincipalOrdersPage />}
+            {nav === 'stakes' && <AdminStakeOrdersPage />}
+            {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
+            {nav === 'withdrawals' && <AdminWithdrawalsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
+            {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
+            {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
+            {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
+          </>
+        ) : (
+          <AdminAccessGate
+            status={accessStatus as Exclude<AdminAccessStatus, 'allowed'>}
+            onSwitchChain={() => switchChain({ chainId: selectedBscChain.id })}
+          />
         )}
-        {readOnly && <div className="notice">当前钱包是 Manager，只能查看数据，不能修改合约配置。</div>}
-        {noRole && <div className="notice warning">当前钱包没有 Admin/Manager 权限，不能执行写操作。</div>}
 
-        {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
-        {nav === 'users' && <AdminUsersPage />}
-        {nav === 'principal' && <AdminPrincipalOrdersPage />}
-        {nav === 'stakes' && <AdminStakeOrdersPage />}
-        {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
-        {nav === 'withdrawals' && <AdminWithdrawalsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
-        {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
-        {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
-        {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
-
-        {runner.tx.status !== 'idle' && (
+        {adminAllowed && runner.tx.status !== 'idle' && (
           <section className="admin-panel tx-panel">
             <TxStatus tx={runner.tx} />
           </section>
         )}
       </main>
     </div>
+  );
+}
+
+function AdminAccessGate({
+  status,
+  onSwitchChain,
+}: {
+  status: Exclude<AdminAccessStatus, 'allowed'>;
+  onSwitchChain: () => void;
+}) {
+  if (status === 'switch-network') {
+    return (
+      <section className="admin-panel">
+        <EmptyState title="需要切换网络" detail={`Admin 后台只允许在 ${selectedBscChain.name} 读取权限。`} />
+        <button className="primary-button full-button" type="button" onClick={onSwitchChain}>
+          切换到 {selectedBscChain.name}
+        </button>
+      </section>
+    );
+  }
+
+  const content: Record<Exclude<AdminAccessStatus, 'allowed' | 'switch-network'>, { title: string; detail: string }> = {
+    checking: {
+      title: '正在验证权限',
+      detail: '正在读取当前钱包的 Admin/Manager 链上角色。',
+    },
+    connect: {
+      title: '请连接管理员钱包',
+      detail: '连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。',
+    },
+    denied: {
+      title: '无权访问 Admin',
+      detail: '当前钱包没有 Admin/Manager 权限，不能进入后台页面。',
+    },
+    unconfigured: {
+      title: '后台未启用',
+      detail: '合约地址未配置，暂不能进入 Admin 后台。',
+    },
+  };
+  const { title, detail } = content[status];
+
+  return (
+    <section className="admin-panel">
+      <EmptyState title={title} detail={detail} />
+      {status === 'denied' && (
+        <a className="secondary-button full-button" href="/">
+          返回客户页面
+        </a>
+      )}
+    </section>
   );
 }
 
@@ -3271,7 +3403,7 @@ function AdminUserDetailPanel({
           <strong>{row.address}</strong>
           <small>上级 {account.referrer === zeroAddress ? '未绑定' : shortAddress(account.referrer)} / 直推 {account.directCount.toString()} 人</small>
         </div>
-        <a href={`https://testnet.bscscan.com/address/${row.address}`} target="_blank" rel="noreferrer">BscScan</a>
+        <a href={`${bscExplorerBaseUrl}/address/${row.address}`} target="_blank" rel="noreferrer">BscScan</a>
       </div>
 
       <div className="settlement-stats user-detail-stats">
@@ -3347,6 +3479,11 @@ function AdminUserDetailPanel({
 
 function AdminPrincipalOrdersPage() {
   const orderBook = useAdminOrderBook();
+  const pagination = usePaginatedItems(
+    orderBook.principalOrders,
+    ADMIN_ORDER_PAGE_SIZE,
+    orderBook.principalOrders[0]?.id.toString() ?? 'empty',
+  );
 
   return (
     <section className="admin-panel">
@@ -3359,11 +3496,12 @@ function AdminPrincipalOrdersPage() {
       </div>
       <div className="list-stack">
         {orderBook.principalOrders.length > 0 ? (
-          orderBook.principalOrders.map((order) => <AdminPrincipalOrderRow key={order.id.toString()} order={order} />)
+          pagination.items.map((order) => <AdminPrincipalOrderRow key={order.id.toString()} order={order} />)
         ) : (
           <EmptyState title="暂无本金订单" detail="用户入金或复投后，本金订单会自动显示在这里。" />
         )}
       </div>
+      <PaginationControls {...pagination} onPageChange={pagination.setPage} />
     </section>
   );
 }
@@ -3371,6 +3509,11 @@ function AdminPrincipalOrdersPage() {
 function AdminStakeOrdersPage() {
   const orderBook = useAdminOrderBook();
   const config = useContractConfig();
+  const pagination = usePaginatedItems(
+    orderBook.stakeOrders,
+    ADMIN_ORDER_PAGE_SIZE,
+    orderBook.stakeOrders[0]?.id.toString() ?? 'empty',
+  );
 
   return (
     <section className="admin-panel">
@@ -3383,11 +3526,12 @@ function AdminStakeOrdersPage() {
       </div>
       <div className="list-stack">
         {orderBook.stakeOrders.length > 0 ? (
-          orderBook.stakeOrders.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={config.settlementCycle} />)
+          pagination.items.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={config.settlementCycle} />)
         ) : (
           <EmptyState title="暂无带单订单" detail="用户完成带单后，订单会自动显示在这里。" />
         )}
       </div>
+      <PaginationControls {...pagination} onPageChange={pagination.setPage} />
     </section>
   );
 }
@@ -3710,6 +3854,11 @@ function AdminWithdrawalsPage({
     () => [...withdrawals.requests].sort(compareWithdrawalRequestLatest),
     [withdrawals.requests],
   );
+  const pagination = usePaginatedItems(
+    sortedRequests,
+    ADMIN_ORDER_PAGE_SIZE,
+    sortedRequests[0]?.id.toString() ?? 'empty',
+  );
   const rewardPoolQuery = useReadContract({
     address: BSC_USDT_ADDRESS,
     abi: erc20Abi,
@@ -3855,13 +4004,14 @@ function AdminWithdrawalsPage({
         </div>
         <div className="list-stack">
           {sortedRequests.length > 0 ? (
-            sortedRequests.map((request) => (
+            pagination.items.map((request) => (
               <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
             ))
           ) : (
             <EmptyState title="暂无提现申请" detail={config.withdrawalApprovalRequired ? '用户提交提现后，会在这里等待 Admin 审批。' : '免审批提现会自动打款并直接显示为已打款记录。'} />
           )}
         </div>
+        <PaginationControls {...pagination} onPageChange={pagination.setPage} />
       </section>
     </section>
   );
@@ -3909,7 +4059,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   const [minYieldPercent, setMinYieldPercent] = useState('0.5');
   const [maxYieldPercent, setMaxYieldPercent] = useState('5');
   const [feeAmount, setFeeAmount] = useState('10');
-  const [minAmount, setMinAmount] = useState('100');
+  const [minAmount, setMinAmount] = useState('0.1');
   const [maxAmount, setMaxAmount] = useState('1000');
   const [maxPrincipal, setMaxPrincipal] = useState('1000');
   const [lockDays, setLockDays] = useState('30');
@@ -3957,6 +4107,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
     <section className="screen-stack">
       <section className="admin-grid">
         <AdminCard icon={<Settings />} label="当前收益率" value={bpsToPercent(config.yieldBps)} />
+        <AdminCard icon={<ArrowDownToLine />} label="最低入金" value={`${token(config.minAmount)} U`} />
         <AdminCard icon={<Send />} label="提现手续费" value={`${token(config.withdrawFee)} U`} />
         <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
         <AdminCard icon={<Repeat2 />} label="动态结算周期" value={settlementCycleLabel(config.settlementCycle)} />
@@ -4577,7 +4728,7 @@ function OwnerTransferConfirmModal({
   );
 }
 
-function useAdminDashboard() {
+function useAdminDashboard(enabled = true) {
   const query = useReadContracts({
     contracts: [
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalUsers' },
@@ -4590,7 +4741,7 @@ function useAdminDashboard() {
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalWithdrawnAmount' },
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'totalPendingWithdrawalAmount' },
     ],
-    query: { enabled: isContractConfigured },
+    query: { enabled: isContractConfigured && enabled },
   });
 
   const pick = (index: number, fallback: bigint) => {
@@ -5304,6 +5455,11 @@ function useAdminRole(address?: Address) {
   return {
     isSuperAdmin: Boolean(superQuery.data),
     isManager: Boolean(managerQuery.data),
+    isLoading: Boolean(isContractConfigured && address) && (
+      managerRoleQuery.isLoading ||
+      superQuery.isLoading ||
+      managerQuery.isLoading
+    ),
   };
 }
 
@@ -5510,14 +5666,21 @@ function OrderRow({
 }
 
 function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[] }) {
+  const sortedRequests = useMemo(() => [...requests].sort(compareWithdrawalRequestLatest), [requests]);
+  const pagination = usePaginatedItems(
+    sortedRequests,
+    USER_ORDER_PAGE_SIZE,
+    sortedRequests[0]?.id.toString() ?? 'empty',
+  );
+
   return (
     <section className="panel">
       <div className="section-title">
         <h2>提现申请</h2>
-        <span>{requests.length} 笔</span>
+        <span>{sortedRequests.length} 笔</span>
       </div>
-      {requests.length > 0 ? (
-        requests.map((request) => (
+      {sortedRequests.length > 0 ? (
+        pagination.items.map((request) => (
           <OrderRow
             key={request.id.toString()}
             label={`提现申请 #${request.id.toString()}`}
@@ -5529,6 +5692,7 @@ function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[]
       ) : (
         <EmptyState title="暂无提现申请" detail="提交提现后，提现记录会在这里显示。" />
       )}
+      <PaginationControls {...pagination} onPageChange={pagination.setPage} />
     </section>
   );
 }
@@ -5537,15 +5701,21 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const nowSeconds = useNowSeconds();
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+  const sortedOrders = useMemo(() => [...orders].sort(comparePrincipalOrderLatest), [orders]);
+  const pagination = usePaginatedItems(
+    sortedOrders,
+    USER_ORDER_PAGE_SIZE,
+    sortedOrders[0]?.id.toString() ?? 'empty',
+  );
 
   return (
     <section className="panel">
       <div className="section-title">
         <h2>本金订单</h2>
-        <span>{orders.length} 笔</span>
+        <span>{sortedOrders.length} 笔</span>
       </div>
-      {orders.length > 0 ? (
-        orders.map((order) => {
+      {sortedOrders.length > 0 ? (
+        pagination.items.map((order) => {
           const canRedeem = order.status === 0 && BigInt(nowSeconds) >= order.unlockAt;
 
           return (
@@ -5582,6 +5752,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
       ) : (
         <EmptyState title="暂无本金订单" />
       )}
+      <PaginationControls {...pagination} onPageChange={pagination.setPage} />
       <TxStatus tx={tx} />
     </section>
   );
@@ -5591,15 +5762,21 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const nowSeconds = useNowSeconds();
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
+  const sortedOrders = useMemo(() => [...orders].sort(compareStakeOrderLatest), [orders]);
+  const pagination = usePaginatedItems(
+    sortedOrders,
+    USER_ORDER_PAGE_SIZE,
+    sortedOrders[0]?.id.toString() ?? 'empty',
+  );
 
   return (
     <section className="panel">
       <div className="section-title">
         <h2>带单订单</h2>
-        <span>{orders.length} 笔</span>
+        <span>{sortedOrders.length} 笔</span>
       </div>
-      {orders.length > 0 ? (
-        orders.map((order) => {
+      {sortedOrders.length > 0 ? (
+        pagination.items.map((order) => {
           const canSettle = !order.settled && BigInt(nowSeconds) >= order.settleAt;
 
           return (
@@ -5636,6 +5813,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
       ) : (
         <EmptyState title="暂无带单订单" detail="带单后会从 stakeOrders(id) 读取显示。" />
       )}
+      <PaginationControls {...pagination} onPageChange={pagination.setPage} />
       <TxStatus tx={tx} />
     </section>
   );
@@ -5803,7 +5981,7 @@ function EventRow({ event }: { event: ChainEventRecord }) {
       </div>
       <div className="row-metrics">
         <span>{amount !== undefined ? `${token(amount)} U` : '链上事件'}</span>
-        <a href={`https://testnet.bscscan.com/tx/${event.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
+        <a href={`${bscExplorerBaseUrl}/tx/${event.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
       </div>
     </div>
   );
@@ -5850,7 +6028,7 @@ function TxStatus({ tx }: { tx: TxState }) {
         {tx.status === 'failed' && (tx.error || DEFAULT_TX_ERROR)}
       </span>
       {tx.hash && (
-        <a href={`https://testnet.bscscan.com/tx/${tx.hash}`} target="_blank" rel="noreferrer">
+        <a href={`${bscExplorerBaseUrl}/tx/${tx.hash}`} target="_blank" rel="noreferrer">
           查看交易
         </a>
       )}

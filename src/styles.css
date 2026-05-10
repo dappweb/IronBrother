@@ -755,6 +755,46 @@ a {
   white-space: nowrap;
 }
 
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #5d6b63;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.pagination-controls > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: #111111;
+  color: #ffffff;
+}
+
+.pagination-button:disabled {
+  cursor: not-allowed;
+  background: #e5eee9;
+  color: #9aa8a0;
+}
+
+.pagination-page {
+  min-width: 54px;
+  text-align: center;
+  color: #111111;
+}
+
 .list-row strong,
 .session-row strong,
 .admin-list-row strong {

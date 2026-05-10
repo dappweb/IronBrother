@@ -208,7 +208,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
         usdt = IERC20(usdt_);
         feeReceiver = feeReceiver_;
-        minAmount = 100 ether;
+        minAmount = 0.1 ether;
         maxAmount = 1_000 ether;
         maxPrincipal = 1_000 ether;
         lockPeriod = 30 days;
