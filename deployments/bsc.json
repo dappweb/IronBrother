@@ -2,6 +2,7 @@
   "network": "bsc",
   "chainId": 56,
   "deployedAt": "2026-05-09T16:28:50.542Z",
+  "upgradedAt": "2026-05-10T14:36:19.142Z",
   "deployer": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
   "feeReceiver": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
   "defaultReferrer": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
@@ -14,8 +15,9 @@
   ],
   "usdt": "0x55d398326f99059fF775485246999027B3197955",
   "ironBrotherProxy": "0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3",
-  "ironBrotherImplementation": "0x221f5229366E7d6AF46890D1954aA3Ab823e3cDc",
+  "ironBrotherImplementation": "0x9a7B05b3e8C9F41BAaec9b8a1Af94d7440246ba4",
   "deployTxHash": "0xd94310f048ef4b7bd9458ee42cf37b4fd7e55af96716b5e52da7e630e2cd8514",
   "implementationTxHash": "0x44fc7732d9b9fc45467815c5e7e51e962cb23416708430744fcb6bdfb697248e",
+  "upgradeImplementationTxHash": "0x563fedd1eb5c429042c09c74c424a26d015cbaa1c9d2319600eb66c27349a01f",
   "proxyKind": "uups"
 }
