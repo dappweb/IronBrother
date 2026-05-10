@@ -717,6 +717,15 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         emit ConfigUpdated("LOCK_PERIOD", newLockPeriod);
     }
 
+    function setPrincipalOrderLockPeriod(uint256 orderId, uint256 newLockPeriod) external onlySuperAdmin {
+        require(newLockPeriod >= 1 days, "lock too short");
+        PrincipalOrder storage order = principalOrders[orderId];
+        require(order.user != address(0), "order closed");
+        require(order.status == PrincipalStatus.Locked, "order closed");
+
+        order.unlockAt = order.createdAt + newLockPeriod;
+    }
+
     function setWithdrawFee(uint256 newWithdrawFee) external onlySuperAdmin {
         withdrawFee = newWithdrawFee;
         emit ConfigUpdated("WITHDRAW_FEE", newWithdrawFee);

@@ -249,6 +249,29 @@ describe("IronBrother", function () {
     expect(account.rewardBalance).to.equal(U("200"));
   });
 
+  it("lets only the super admin change a locked principal order redemption cycle", async function () {
+    const { alice, ironBrother } = await deployFixture();
+
+    await ironBrother.connect(alice).deposit(U("200"), ethers.ZeroAddress);
+    const orderBefore = await ironBrother.principalOrders(1);
+    const newLockPeriod = 10 * DAY;
+    const expectedUnlockAt = orderBefore.createdAt + BigInt(newLockPeriod);
+
+    await expect(ironBrother.connect(alice).setPrincipalOrderLockPeriod(1, newLockPeriod)).to.be.revertedWith("not super admin");
+    await ironBrother.setPrincipalOrderLockPeriod(1, newLockPeriod);
+
+    const orderAfter = await ironBrother.principalOrders(1);
+    expect(orderAfter.unlockAt).to.equal(expectedUnlockAt);
+
+    await expect(ironBrother.connect(alice).redeemPrincipal(1)).to.be.revertedWith("order locked");
+
+    await network.provider.send("evm_setNextBlockTimestamp", [Number(expectedUnlockAt) + 1]);
+    await network.provider.send("evm_mine");
+    await ironBrother.connect(alice).redeemPrincipal(1);
+
+    await expect(ironBrother.setPrincipalOrderLockPeriod(1, newLockPeriod)).to.be.revertedWith("order closed");
+  });
+
   it("settles first-generation dynamic reward after local day closes", async function () {
     const { alice, bob, ironBrother } = await deployFixture();
 

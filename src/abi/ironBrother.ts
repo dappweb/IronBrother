@@ -844,6 +844,16 @@ export const ironBrotherAbi = [
   },
   {
     type: 'function',
+    name: 'setPrincipalOrderLockPeriod',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'orderId', type: 'uint256' },
+      { name: 'newLockPeriod', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'setWithdrawFee',
     stateMutability: 'nonpayable',
     inputs: [{ name: 'newWithdrawFee', type: 'uint256' }],

@@ -319,6 +319,7 @@ const PENDING_DYNAMIC_MAX_SOURCES = 400;
 const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
 const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
 const HOME_LATEST_ORDER_LIMIT = 5;
+const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
 const ADMIN_ORDER_PAGE_SIZE = 12;
 const SECONDS_PER_HOUR = 60 * 60;
@@ -2882,6 +2883,17 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
   const settlementCycle = data.settlementCycle;
   const pendingRows = pendingRewards.data?.rows ?? [];
   const pendingTotal = pendingRewards.data?.total ?? 0n;
+  const [visibleDetailCount, setVisibleDetailCount] = useState(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
+  const visibleDetails = useMemo(
+    () => details.rows.slice(0, visibleDetailCount),
+    [details.rows, visibleDetailCount],
+  );
+  const hasMoreDetails = visibleDetailCount < details.rows.length;
+  const shownDetailCount = Math.min(visibleDetailCount, details.rows.length);
+
+  useEffect(() => {
+    setVisibleDetailCount(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
+  }, [address]);
 
   return (
     <section className="screen-stack">
@@ -2923,11 +2935,24 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           ) : details.isError ? (
             <EmptyState title="动态明细读取失败" detail="链上动态奖励 history 读取失败，请稍后重试。" />
           ) : details.rows.length > 0 ? (
-            details.rows.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} settlementCycle={settlementCycle} />)
+            visibleDetails.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} settlementCycle={settlementCycle} />)
           ) : (
             <EmptyState title="暂无动态收益明细" />
           )}
         </div>
+        {hasMoreDetails && (
+          <div className="load-more-footer">
+            <span>已显示 {shownDetailCount} / {details.rows.length} 条</span>
+            <button
+              type="button"
+              className="load-more-button"
+              onClick={() => setVisibleDetailCount((count) => count + DYNAMIC_REWARD_DETAIL_BATCH_SIZE)}
+            >
+              <ChevronDown size={16} />
+              点击加载更多
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="panel">
@@ -3197,7 +3222,7 @@ function AdminConsole() {
 
             {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
             {nav === 'users' && <AdminUsersPage />}
-            {nav === 'principal' && <AdminPrincipalOrdersPage />}
+            {nav === 'principal' && <AdminPrincipalOrdersPage canWrite={canEdit} runner={runner} />}
             {nav === 'stakes' && <AdminStakeOrdersPage />}
             {nav === 'rewards' && <AdminRewardsPage canWrite={canWrite} runner={runner} />}
             {nav === 'withdrawals' && <AdminWithdrawalsPage canWrite={canWrite} canApprove={canEdit} runner={runner} />}
@@ -3624,7 +3649,7 @@ function AdminUserDetailPanel({
   );
 }
 
-function AdminPrincipalOrdersPage() {
+function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
   const orderBook = useAdminOrderBook();
   const pagination = usePaginatedItems(
     orderBook.principalOrders,
@@ -3643,7 +3668,9 @@ function AdminPrincipalOrdersPage() {
       </div>
       <div className="list-stack">
         {orderBook.principalOrders.length > 0 ? (
-          pagination.items.map((order) => <AdminPrincipalOrderRow key={order.id.toString()} order={order} />)
+          pagination.items.map((order) => (
+            <AdminPrincipalOrderRow key={order.id.toString()} order={order} canWrite={canWrite} runner={runner} />
+          ))
         ) : (
           <EmptyState title="暂无本金订单" detail="用户入金或复投后，本金订单会自动显示在这里。" />
         )}
@@ -5993,9 +6020,30 @@ function DirectReferralListRow({
   );
 }
 
-function AdminPrincipalOrderRow({ order }: { order: PrincipalOrderData }) {
+function principalOrderLockDays(order: PrincipalOrderData) {
+  if (order.unlockAt <= order.createdAt) return '0';
+  return secondsToDays(order.unlockAt - order.createdAt);
+}
+
+function AdminPrincipalOrderRow({
+  order,
+  canWrite,
+  runner,
+}: {
+  order: PrincipalOrderData;
+  canWrite: boolean;
+  runner: ReturnType<typeof useTxRunner>;
+}) {
+  const [lockDays, setLockDays] = useState(() => principalOrderLockDays(order));
+  const currentLockDays = principalOrderLockDays(order);
+  const canUpdate = canWrite && order.status === 0 && Number(lockDays) >= 1 && lockDays !== currentLockDays;
+
+  useEffect(() => {
+    setLockDays(currentLockDays);
+  }, [currentLockDays, order.id]);
+
   return (
-    <div className="admin-list-row">
+    <div className="admin-list-row principal-admin-row wide">
       <div className="row-icon"><Landmark size={17} /></div>
       <div>
         <strong>{principalSourceLabel(order.source)} #{order.id.toString()}</strong>
@@ -6005,6 +6053,35 @@ function AdminPrincipalOrderRow({ order }: { order: PrincipalOrderData }) {
         <span>{token(order.amount)} U</span>
         <span>{principalStatusLabel(order)}</span>
         <span>解锁 {dateTime(order.unlockAt)}</span>
+      </div>
+      <div className="principal-cycle-editor">
+        <label>
+          赎回周期
+          <input
+            value={lockDays}
+            onChange={(event) => setLockDays(event.target.value)}
+            inputMode="decimal"
+            disabled={!canWrite || order.status !== 0}
+          />
+          <span>天</span>
+        </label>
+        <button
+          className="row-action-button"
+          type="button"
+          disabled={!canUpdate}
+          onClick={() =>
+            runner.runTx(`修改本金订单 #${order.id.toString()} 赎回周期`, () =>
+              runner.writeContractAsync({
+                address: CONTRACT_ADDRESS,
+                abi: ironBrotherAbi,
+                functionName: 'setPrincipalOrderLockPeriod',
+                args: [order.id, daysToSeconds(lockDays)],
+              }),
+            )
+          }
+        >
+          保存
+        </button>
       </div>
     </div>
   );
