@@ -206,8 +206,10 @@ type StakeOrderData = {
 type DirectReferralRow = {
   address: Address;
   account: UserAccountData;
-  dailyStakeVolume: bigint;
-  isValidToday: boolean;
+  currentStakeVolume: bigint;
+  isValidOnDay: boolean;
+  currentLocalDay: bigint;
+  settlementCycle: bigint;
 };
 
 type TeamSummaryData = {
@@ -1819,50 +1821,198 @@ function useUserOrders(accountAddress: Address, enabled: boolean) {
   };
 }
 
-function useDirectReferralRows(rootAddress: Address, day: bigint, enabled = true) {
+function useDirectReferralRows(
+  rootAddress: Address,
+  enabled = true,
+  currentLocalDayOverride?: bigint,
+  settlementCycleOverride?: bigint,
+) {
   const referralsQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
     functionName: 'getDirectReferrals',
     args: [rootAddress],
-    query: { enabled: Boolean(isContractConfigured && enabled && rootAddress !== zeroAddress) },
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && rootAddress !== zeroAddress),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
   });
+
+  const shouldReadPeriod = currentLocalDayOverride === undefined || settlementCycleOverride === undefined;
+  const currentPeriodQuery = useReadContracts({
+    contracts: [
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'currentLocalDay' },
+      { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'settlementCycle' },
+    ],
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && shouldReadPeriod),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
+  const currentLocalDay = currentLocalDayOverride ?? readResult(currentPeriodQuery.data?.[0], 0n);
+  const settlementCycle =
+    settlementCycleOverride ?? readResult(currentPeriodQuery.data?.[1], BigInt(SECONDS_PER_DAY));
+  const currentPeriodBounds = useMemo(
+    () => localPeriodBounds(currentLocalDay, settlementCycle),
+    [currentLocalDay, settlementCycle],
+  );
 
   const referralAddresses = (referralsQuery.data as readonly Address[] | undefined) ?? [];
   const latestReferralAddresses = useMemo(() => [...referralAddresses].reverse(), [referralAddresses]);
 
+  const thresholdQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'validVolumeThreshold',
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
+
   const detailContracts = useMemo(
     () =>
-      latestReferralAddresses.flatMap((referral) => [
-        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'users', args: [referral] },
-        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'dailyStakeVolume', args: [referral, day] },
-        { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'isValidOnDay', args: [referral, day] },
-      ]),
-    [day, latestReferralAddresses],
+      latestReferralAddresses.map((referral) => ({
+        address: CONTRACT_ADDRESS,
+        abi: ironBrotherAbi,
+        functionName: 'users',
+        args: [referral],
+      })),
+    [latestReferralAddresses],
   );
 
   const detailQuery = useReadContracts({
     contracts: detailContracts as never,
-    query: { enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0) },
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
   });
 
-  const rows = useMemo(
+  const periodContracts = useMemo(
     () =>
-      latestReferralAddresses.map((referral, index) => {
-        const base = index * 3;
+      latestReferralAddresses.flatMap((referral) => [
+        {
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'dailyStakeVolume',
+          args: [referral, currentLocalDay],
+        },
+        {
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'isValidOnDay',
+          args: [referral, currentLocalDay],
+        },
+      ]),
+    [currentLocalDay, latestReferralAddresses],
+  );
+
+  const periodQuery = useReadContracts({
+    contracts: periodContracts as never,
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0 && currentLocalDay > 0n),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
+
+  const stakeOrderIdsQuery = useReadContracts({
+    contracts: latestReferralAddresses.map((referral) => ({
+      address: CONTRACT_ADDRESS,
+      abi: ironBrotherAbi,
+      functionName: 'getUserStakeOrderIds',
+      args: [referral],
+    })) as never,
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && latestReferralAddresses.length > 0 && currentPeriodBounds),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
+
+  const referralStakeOrderRefs = useMemo(
+    () =>
+      (stakeOrderIdsQuery.data ?? []).flatMap((result, referralIndex) => {
+        const orderIds = readResult(result, [] as readonly bigint[]);
+        return orderIds.map((id) => ({ id, referralIndex }));
+      }),
+    [stakeOrderIdsQuery.data],
+  );
+
+  const stakeOrderQuery = useReadContracts({
+    contracts: referralStakeOrderRefs.map(({ id }) => ({
+      address: CONTRACT_ADDRESS,
+      abi: ironBrotherAbi,
+      functionName: 'stakeOrders',
+      args: [id],
+    })) as never,
+    query: {
+      enabled: Boolean(isContractConfigured && enabled && referralStakeOrderRefs.length > 0 && currentPeriodBounds),
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
+
+  const orderVolumesByReferral = useMemo(() => {
+    const volumes = new Map<number, bigint>();
+    if (!currentPeriodBounds) return volumes;
+
+    (stakeOrderQuery.data ?? []).forEach((result, index) => {
+      const order = stakeOrderFromTuple(readResult(result, undefined));
+      const orderRef = referralStakeOrderRefs[index];
+      if (!order || !orderRef) return;
+      if (order.createdAt < currentPeriodBounds.startAt || order.createdAt >= currentPeriodBounds.endAt) return;
+
+      volumes.set(orderRef.referralIndex, (volumes.get(orderRef.referralIndex) ?? 0n) + order.amount);
+    });
+    return volumes;
+  }, [
+    currentPeriodBounds?.endAt,
+    currentPeriodBounds?.startAt,
+    referralStakeOrderRefs,
+    stakeOrderQuery.data,
+  ]);
+
+  const rows = useMemo(
+    () => {
+      const validVolumeThreshold = readResult(thresholdQuery.data, 0n);
+      return latestReferralAddresses.map((referral, index) => {
+        const periodIndex = index * 2;
+        const mappedStakeVolume = readResult(periodQuery.data?.[periodIndex], 0n);
+        const orderStakeVolume = orderVolumesByReferral.get(index) ?? 0n;
+        const currentStakeVolume =
+          orderStakeVolume > mappedStakeVolume ? orderStakeVolume : mappedStakeVolume;
         return {
           address: referral,
-          account: userFromTuple(readResult(detailQuery.data?.[base], undefined)),
-          dailyStakeVolume: readResult(detailQuery.data?.[base + 1], 0n),
-          isValidToday: readResult(detailQuery.data?.[base + 2], false),
+          account: userFromTuple(readResult(detailQuery.data?.[index], undefined)),
+          currentStakeVolume,
+          isValidOnDay:
+            readResult(periodQuery.data?.[periodIndex + 1], false) ||
+            (validVolumeThreshold > 0n && currentStakeVolume >= validVolumeThreshold),
+          currentLocalDay,
+          settlementCycle,
         };
-      }),
-    [detailQuery.data, latestReferralAddresses],
+      });
+    },
+    [
+      currentLocalDay,
+      detailQuery.data,
+      latestReferralAddresses,
+      orderVolumesByReferral,
+      periodQuery.data,
+      settlementCycle,
+      thresholdQuery.data,
+    ],
   );
 
   return {
     rows,
-    isLoading: referralsQuery.isLoading || detailQuery.isLoading,
+    isLoading:
+      referralsQuery.isLoading ||
+      detailQuery.isLoading ||
+      (shouldReadPeriod && currentPeriodQuery.isLoading) ||
+      periodQuery.isLoading ||
+      thresholdQuery.isLoading ||
+      stakeOrderIdsQuery.isLoading ||
+      stakeOrderQuery.isLoading,
   };
 }
 
@@ -1970,7 +2120,13 @@ function useIronBrotherData(scope: NavKey = 'home') {
   const sessionTuple = pickBase(3, [0, 0n] as readonly [number, bigint]);
   const currentLocalDay = pickBase(13, 0n);
   const orders = useUserOrders(accountAddress, accountEnabled && shouldLoadOrders);
-  const directReferrals = useDirectReferralRows(accountAddress, currentLocalDay, accountEnabled && shouldLoadTeam);
+  const settlementCycle = pickBase(14, BigInt(SECONDS_PER_DAY));
+  const directReferrals = useDirectReferralRows(
+    accountAddress,
+    accountEnabled && shouldLoadTeam,
+    currentLocalDay,
+    settlementCycle,
+  );
   const teamSummary = useTeamSummary(accountAddress, accountEnabled && shouldLoadTeam);
 
   return {
@@ -1989,7 +2145,7 @@ function useIronBrotherData(scope: NavKey = 'home') {
     withdrawalApprovalRequired: pickBase(11, true),
     defaultReferrer: pickBase(12, zeroAddress),
     currentLocalDay,
-    settlementCycle: pickBase(14, BigInt(SECONDS_PER_DAY)),
+    settlementCycle,
     principalOrderIds: orders.principalOrderIds,
     stakeOrderIds: orders.stakeOrderIds,
     withdrawalRequestIds: orders.withdrawalRequestIds,
@@ -3155,13 +3311,6 @@ function AdminUsersPage() {
   );
   const extraAddresses = useMemo(() => uniqueAddresses([lookupAddress, selectedAddress, ...orderAddresses]), [lookupAddress, orderAddresses, selectedAddress]);
   const users = useAdminUsers(extraAddresses);
-  const currentDayQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'currentLocalDay',
-    query: { enabled: isContractConfigured },
-  });
-  const currentLocalDay = (currentDayQuery.data as bigint | undefined) ?? 0n;
   const totalUsers = (totalUsersQuery.data as bigint | undefined) ?? 0n;
   const sortedRows = useMemo(
     () =>
@@ -3231,7 +3380,7 @@ function AdminUsersPage() {
           </div>
         </section>
 
-        <AdminUserDetailPanel row={selectedRow} currentLocalDay={currentLocalDay} onSelect={setSelectedAddress} />
+        <AdminUserDetailPanel row={selectedRow} onSelect={setSelectedAddress} />
       </section>
 
       <section className="admin-panel">
@@ -3351,17 +3500,15 @@ function AdminUserTreeNode({
 
 function AdminUserDetailPanel({
   row,
-  currentLocalDay,
   onSelect,
 }: {
   row?: AdminUserRow;
-  currentLocalDay: bigint;
   onSelect: (address: Address) => void;
 }) {
   const address = row?.address ?? zeroAddress;
   const enabled = Boolean(row && address !== zeroAddress);
   const orders = useUserOrders(address, enabled);
-  const referrals = useDirectReferralRows(address, currentLocalDay, enabled);
+  const referrals = useDirectReferralRows(address, enabled);
   const teamSummary = useTeamSummary(address, enabled);
   const latestPrincipalOrders = useMemo(() => [...orders.principalOrders].sort(comparePrincipalOrderLatest).slice(0, 2), [orders.principalOrders]);
   const latestStakeOrders = useMemo(() => [...orders.stakeOrders].sort(compareStakeOrderLatest).slice(0, 2), [orders.stakeOrders]);
@@ -4019,15 +4166,8 @@ function AdminWithdrawalsPage({
 
 function AdminTeamPage({ defaultAddress }: { defaultAddress?: Address }) {
   const [rootInput, setRootInput] = useState('');
-  const currentDayQuery = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: ironBrotherAbi,
-    functionName: 'currentLocalDay',
-    query: { enabled: isContractConfigured },
-  });
-  const day = (currentDayQuery.data as bigint | undefined) ?? 0n;
   const root = isAddress(rootInput.trim()) ? (rootInput.trim() as Address) : defaultAddress ?? zeroAddress;
-  const referrals = useDirectReferralRows(root, day, root !== zeroAddress);
+  const referrals = useDirectReferralRows(root, root !== zeroAddress);
 
   return (
     <section className="admin-panel">
@@ -5819,30 +5959,35 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
   );
 }
 
-function DirectReferralListRow({ item, onSelect }: { item: DirectReferralRow; onSelect?: (address: Address) => void }) {
+function DirectReferralListRow({
+  item,
+  onSelect,
+}: {
+  item: DirectReferralRow;
+  onSelect?: (address: Address) => void;
+}) {
+  const volumeLabel =
+    item.settlementCycle === BigInt(SECONDS_PER_DAY) ? '单日流水' : '本周期流水';
   const content = (
     <>
       <div className="row-icon"><Users size={17} /></div>
       <div>
         <strong>{shortAddress(item.address)}</strong>
-        <small>本周期流水 <MoneyAmount value={item.dailyStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
+        <small>{volumeLabel} <MoneyAmount value={item.currentStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
       </div>
-      <span className={item.isValidToday ? 'amount-positive' : 'amount-muted'}>
-        {item.isValidToday ? '本周期有效' : '未达标'}
-      </span>
     </>
   );
 
   if (onSelect) {
     return (
-      <button className="list-row referral-row-button" type="button" onClick={() => onSelect(item.address)}>
+      <button className="list-row referral-row referral-row-button" type="button" onClick={() => onSelect(item.address)}>
         {content}
       </button>
     );
   }
 
   return (
-    <div className="list-row">
+    <div className="list-row referral-row">
       {content}
     </div>
   );

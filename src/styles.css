@@ -719,6 +719,10 @@ a {
   min-width: 0;
 }
 
+.referral-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
 .session-row > div,
 .list-row > div {
   min-width: 0;
@@ -741,6 +745,13 @@ a {
   gap: 2px;
   min-width: 0;
   max-width: 100%;
+}
+
+.referral-volume-status span {
+  color: #718179;
+  font-size: var(--text-base);
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .row-action-button {

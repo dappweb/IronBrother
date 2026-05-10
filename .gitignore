@@ -6,6 +6,7 @@ typechain-types/
 *.tsbuildinfo
 .env
 .env.local
+.env.test
 .env.*.local
 !.env.example
 npm-debug.log*
