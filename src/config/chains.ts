@@ -2,7 +2,7 @@ import { getDefaultConfig } from '@rainbow-me/rainbowkit';
 import { http } from 'wagmi';
 import { bsc, bscTestnet } from 'wagmi/chains';
 
-const configuredChainId = Number(import.meta.env.VITE_CHAIN_ID || '56');
+const configuredChainId = Number(import.meta.env.VITE_CHAIN_ID || '97');
 
 export const selectedBscChain = configuredChainId === bscTestnet.id ? bscTestnet : bsc;
 export const isBscTestnet = selectedBscChain.id === bscTestnet.id;
