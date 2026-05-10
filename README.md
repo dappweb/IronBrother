@@ -96,6 +96,35 @@ npm run bot:dynamic:settle:testnet
 
 By default the bot settles the previous local day in batches of 50 indexed users. Override `DYNAMIC_SETTLEMENT_DAY`, `DYNAMIC_SETTLEMENT_BATCH_SIZE`, or `DYNAMIC_SETTLEMENT_START_CURSOR` when backfilling or resuming a stopped run. The bot wallet must have `MANAGER_ROLE`.
 
+For daily scheduled settlement, use the wrapper script. It reads the proxy address from `deployments/bsc.json` or `deployments/bsc-testnet.json`, loads `.env.local` / `.env`, writes logs under `logs/settlement`, and calls the bot script above:
+
+```powershell
+# BSC mainnet, settles the previous UTC+8 local day.
+$env:BSC_RPC_URL="https://your-bsc-mainnet-rpc"
+$env:PRIVATE_KEY="manager-or-super-admin-private-key"
+npm run bot:dynamic:settle:bsc:daily
+
+# BSC testnet
+$env:BSC_TESTNET_RPC_URL="https://your-bsc-testnet-rpc"
+$env:PRIVATE_KEY="manager-or-super-admin-private-key"
+npm run bot:dynamic:settle:testnet:daily
+```
+
+Install or update the Windows Task Scheduler job for daily execution at 00:05 local machine time:
+
+```powershell
+# BSC mainnet
+npm run bot:dynamic:schedule:bsc
+
+# BSC testnet
+npm run bot:dynamic:schedule:testnet
+
+# Custom time / batch settings
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-daily-dynamic-settlement-task.ps1 -Network bsc -At 00:10 -BatchSize 50 -MaxBatches 10000
+```
+
+Before scheduling, set `BSC_RPC_URL` / `BSC_TESTNET_RPC_URL` and `PRIVATE_KEY` for the Windows account that runs the task, or place them in an untracked `.env.local`. Do not commit private keys. The scheduled wallet must have `MANAGER_ROLE`.
+
 Run a short-cycle dynamic reward smoke test on BSC Testnet:
 
 ```bash
