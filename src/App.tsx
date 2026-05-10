@@ -3170,6 +3170,12 @@ function AdminConsole() {
   const adminAllowed = accessStatus === 'allowed';
   const dashboard = useAdminDashboard(adminAllowed);
 
+  useEffect(() => {
+    if (accessStatus === 'denied') {
+      window.location.replace('/');
+    }
+  }, [accessStatus]);
+
   const canEdit = isContractConfigured && role.isSuperAdmin && !wrongNetwork;
   const canWrite = isContractConfigured && !wrongNetwork;
   const readOnly = isContractConfigured && role.isManager && !role.isSuperAdmin;
@@ -3184,6 +3190,10 @@ function AdminConsole() {
     { key: 'config', label: '合约配置' },
     { key: 'roles', label: '权限管理' },
   ];
+
+  if (accessStatus === 'denied') {
+    return <AdminAccessRedirect />;
+  }
 
   return (
     <div className="admin-shell">
@@ -3243,6 +3253,19 @@ function AdminConsole() {
           </section>
         )}
       </main>
+    </div>
+  );
+}
+
+function AdminAccessRedirect() {
+  return (
+    <div className="admin-auth-redirect">
+      <section className="admin-panel">
+        <EmptyState title="无权访问 Admin" detail="当前钱包没有 Admin/Manager 权限，正在返回客户页面。" />
+        <a className="secondary-button full-button" href="/">
+          返回客户页面
+        </a>
+      </section>
     </div>
   );
 }

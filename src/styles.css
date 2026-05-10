@@ -1563,6 +1563,19 @@ input {
   background: #e9f5ef;
 }
 
+.admin-auth-redirect {
+  min-height: 100vh;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background: #e9f5ef;
+}
+
+.admin-auth-redirect .admin-panel {
+  width: min(100%, 420px);
+  background: #ffffff;
+}
+
 .admin-sidebar {
   padding: 28px;
   background: #111111;
