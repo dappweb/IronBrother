@@ -18,16 +18,17 @@ copy .env.example .env.local
 npm run dev
 ```
 
-BSC Testnet 本地开发需要在 `.env.local` 配置：
+BSC Mainnet 本地开发需要在 `.env.local` 配置：
 
 ```bash
-VITE_BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+VITE_CHAIN_ID=56
+VITE_BSC_RPC_URL=https://bsc-dataseed.bnbchain.org
 VITE_WALLETCONNECT_PROJECT_ID=your-walletconnect-project-id
-VITE_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
+VITE_USDT_ADDRESS=0x55d398326f99059fF775485246999027B3197955
 VITE_CRUDETRUST_CONTRACT_ADDRESS=
 ```
 
-如果测试网已有测试 USDT，可设置 `TEST_USDT_ADDRESS`。如果不设置，测试网部署脚本会自动部署 `MockUSDT`，并把地址写入 `deployments/bsc-testnet.json`。
+main 分支只保留 BSC Mainnet 配置；本地、Cloudflare Pages 和链上脚本都应使用主网 RPC、主网 USDT 和 `deployments/bsc.json`。
 
 ## 业务流程
 
@@ -58,29 +59,28 @@ npm run compile
 npm test
 ```
 
-部署 BSC Testnet 可升级代理合约：
+部署 BSC Mainnet 可升级代理合约：
 
 ```bash
-set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set BSC_RPC_URL=https://your-bsc-mainnet-rpc
 set PRIVATE_KEY=your-deployer-private-key
-set TEST_USDT_ADDRESS=0xacD944e910952c020eb129C50921f180c62c3291
 set FEE_RECEIVER=fee-receiver-address
 set DEFAULT_REFERRER=default-referrer-address
 set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
-npm run deploy:testnet
+npm run deploy:bsc
 ```
 
 部署后，把 `VITE_CRUDETRUST_CONTRACT_ADDRESS` 和 `VITE_USDT_ADDRESS` 配到 Cloudflare Pages 和本地 `.env.local`。`VITE_IRONBROTHER_CONTRACT_ADDRESS` 仍作为旧字段兼容。
 
-升级 BSC Testnet 代理合约：
+升级 BSC Mainnet 代理合约：
 
 ```bash
-set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
+set BSC_RPC_URL=https://your-bsc-mainnet-rpc
 set PRIVATE_KEY=your-upgrader-private-key
 set IRONBROTHER_PROXY=deployed-proxy-address
 set DEPOSIT_RECEIVERS=receiver1,receiver2,receiver3,receiver4,receiver5
 set REGISTERED_USERS=user1,user2,user3
-npm run upgrade:testnet
+npm run upgrade:bsc
 ```
 
 `REGISTERED_USERS` 是可选项。升级旧代理合约时可用它调用 `syncRegisteredUsers()`，把旧用户写入新的链上用户索引，方便后台 `getAllUsers()` 读取。新注册用户会自动进入索引。
@@ -113,9 +113,9 @@ npm run upgrade:testnet
 
 - bot 钱包必须有 `MANAGER_ROLE`，否则交易会被合约拒绝。
 - bot 钱包必须有足够 BNB 支付 gas。
-- 主网需要 `BSC_RPC_URL`，测试网需要 `BSC_TESTNET_RPC_URL`。
+- 主网需要 `BSC_RPC_URL`。
 - `PRIVATE_KEY` 使用 bot 钱包私钥，放在未提交的 `.env.local` 或系统环境变量中，不要提交到仓库。
-- `deployments/bsc.json` 或 `deployments/bsc-testnet.json` 里必须有 `ironBrotherProxy`。每日封装脚本会优先从部署文件读取代理合约地址。
+- `deployments/bsc.json` 里必须有 `ironBrotherProxy`。每日封装脚本会优先从部署文件读取代理合约地址。
 - 如果是升级旧合约后第一次使用 bot，需要确认用户索引已经同步，否则 bot 只能遍历索引内用户。
 
 ### 环境变量
@@ -123,7 +123,6 @@ npm run upgrade:testnet
 | 变量 | 用途 |
 | --- | --- |
 | `BSC_RPC_URL` | BSC 主网 RPC，主网执行必填 |
-| `BSC_TESTNET_RPC_URL` | BSC Testnet RPC，测试网执行必填 |
 | `PRIVATE_KEY` | bot 钱包私钥，钱包需要 `MANAGER_ROLE` |
 | `IRONBROTHER_PROXY` | 合约代理地址。直接运行 Hardhat bot 时必填；每日封装脚本会从 `deployments/*.json` 自动设置 |
 | `DYNAMIC_SETTLEMENT_DAY` | 指定要结算的本地日编号。默认结算前一个 UTC+8 本地日 |
@@ -132,15 +131,6 @@ npm run upgrade:testnet
 | `DYNAMIC_SETTLEMENT_MAX_BATCHES` | 单次脚本最多发送多少批交易，默认 `10000`，防止异常无限循环 |
 
 ### 手动执行一次
-
-测试网手动执行：
-
-```bash
-set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
-set PRIVATE_KEY=manager-private-key
-set IRONBROTHER_PROXY=deployed-proxy-address
-npm run bot:dynamic:settle:testnet
-```
 
 主网手动执行：
 
@@ -165,14 +155,6 @@ $env:PRIVATE_KEY="manager-private-key"
 npm run bot:dynamic:settle:bsc:daily
 ```
 
-测试网执行一次：
-
-```powershell
-$env:BSC_TESTNET_RPC_URL="https://your-bsc-testnet-rpc"
-$env:PRIVATE_KEY="manager-private-key"
-npm run bot:dynamic:settle:testnet:daily
-```
-
 也可以直接调用脚本并调整批量参数：
 
 ```powershell
@@ -193,12 +175,6 @@ Windows 定时任务由 `scripts/install-daily-dynamic-settlement-task.ps1` 创�
 
 ```powershell
 npm run bot:dynamic:schedule:bsc
-```
-
-测试网安装：
-
-```powershell
-npm run bot:dynamic:schedule:testnet
 ```
 
 自定义执行时间和批量参数：
@@ -243,33 +219,20 @@ npm run bot:dynamic:settle:bsc
 - `insufficient funds`：bot 钱包 BNB 不足，补充 gas 后续跑。
 - RPC 超时或中断：查看 `logs/settlement` 最新日志，使用日志里的 next cursor 或报错提示续跑。
 
-### 测试网短周期冒烟测试
-
-测试网可运行短周期动态奖励测试：
-
-```bash
-set BSC_TESTNET_RPC_URL=https://bnb-testnet.g.alchemy.com/v2/your-key
-set PRIVATE_KEY=super-admin-private-key
-set IRONBROTHER_PROXY=deployed-proxy-address
-npm run test:dynamic:cycle:testnet
-```
-
-该测试会临时把结算周期设置为 `DYNAMIC_TEST_SETTLEMENT_CYCLE_SECONDS`，默认 `120` 秒；注册一个下级钱包，质押测试 USDT，等待周期结束，执行 bot 结算，再默认恢复原结算周期和场次配置。只有明确需要保留短周期时才设置 `DYNAMIC_TEST_RESTORE_CONFIG=false`。
-
 ## Cloudflare Pages
 
-Cloudflare Pages 应从仓库根目录构建。两个分支环境建议如下：
+Cloudflare Pages 应从仓库根目录构建。main 分支使用 BSC Mainnet：
 
 - 生产环境：`main`
-- 预览/测试环境：`test`
 - Root directory：`/`
 - Build command：`npm run build`
 - Build output directory：`dist`
 
-两个 Cloudflare 环境都需要设置以下变量。`main` 使用生产值，`test` 使用测试网值：
+Cloudflare 环境需要设置以下主网变量：
 
 ```text
-VITE_BSC_TESTNET_RPC_URL
+VITE_CHAIN_ID=56
+VITE_BSC_RPC_URL
 VITE_WALLETCONNECT_PROJECT_ID
 VITE_USDT_ADDRESS
 VITE_CRUDETRUST_CONTRACT_ADDRESS
