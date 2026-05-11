@@ -677,6 +677,7 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '收益': 'Reward',
   '到账': 'Received',
   '申请': 'Requested',
+  '手续费': 'Fee',
   '创建': 'Created',
   '解锁': 'Unlock',
   '结算': 'Settle',
@@ -1051,7 +1052,6 @@ const TEXT_TRANSLATIONS: Partial<Record<LocaleKey, Record<string, string>>> = {
   vi: EN_TRANSLATIONS,
   ms: EN_TRANSLATIONS,
   'zh-TW': {
-    ...EN_TRANSLATIONS,
     '交易失败，请检查钱包、余额和链上状态后重试。': '交易失敗，請檢查錢包、餘額和鏈上狀態後重試。',
     '未连接': '未連接',
     '未配置': '未設定',
@@ -1072,6 +1072,234 @@ const TEXT_TRANSLATIONS: Partial<Record<LocaleKey, Record<string, string>>> = {
   },
 };
 
+const ZH_TW_PHRASE_TRANSLATIONS: readonly [string, string][] = [
+  ['Admin 后台', 'Admin 後台'],
+  ['Manager 权限', 'Manager 權限'],
+  ['Owner 权限', 'Owner 權限'],
+  ['Super Admin', 'Super Admin'],
+  ['USDT 合约', 'USDT 合約'],
+  ['RPC 客户端', 'RPC 用戶端'],
+  ['BscScan', 'BscScan'],
+  ['stakeOrders', 'stakeOrders'],
+  ['getDirectReferrals', 'getDirectReferrals'],
+  ['users(address)', 'users(address)'],
+  ['syncRegisteredUsers', 'syncRegisteredUsers'],
+  ['VITE_CRUDETRUST_CONTRACT_ADDRESS', 'VITE_CRUDETRUST_CONTRACT_ADDRESS'],
+  ['UTC+8', 'UTC+8'],
+  ['40 代白名单', '40 代白名單'],
+  ['带单', '帶單'],
+  ['复投', '複投'],
+  ['提现', '提現'],
+  ['钱包', '錢包'],
+  ['合约', '合約'],
+  ['链上', '鏈上'],
+  ['后台', '後台'],
+  ['推荐人', '推薦人'],
+  ['手续费', '手續費'],
+  ['奖励池', '獎勵池'],
+  ['收益率', '收益率'],
+  ['收益', '收益'],
+  ['本金', '本金'],
+  ['动态', '動態'],
+  ['静态', '靜態'],
+  ['订单', '訂單'],
+  ['申请', '申請'],
+  ['审批', '審批'],
+  ['默认', '預設'],
+  ['网络', '網路'],
+  ['用户', '用戶'],
+  ['地址', '地址'],
+  ['余额', '餘額'],
+  ['金额', '金額'],
+  ['结算', '結算'],
+  ['赎回', '贖回'],
+  ['权限', '權限'],
+  ['白名单', '白名單'],
+  ['管理员', '管理員'],
+  ['管理员钱包', '管理員錢包'],
+  ['当前', '目前'],
+  ['查看', '查看'],
+  ['读取', '讀取'],
+  ['失败', '失敗'],
+  ['关闭', '關閉'],
+  ['开启', '開啟'],
+  ['开放', '開放'],
+  ['保存', '儲存'],
+  ['设置', '設定'],
+  ['配置', '設定'],
+];
+
+const ZH_TW_CHAR_TRANSLATIONS: Record<string, string> = {
+  与: '與',
+  业: '業',
+  东: '東',
+  个: '個',
+  为: '為',
+  产: '產',
+  仅: '僅',
+  从: '從',
+  仓: '倉',
+  会: '會',
+  体: '體',
+  余: '餘',
+  关: '關',
+  册: '冊',
+  写: '寫',
+  准: '準',
+  击: '擊',
+  则: '則',
+  创: '創',
+  别: '別',
+  务: '務',
+  动: '動',
+  励: '勵',
+  区: '區',
+  单: '單',
+  历: '歷',
+  压: '壓',
+  发: '發',
+  叠: '疊',
+  号: '號',
+  后: '後',
+  启: '啟',
+  员: '員',
+  团: '團',
+  围: '圍',
+  场: '場',
+  块: '塊',
+  复: '復',
+  够: '夠',
+  奖: '獎',
+  实: '實',
+  审: '審',
+  导: '導',
+  将: '將',
+  尝: '嘗',
+  层: '層',
+  属: '屬',
+  带: '帶',
+  并: '並',
+  广: '廣',
+  开: '開',
+  异: '異',
+  当: '當',
+  录: '錄',
+  态: '態',
+  总: '總',
+  户: '戶',
+  执: '執',
+  扫: '掃',
+  报: '報',
+  择: '擇',
+  换: '換',
+  据: '據',
+  数: '數',
+  断: '斷',
+  无: '無',
+  时: '時',
+  显: '顯',
+  暂: '暫',
+  术: '術',
+  机: '機',
+  权: '權',
+  条: '條',
+  来: '來',
+  树: '樹',
+  检: '檢',
+  槛: '檻',
+  气: '氣',
+  没: '沒',
+  测: '測',
+  满: '滿',
+  点: '點',
+  状: '狀',
+  环: '環',
+  现: '現',
+  确: '確',
+  种: '種',
+  笔: '筆',
+  简: '簡',
+  级: '級',
+  约: '約',
+  线: '線',
+  组: '組',
+  细: '細',
+  经: '經',
+  绑: '綁',
+  结: '結',
+  给: '給',
+  络: '絡',
+  绝: '絕',
+  统: '統',
+  续: '續',
+  缩: '縮',
+  网: '網',
+  联: '聯',
+  范: '範',
+  荐: '薦',
+  获: '獲',
+  补: '補',
+  规: '規',
+  计: '計',
+  订: '訂',
+  认: '認',
+  记: '記',
+  许: '許',
+  设: '設',
+  访: '訪',
+  证: '證',
+  识: '識',
+  试: '試',
+  询: '詢',
+  该: '該',
+  详: '詳',
+  语: '語',
+  误: '誤',
+  请: '請',
+  读: '讀',
+  调: '調',
+  败: '敗',
+  账: '賬',
+  质: '質',
+  费: '費',
+  资: '資',
+  赎: '贖',
+  转: '轉',
+  载: '載',
+  输: '輸',
+  达: '達',
+  过: '過',
+  运: '運',
+  还: '還',
+  这: '這',
+  进: '進',
+  连: '連',
+  选: '選',
+  里: '裡',
+  钟: '鐘',
+  钱: '錢',
+  链: '鏈',
+  锁: '鎖',
+  错: '錯',
+  键: '鍵',
+  门: '門',
+  闭: '閉',
+  问: '問',
+  间: '間',
+  队: '隊',
+  险: '險',
+  静: '靜',
+  页: '頁',
+  项: '項',
+  须: '須',
+  预: '預',
+  领: '領',
+  额: '額',
+  风: '風',
+  驳: '駁',
+  验: '驗',
+};
+
 type LocaleContextValue = {
   locale: LocaleKey;
   copy: LocaleCopy;
@@ -1080,6 +1308,15 @@ type LocaleContextValue = {
 };
 
 const LocaleContext = createContext<LocaleContextValue | undefined>(undefined);
+
+function toTraditionalChinese(textValue: string): string {
+  let translated = textValue;
+  for (const [source, target] of ZH_TW_PHRASE_TRANSLATIONS) {
+    translated = translated.split(source).join(target);
+  }
+
+  return Array.from(translated, (character) => ZH_TW_CHAR_TRANSLATIONS[character] ?? character).join('');
+}
 
 function translatePattern(locale: LocaleKey, textValue: string): string | undefined {
   const t = (value: string): string => translateText(locale, value);
@@ -1178,7 +1415,13 @@ function translatePattern(locale: LocaleKey, textValue: string): string | undefi
 
 function translateText(locale: LocaleKey, textValue: string): string {
   if (locale === 'zh-CN' || !/[\u4e00-\u9fff]/.test(textValue)) return textValue;
-  return TEXT_TRANSLATIONS[locale]?.[textValue] ?? translatePattern(locale, textValue) ?? textValue;
+
+  const exactTranslation = TEXT_TRANSLATIONS[locale]?.[textValue];
+  if (exactTranslation) return exactTranslation;
+
+  if (locale === 'zh-TW') return toTraditionalChinese(textValue);
+
+  return EN_TRANSLATIONS[textValue] ?? translatePattern(locale, textValue) ?? translatePattern('en', textValue) ?? textValue;
 }
 
 function useI18n() {
@@ -1889,14 +2132,38 @@ function isLocaleKey(value: string | null): value is LocaleKey {
   return LANGUAGE_OPTIONS.some((option) => option.key === value);
 }
 
+function localeFromBrowserLanguage(language: string): LocaleKey | undefined {
+  const normalized = language.toLowerCase().replace('_', '-');
+  if (normalized === 'zh-tw' || normalized === 'zh-hk' || normalized === 'zh-mo' || normalized.includes('hant')) return 'zh-TW';
+  if (normalized === 'zh' || normalized.startsWith('zh-cn') || normalized.startsWith('zh-sg') || normalized.includes('hans')) return 'zh-CN';
+  if (normalized.startsWith('en')) return 'en';
+  if (normalized.startsWith('ja')) return 'ja';
+  if (normalized.startsWith('ko')) return 'ko';
+  if (normalized.startsWith('vi')) return 'vi';
+  if (normalized.startsWith('ms')) return 'ms';
+  return undefined;
+}
+
+function browserLocale(): LocaleKey | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+
+  const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  for (const language of languages) {
+    const locale = localeFromBrowserLanguage(language);
+    if (locale) return locale;
+  }
+
+  return undefined;
+}
+
 function initialLocale(): LocaleKey {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
 
   try {
     const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLocaleKey(saved) ? saved : DEFAULT_LOCALE;
+    return isLocaleKey(saved) ? saved : browserLocale() ?? DEFAULT_LOCALE;
   } catch {
-    return DEFAULT_LOCALE;
+    return browserLocale() ?? DEFAULT_LOCALE;
   }
 }
 
@@ -2373,6 +2640,12 @@ function App() {
   );
 
   useEffect(() => {
+    try {
+      document.documentElement.lang = locale;
+    } catch {
+      // document may be unavailable in restricted browser contexts.
+    }
+
     try {
       window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
     } catch {
