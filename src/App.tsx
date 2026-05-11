@@ -1,4 +1,4 @@
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ConnectButton, RainbowKitProvider, darkTheme, type Locale as RainbowKitLocale } from '@rainbow-me/rainbowkit';
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -24,7 +24,7 @@ import {
   Users,
   Wallet,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Address, Hash, Hex } from 'viem';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import {
@@ -60,6 +60,7 @@ type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 
 type LocaleKey = 'zh-CN' | 'zh-TW' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
+type TranslateFn = (text: string) => string;
 
 type LocaleCopy = {
   nav: Record<NavKey, string>;
@@ -571,6 +572,645 @@ const LOCALE_COPY: Record<LocaleKey, LocaleCopy> = {
   },
 };
 
+const EN_TRANSLATIONS: Record<string, string> = {
+  '交易失败，请检查钱包、余额和链上状态后重试。': 'Transaction failed. Check your wallet, balance, and on-chain status, then try again.',
+  '上一页': 'Previous page',
+  '下一页': 'Next page',
+  '切换到当前合约网络': 'Switch to the contract network',
+  '主导航': 'Main navigation',
+  '未连接': 'Not connected',
+  '未配置': 'Not configured',
+  '未设置': 'Not set',
+  '未绑定': 'Not bound',
+  '默认': 'Default',
+  '读取中': 'Loading',
+  '读取失败': 'Read failed',
+  '扫描中': 'Scanning',
+  '未开放': 'Not open',
+  '等待开放': 'Waiting to open',
+  '笔': 'orders',
+  '条': 'rows',
+  '人': 'people',
+  '个': 'items',
+  '天': 'days',
+  '小时': 'hours',
+  '分钟': 'minutes',
+  '秒': 'seconds',
+  '上午场': 'Morning session',
+  '下午场': 'Afternoon session',
+  '休息中': 'Closed',
+  '复投订单': 'Reinvestment order',
+  '入金订单': 'Deposit order',
+  '带单订单': 'Stake order',
+  '提现申请': 'Withdrawal request',
+  '已赎回': 'Redeemed',
+  '可赎回': 'Redeemable',
+  '锁仓中': 'Locked',
+  '已结算': 'Settled',
+  '可结算': 'Settleable',
+  '待结算': 'Pending settlement',
+  '已打款': 'Paid',
+  '已驳回': 'Rejected',
+  '待审核': 'Pending review',
+  '待审': 'pending',
+  '免审批': 'No approval',
+  '历史待审': 'historical pending',
+  '已暂停': 'Paused',
+  '运行中': 'Running',
+  '开启': 'On',
+  '关闭': 'Off',
+  '是': 'Yes',
+  '否': 'No',
+  '有效直推': 'Qualified direct referral',
+  '普通流水': 'Regular volume',
+  '循环引用': 'Circular reference',
+  '切换到': 'Switch to',
+  '返回客户页面': 'Back to customer page',
+  '客户页面': 'Customer page',
+  '链上管理面板': 'On-chain Admin Console',
+  '当前钱包是 Manager，只能查看数据，不能修改合约配置。': 'The current wallet is a Manager. It can view data but cannot change contract settings.',
+  '无权访问 Admin': 'No Admin access',
+  '当前钱包没有 Admin/Manager 权限，正在返回客户页面。': 'The current wallet does not have Admin/Manager permissions. Returning to the customer page.',
+  '需要切换网络': 'Network switch required',
+  '正在验证权限': 'Verifying permissions',
+  '正在读取当前钱包的 Admin/Manager 链上角色。': 'Reading the current wallet Admin/Manager role on-chain.',
+  '请连接管理员钱包': 'Connect an admin wallet',
+  '连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。': 'Connect a wallet with Admin or Manager permissions to enter the console.',
+  '当前钱包没有 Admin/Manager 权限，不能进入后台页面。': 'The current wallet does not have Admin/Manager permissions and cannot enter the console.',
+  '后台未启用': 'Admin console disabled',
+  '合约地址未配置，暂不能进入 Admin 后台。': 'The contract address is not configured, so the Admin console is unavailable.',
+  '数据看板': 'Dashboard',
+  '用户管理': 'Users',
+  '本金订单': 'Principal orders',
+  '收益流水': 'Reward flow',
+  '团队关系': 'Team relationships',
+  '合约配置': 'Contract settings',
+  '权限管理': 'Permissions',
+  '总用户': 'Total users',
+  '总入金': 'Total deposits',
+  '当前本金': 'Current principal',
+  '当前收益': 'Current rewards',
+  '带单流水': 'Stake volume',
+  '静态收益': 'Static rewards',
+  '动态奖励': 'Dynamic rewards',
+  '提现总额': 'Total withdrawals',
+  '待审提现': 'Pending withdrawals',
+  '搜索钱包地址': 'Search wallet address',
+  '输入 0x 地址可直接读取该用户链上资料': 'Enter a 0x address to read that user on-chain profile directly',
+  '正在读取用户索引/事件和链上账户...': 'Reading user index/events and on-chain accounts...',
+  '合约用户索引为空，用户事件读取也失败，已尝试从订单地址兜底回显。请检查线上 RPC 或先执行历史用户同步。': 'The contract user index is empty and user event reads failed. The UI is falling back to order addresses. Check the RPC or run historical user sync.',
+  '暂无注册记录': 'No registration records',
+  '可输入钱包地址，直接查询该用户的链上资料。': 'Enter a wallet address to query that user on-chain profile directly.',
+  '全部用户关系树': 'Full user relationship tree',
+  '暂无用户树': 'No user tree',
+  '用户注册后，会按推荐关系在这里生成层级树。': 'After users register, a hierarchy tree is generated here by referral relationship.',
+  '用户详细信息': 'User details',
+  '未选择': 'None selected',
+  '请选择用户': 'Select a user',
+  '从用户列表或关系树点击钱包地址后，会在这里回显链上明细。': 'Click a wallet address in the user list or tree to show on-chain details here.',
+  '40 代白名单': '40-generation whitelist',
+  '已注册': 'Registered',
+  '未注册': 'Unregistered',
+  '上级': 'Upline',
+  '直推': 'Direct referrals',
+  '本金': 'Principal',
+  '收益': 'Reward',
+  '到账': 'Received',
+  '申请': 'Requested',
+  '创建': 'Created',
+  '解锁': 'Unlock',
+  '结算': 'Settle',
+  '赎回': 'Redeem',
+  '动态': 'Dynamic',
+  '入金': 'Deposit',
+  '本金余额': 'Principal balance',
+  '带单中本金': 'Principal in stake',
+  '收益余额': 'Reward balance',
+  '累计入金': 'Total deposited',
+  '累计带单': 'Total staked',
+  '累计提现': 'Total withdrawn',
+  '动态收益': 'Dynamic rewards',
+  '团队人数': 'Team members',
+  '团队入金': 'Team deposits',
+  '直推用户': 'Direct referrals',
+  '暂无直推用户': 'No direct referrals',
+  '该用户当前没有链上直推记录。': 'This user has no on-chain direct referral records.',
+  '最近订单': 'Recent orders',
+  '暂无订单记录': 'No order records',
+  '该用户暂未产生本金、带单或提现申请。': 'This user has no principal orders, stake orders, or withdrawal requests yet.',
+  '用户入金或复投后，本金订单会自动显示在这里。': 'After users deposit or reinvest, principal orders appear here automatically.',
+  '用户完成带单后，订单会自动显示在这里。': 'After users stake, orders appear here automatically.',
+  '收益结算': 'Reward settlement',
+  '全量一键动态结算': 'One-click dynamic settlement',
+  '全部待结算': 'All pending',
+  '扫描用户': 'Scanned users',
+  '未结算周期': 'Unsettled periods',
+  '有效流水用户': 'Qualified volume users',
+  '预计交易': 'Estimated transactions',
+  '未结算流水': 'Unsettled volume',
+  '自动结算全部未结算动态奖励': 'Settle all pending dynamic rewards',
+  '系统会自动扫描所有已登记用户的已关闭带单周期，并按周期分组提交结算；不需要手动输入地址或周期。': 'The system scans all registered users for closed stake periods and submits settlement grouped by period. No manual address or period input is required.',
+  '正在扫描所有带单周期...': 'Scanning all stake periods...',
+  '全量待结算读取失败，请刷新后重试。': 'Failed to read all pending settlements. Refresh and try again.',
+  '暂无未结算动态奖励。': 'No pending dynamic rewards.',
+  '用户地址': 'User address',
+  '结算周期开始时间': 'Settlement period start',
+  '所选周期：': 'Selected period:',
+  '结算动态奖励': 'Settle dynamic rewards',
+  '结算该用户动态奖励': 'Settle this user dynamic rewards',
+  '周期一键动态结算': 'One-click period settlement',
+  '当前周期': 'Current period',
+  '结算周期': 'Settlement period',
+  '有流水用户': 'Users with volume',
+  '一键动态结算': 'One-click dynamic settlement',
+  '一键结算所选周期': 'Settle selected period',
+  '将结算所选周期内已产生流水且尚未结算的用户。': 'This will settle users with volume in the selected period that have not been settled yet.',
+  '只能结算已经结束的周期，通常选择当前周期的上一期。': 'Only ended periods can be settled. Usually select the period before the current one.',
+  '正在读取候选用户...': 'Reading candidate users...',
+  '暂无待结算用户。': 'No users pending settlement.',
+  '批量用户地址': 'Batch user addresses',
+  '多个地址用逗号或空格分隔': 'Separate multiple addresses with commas or spaces',
+  '批量带单 ID': 'Batch stake IDs',
+  '多个 ID 用逗号或空格分隔': 'Separate multiple IDs with commas or spaces',
+  '批量结算动态奖励': 'Batch settle dynamic rewards',
+  '批量动态结算': 'Batch dynamic settlement',
+  '批量结算带单': 'Batch settle stakes',
+  '批量带单结算': 'Batch stake settlement',
+  '带单流水回显': 'Stake volume display',
+  '本周期带单笔数': 'Stake orders this period',
+  '本周期带单流水': 'Stake volume this period',
+  '未结算带单': 'Unsettled stakes',
+  '最近带单流水': 'Recent stake volume',
+  '暂无带单流水': 'No stake volume',
+  '这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。': 'This reads stakeOrders(id) directly. User stakes appear here even before settlement.',
+  '暂无流水事件': 'No flow events',
+  '流水来自合约事件日志，会按区块倒序读取最近链上记录。': 'Flow data comes from contract event logs and reads recent on-chain records in descending block order.',
+  '提现申请处理': 'Withdrawal handling',
+  '审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。': 'Approval deducts the requested amount from the current Admin wallet and pays the user wallet. Make sure this wallet has enough USDT.',
+  '当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。': 'Withdrawal approval is off. New withdrawals are paid automatically from the reward pool; this page only handles pending requests left before approval was disabled.',
+  '待审申请': 'Pending requests',
+  '待审金额': 'Pending amount',
+  '奖励池余额': 'Reward pool balance',
+  '奖励池与合约出金': 'Reward pool and contract payout',
+  '奖励池充值 U': 'Fund reward pool U',
+  '合约奖励池余额': 'Contract reward pool balance',
+  '充值奖励池': 'Fund reward pool',
+  '授权 USDT': 'Approve USDT',
+  '合约出金接收地址': 'Contract payout receiver',
+  '合约出金金额 U': 'Contract payout amount U',
+  '提走合约 USDT': 'Withdraw contract USDT',
+  '仅 Super Admin 可提走合约奖励池当前持有的 USDT。': 'Only Super Admin can withdraw USDT currently held by the contract reward pool.',
+  '提现申请列表': 'Withdrawal requests',
+  '用户提交提现后，会在这里等待 Admin 审批。': 'After users submit withdrawals, they wait here for Admin approval.',
+  '免审批提现会自动打款并直接显示为已打款记录。': 'Approval-free withdrawals pay automatically and appear directly as paid records.',
+  '上级钱包地址': 'Upline wallet address',
+  '留空默认读取当前钱包的直推': 'Leave blank to read direct referrals of the current wallet',
+  '暂无直推关系': 'No direct referral relationships',
+  '团队关系通过 getDirectReferrals(root) 和 users(address) 读取。': 'Team relationships are read through getDirectReferrals(root) and users(address).',
+  '当前收益率': 'Current yield',
+  '最低入金': 'Minimum deposit',
+  '提现手续费': 'Withdrawal fee',
+  '锁仓周期': 'Lock period',
+  '动态结算周期': 'Dynamic settlement cycle',
+  '合约状态': 'Contract status',
+  '默认推荐人': 'Default referrer',
+  '提现审批': 'Withdrawal approval',
+  '下个入金钱包': 'Next deposit wallet',
+  '单次收益率 %': 'Yield per stake %',
+  '提现手续费 U': 'Withdrawal fee U',
+  '最低收益率 %': 'Minimum yield %',
+  '最高收益率 %': 'Maximum yield %',
+  '提现需要 Admin 审批': 'Withdrawals require Admin approval',
+  '用户提现会进入待审列表，由 Admin 审批打款。': 'User withdrawals enter the pending list and are paid by Admin approval.',
+  '用户提现会从合约奖励池自动打款，请确保奖励池余额充足。': 'User withdrawals are paid automatically from the contract reward pool. Keep the pool funded.',
+  '关闭提现审批': 'Disable withdrawal approval',
+  '开启提现审批': 'Enable withdrawal approval',
+  '设置收益率': 'Set yield',
+  '保存收益率': 'Save yield',
+  '设置提现手续费': 'Set withdrawal fee',
+  '保存手续费': 'Save fee',
+  '设置收益率上下限': 'Set yield bounds',
+  '保存收益率范围': 'Save yield range',
+  '金额与时间规则': 'Amount and time rules',
+  '单笔最小 U': 'Minimum per order U',
+  '单笔最大 U': 'Maximum per order U',
+  '本金上限 U': 'Principal cap U',
+  '锁仓天数': 'Lock days',
+  '有效流水门槛 U': 'Qualified volume threshold U',
+  '手续费接收地址': 'Fee receiver address',
+  '默认推荐人地址': 'Default referrer address',
+  '留空则关闭默认推荐人': 'Leave blank to disable default referrer',
+  '入金收款钱包': 'Deposit receiver wallet',
+  '设置金额规则': 'Set amount rules',
+  '保存金额规则': 'Save amount rules',
+  '设置锁仓周期': 'Set lock period',
+  '保存锁仓周期': 'Save lock period',
+  '设置有效流水门槛': 'Set qualified volume threshold',
+  '保存有效门槛': 'Save threshold',
+  '设置手续费接收地址': 'Set fee receiver address',
+  '保存手续费地址': 'Save fee address',
+  '设置默认推荐人': 'Set default referrer',
+  '保存默认推荐人': 'Save default referrer',
+  '设置入金收款钱包': 'Set deposit receiver wallets',
+  '保存5个收款钱包': 'Save 5 receiver wallets',
+  '动态结算与上下场次': 'Dynamic settlement and sessions',
+  '测试环境可把结算周期调短，并把上午场、下午场压缩到同一个周期内。': 'In test environments, you can shorten the settlement cycle and compress the morning/afternoon sessions into one cycle.',
+  '动态奖励结算周期（分钟）': 'Dynamic reward settlement cycle (minutes)',
+  '当前：': 'Current: ',
+  '场次时区': 'Session timezone',
+  'UTC+8（东八区，链上自动识别）': 'UTC+8 (East Asia, detected on-chain)',
+  '上午场开始': 'Morning session start',
+  '上午场结束': 'Morning session end',
+  '下午场开始': 'Afternoon session start',
+  '下午场结束': 'Afternoon session end',
+  '设置动态奖励结算周期': 'Set dynamic reward settlement cycle',
+  '保存动态结算周期': 'Save dynamic cycle',
+  '设置带单场次': 'Set stake sessions',
+  '保存上下午时间范围': 'Save session time ranges',
+  '代数与合约状态': 'Generations and contract status',
+  '代数': 'Generation',
+  '代数奖励 %': 'Generation reward %',
+  '设置代数奖励比例': 'Set generation reward rate',
+  '保存代数奖励比例': 'Save generation reward rate',
+  '暂停合约': 'Pause contract',
+  '暂停': 'Pause',
+  '恢复合约': 'Unpause contract',
+  '恢复': 'Unpause',
+  '权限与白名单': 'Permissions and whitelist',
+  '钱包地址': 'Wallet address',
+  'Admin 权限': 'Admin permission',
+  'Manager 权限': 'Manager permission',
+  '直推数': 'Direct count',
+  '开启 40 代白名单': 'Enable 40-generation whitelist',
+  '关闭 40 代白名单': 'Disable 40-generation whitelist',
+  '授予 Manager 权限': 'Grant Manager permission',
+  '撤销 Manager 权限': 'Revoke Manager permission',
+  '授予 Admin 权限': 'Grant Admin permission',
+  '撤销 Admin 权限': 'Revoke Admin permission',
+  '转移 Owner 权限': 'Transfer Owner permission',
+  '转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。': 'After transfer, the new address receives Admin/Manager permissions and the current wallet loses them. If the default referrer still points to the current wallet, it will be synced to the new Owner.',
+  '这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。': 'This is a high-risk action. After confirmation, the new address receives Admin/Manager permissions and the current wallet loses management access.',
+  '当前钱包': 'Current wallet',
+  '新 Owner': 'New Owner',
+  '如仍指向当前钱包，将同步到新 Owner': 'If it still points to the current wallet, it will be synced to the new Owner',
+  '取消': 'Cancel',
+  '确认转移': 'Confirm transfer',
+  '请输入推荐人钱包地址。': 'Enter a referrer wallet address.',
+  '请输入有效的钱包地址。': 'Enter a valid wallet address.',
+  '推荐人不能是当前钱包。': 'The referrer cannot be the current wallet.',
+  '绑定推荐人': 'Bind referrer',
+  '当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。': 'The current wallet does not have a referrer. Binding writes the referral relationship on-chain and cannot be changed after confirmation.',
+  '当前钱包还没有推荐人。系统已填入默认推荐人，绑定后不可更改。': 'The current wallet does not have a referrer. The default referrer has been filled in and cannot be changed after binding.',
+  '推荐人地址': 'Referrer address',
+  '稍后绑定': 'Bind later',
+  '带单': 'Stake',
+  '带单金额': 'Stake amount',
+  '可带单': 'Stakeable',
+  '链上场次': 'On-chain session',
+  '东八区': 'UTC+8',
+  '预计收益': 'Estimated reward',
+  '确认带单': 'Confirm stake',
+  '正在读取链上场次，请稍候。': 'Reading on-chain session. Please wait.',
+  '当前场次未开放，请等待下一场开启。': 'The current session is not open. Wait for the next session.',
+  '带单金额不能超过可带单余额。': 'Stake amount cannot exceed the stakeable balance.',
+  '授权并入金': 'Approve and deposit',
+  '确认入金': 'Confirm deposit',
+  '链上入金': 'On-chain deposit',
+  '入金金额': 'Deposit amount',
+  '新用户入金时，将使用推荐人：': 'New user deposits will use referrer:',
+  '申请提现': 'Request withdrawal',
+  '确认提现': 'Confirm withdrawal',
+  '提现手续费 ': 'Withdrawal fee ',
+  '，预计到账 ': ', estimated received ',
+  '，提交后需后台审批打款。': ', requires Admin approval after submission.',
+  '预计到账': 'Estimated received',
+  '提交后需后台审批打款。': 'Requires Admin approval after submission.',
+  '复投金额不能超过收益钱包余额。': 'Reinvestment amount cannot exceed the reward wallet balance.',
+  '提现金额不能超过收益钱包余额。': 'Withdrawal amount cannot exceed the reward wallet balance.',
+  '提现金额必须大于手续费。': 'Withdrawal amount must be greater than the fee.',
+  '收益钱包': 'Reward wallet',
+  '可用收益': 'Available rewards',
+  '静态累计': 'Static total',
+  '带单按次结算': 'Settled per stake',
+  '动态累计': 'Dynamic total',
+  '每日 0 点后可结算': 'Settleable after 00:00 daily',
+  '复投金额': 'Reinvestment amount',
+  '提现金额': 'Withdrawal amount',
+  '可用': 'Available',
+  '收益复投': 'Reward reinvestment',
+  '复投': 'Reinvest',
+  '动态收益结算': 'Dynamic reward settlement',
+  '领取动态收益': 'Claim dynamic rewards',
+  '链上动态累计': 'On-chain dynamic total',
+  '已进入收益钱包': 'Credited to reward wallet',
+  '待结算动态': 'Pending dynamic rewards',
+  '动态收益明细': 'Dynamic reward details',
+  '最近结算': 'Latest settlement',
+  '最近来源': 'Latest source',
+  '最近奖励': 'Latest reward',
+  '正在读取动态明细': 'Reading dynamic reward details',
+  '明细来自合约 history，确认后会自动出现在这里。': 'Details come from contract history and appear here automatically after confirmation.',
+  '动态明细读取失败': 'Failed to read dynamic details',
+  '链上动态奖励 history 读取失败，请稍后重试。': 'Failed to read on-chain dynamic reward history. Try again later.',
+  '暂无动态收益明细': 'No dynamic reward details',
+  '已显示': 'Showing',
+  '点击加载更多': 'Load more',
+  '待结算动态收益': 'Pending dynamic rewards',
+  '扫描周期': 'Scanned periods',
+  '团队来源': 'Team sources',
+  '待结算笔数': 'Pending items',
+  '待结算金额': 'Pending amount',
+  '领取待结算动态收益': 'Claim pending dynamic rewards',
+  '由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
+  '正在读取待结算动态收益': 'Reading pending dynamic rewards',
+  '正在读取直推关系、已关闭周期流水和动态奖励比例。': 'Reading direct referrals, closed-period volume, and dynamic reward rates.',
+  '待结算动态收益读取失败': 'Failed to read pending dynamic rewards',
+  '链上读取失败，请检查网络后重试。': 'On-chain read failed. Check the network and try again.',
+  '领取单条动态收益': 'Claim one dynamic reward',
+  '暂无待结算动态收益': 'No pending dynamic rewards',
+  '下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。': 'When downlines have closed-period stake volume within eligible generations and are not settled, they appear here.',
+  '待结算 ': 'Pending ',
+  '周期': 'Period',
+  '代': 'generations',
+  '比例': 'Rate',
+  '/ 比例': '/ Rate',
+  '流水': 'Volume',
+  '领取': 'Claim',
+  '来自': 'From',
+  '我的推荐人': 'My referrer',
+  '团队充值总业绩': 'Team total deposits',
+  '累计下级入金': 'Cumulative downline deposits',
+  '含所有下级成员': 'Includes all downline members',
+  '直推列表': 'Direct referral list',
+  '暂无直推数据': 'No direct referral data',
+  '我的资料': 'My profile',
+  'USDT 合约': 'USDT contract',
+  '业务合约': 'Business contract',
+  '网络': 'Network',
+  '已复制': 'Copied',
+  '复制失败，请手动复制': 'Copy failed. Copy manually.',
+  '分享给新用户绑定推荐关系': 'Share with new users to bind referral relationship',
+  '推广链接': 'Referral link',
+  '我的推广链接': 'My referral link',
+  '复制推广链接': 'Copy referral link',
+  '暂无推广链接': 'No referral link',
+  '已取消连接': 'Connection cancelled',
+  '未检测到钱包': 'Wallet not detected',
+  '连接失败，请重新打开钱包授权后再试。': 'Connection failed. Reopen your wallet authorization and try again.',
+  '钱包': 'Wallet',
+  '连接中...': 'Connecting...',
+  '连接失败': 'Connection failed',
+  '连接钱包': 'Connect wallet',
+  '网络错误': 'Network error',
+  '提交提现后，提现记录会在这里显示。': 'After submitting a withdrawal, records appear here.',
+  '暂无提现申请': 'No withdrawal requests',
+  '暂无本金订单': 'No principal orders',
+  '暂无带单订单': 'No stake orders',
+  '带单后会从 stakeOrders(id) 读取显示。': 'After staking, data is read from stakeOrders(id) and shown here.',
+  '单日流水': 'Daily volume',
+  '本周期流水': 'Current period volume',
+  '赎回周期': 'Redemption cycle',
+  '保存': 'Save',
+  '审批提现': 'Approve withdrawal',
+  '授权出款 USDT': 'Approve payout USDT',
+  '审批并打款': 'Approve and pay',
+  '审批打款': 'Approve payout',
+  '驳回提现': 'Reject withdrawal',
+  '驳回': 'Reject',
+  '区块': 'Block',
+  '链上事件': 'On-chain event',
+  '查看交易': 'View transaction',
+  '等待钱包确认': 'Waiting for wallet confirmation',
+  '交易已提交，等待链上确认': 'Transaction submitted. Waiting for on-chain confirmation',
+  '交易已确认': 'Transaction confirmed',
+  'RPC 客户端未初始化，请刷新页面后重试。': 'RPC client is not initialized. Refresh the page and try again.',
+  '交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。': 'Transaction was submitted, but on-chain execution failed. Open BscScan to view the reason.',
+  '你已取消钱包确认，交易未提交。': 'You cancelled wallet confirmation. The transaction was not submitted.',
+  '合约当前已暂停，暂不能执行该操作。': 'The contract is currently paused. This action is unavailable.',
+  '当前钱包没有执行该操作的权限。': 'The current wallet does not have permission to perform this action.',
+  'USDT 授权额度不足，请先完成授权后再入金。': 'USDT allowance is insufficient. Approve first, then deposit.',
+  'USDT 余额不足，请降低金额或先补充余额。': 'USDT balance is insufficient. Lower the amount or add funds.',
+  '钱包 BNB 余额不足，无法支付 Gas。': 'Wallet BNB balance is insufficient to pay gas.',
+  '钱包未连接或已断开，请重新连接钱包。': 'Wallet is not connected or was disconnected. Reconnect the wallet.',
+  '钱包网络不正确，请切换网络后重试。': 'Wallet network is incorrect. Switch networks and try again.',
+  '钱包无法识别或估算这笔交易，请确认网络和 Gas 余额后重试。': 'The wallet could not recognize or estimate this transaction. Confirm the network and gas balance, then try again.',
+  '链上网络请求失败，请稍后重试或切换 RPC。': 'On-chain network request failed. Try later or switch RPC.',
+  '合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。': 'The contract rejected this transaction. Check amount, balance, session, and permissions, then try again.',
+  '当前钱包没有超级管理员权限，无法执行该操作。': 'The current wallet does not have Super Admin permission for this action.',
+  '上一笔交易仍在处理中，请稍后再试。': 'The previous transaction is still processing. Try again later.',
+  'USDT 合约地址未配置。': 'USDT contract address is not configured.',
+  '合约管理员地址未配置。': 'Contract owner address is not configured.',
+  '新 Owner 不能与当前钱包相同。': 'The new Owner cannot be the current wallet.',
+  '手续费接收地址不能为空。': 'Fee receiver address cannot be empty.',
+  '本金钱包已达到上限，请降低金额或先处理现有本金。': 'The principal wallet has reached the cap. Lower the amount or handle existing principal first.',
+  '当前不在带单时间段，请在开放场次内提交。': 'The current time is outside the staking window. Submit during an open session.',
+  '当前场次已经带单过，每个钱包每场限 1 单。': 'This wallet has already staked in the current session. Each wallet is limited to 1 order per session.',
+  '可用本金不足，请降低带单金额或先赎回到期本金。': 'Available principal is insufficient. Lower the stake amount or redeem matured principal first.',
+  '该订单不属于当前钱包。': 'This order does not belong to the current wallet.',
+  '该本金订单已关闭或已赎回。': 'This principal order is closed or already redeemed.',
+  '该本金订单尚未到期，暂不能赎回。': 'This principal order has not matured and cannot be redeemed yet.',
+  '当前钱包尚未注册，请先完成入金或注册。': 'The current wallet is not registered. Deposit or register first.',
+  '收益钱包余额不足。': 'Reward wallet balance is insufficient.',
+  '合约奖励池余额不足，暂不能免审批自动打款。请联系 Admin 补充奖励池或开启审批。': 'The contract reward pool balance is insufficient for approval-free automatic payout. Contact Admin to fund the pool or enable approval.',
+  '请输入大于 0 的金额。': 'Enter an amount greater than 0.',
+  '不能移除当前登录钱包自己的管理员权限。': 'You cannot remove admin permission from the currently connected wallet.',
+  '收益率超出后台允许范围。': 'Yield is outside the allowed Admin range.',
+  '收益率上下限设置不正确。': 'Yield bounds are invalid.',
+  '当前收益率不在新的上下限内，请先调整当前收益率。': 'The current yield is outside the new bounds. Adjust the current yield first.',
+  '最低金额必须大于 0。': 'Minimum amount must be greater than 0.',
+  '最低金额不能高于最高金额。': 'Minimum amount cannot be greater than maximum amount.',
+  '单笔最高金额不能超过本金上限。': 'Maximum per-order amount cannot exceed the principal cap.',
+  '锁定周期不能少于 1 天。': 'Lock period cannot be less than 1 day.',
+  '有效流水门槛必须大于 0。': 'Qualified volume threshold must be greater than 0.',
+  '上午场开始时间必须早于结束时间。': 'Morning session start must be earlier than end.',
+  '上午场和下午场时间不能重叠。': 'Morning and afternoon sessions cannot overlap.',
+  '下午场开始时间必须早于结束时间。': 'Afternoon session start must be earlier than end.',
+  '场次时间不能超过一天。': 'Session time cannot exceed one day.',
+  '请输入有效的场次时间，例如 09:00 或 13:30。': 'Enter a valid session time, such as 09:00 or 13:30.',
+  '场次时区固定为东八区，后台仅可调整上下午时间范围。': 'Session timezone is fixed to UTC+8. Admin can only adjust morning and afternoon ranges.',
+  '时区偏移必须在 -12 到 +14 小时之间。': 'Timezone offset must be between -12 and +14 hours.',
+  '代数必须在 1 到 40 之间。': 'Generation must be between 1 and 40.',
+  '代数奖励比例不能超过 1%。': 'Generation reward rate cannot exceed 1%.',
+  '带单订单不存在，请检查订单 ID。': 'Stake order does not exist. Check the order ID.',
+  '该带单订单已经结算。': 'This stake order has already been settled.',
+  '带单订单尚未到结算时间。': 'This stake order has not reached settlement time.',
+  '只能结算已结束的周期。': 'Only ended periods can be settled.',
+  '该用户该周期动态奖励已经结算。': 'This user dynamic reward for this period has already been settled.',
+  '推荐人不能填写当前钱包自己。': 'The referrer cannot be the current wallet.',
+  '金额低于合约最低限制。': 'Amount is below the contract minimum.',
+  '金额高于合约最高限制。': 'Amount is above the contract maximum.',
+  '金额最多支持两位小数。': 'Amount supports at most two decimal places.',
+  '合约时间配置异常，请联系管理员。': 'Contract time configuration is abnormal. Contact the administrator.',
+  '合约日期配置异常，请联系管理员。': 'Contract date configuration is abnormal. Contact the administrator.',
+};
+
+const TEXT_TRANSLATIONS: Partial<Record<LocaleKey, Record<string, string>>> = {
+  en: EN_TRANSLATIONS,
+  ja: EN_TRANSLATIONS,
+  ko: EN_TRANSLATIONS,
+  vi: EN_TRANSLATIONS,
+  ms: EN_TRANSLATIONS,
+  'zh-TW': {
+    ...EN_TRANSLATIONS,
+    '交易失败，请检查钱包、余额和链上状态后重试。': '交易失敗，請檢查錢包、餘額和鏈上狀態後重試。',
+    '未连接': '未連接',
+    '未配置': '未設定',
+    '未设置': '未設定',
+    '未绑定': '未綁定',
+    '读取中': '讀取中',
+    '读取失败': '讀取失敗',
+    '扫描中': '掃描中',
+    '钱包': '錢包',
+    '连接钱包': '連接錢包',
+    '连接中...': '連接中...',
+    '连接失败': '連接失敗',
+    '网络错误': '網路錯誤',
+    '查看交易': '查看交易',
+    '等待钱包确认': '等待錢包確認',
+    '交易已提交，等待链上确认': '交易已提交，等待鏈上確認',
+    '交易已确认': '交易已確認',
+  },
+};
+
+type LocaleContextValue = {
+  locale: LocaleKey;
+  copy: LocaleCopy;
+  setLocale: (locale: LocaleKey) => void;
+  t: TranslateFn;
+};
+
+const LocaleContext = createContext<LocaleContextValue | undefined>(undefined);
+
+function translatePattern(locale: LocaleKey, textValue: string): string | undefined {
+  const t = (value: string): string => translateText(locale, value);
+  let match = textValue.match(/^(.+) #(\d+)$/);
+  if (match) return `${t(match[1])} #${match[2]}`;
+
+  match = textValue.match(/^切换到 (.+)$/);
+  if (match) return `${t('切换到')} ${match[1]}`;
+
+  match = textValue.match(/^已显示 (\d+) \/ (\d+) 条$/);
+  if (match) return `Showing ${match[1]} / ${match[2]} rows`;
+
+  match = textValue.match(/^最近 (\d+) 期$/);
+  if (match) return `Last ${match[1]} periods`;
+
+  match = textValue.match(/^(\d+) 人$/);
+  if (match) return `${match[1]} ${t('人')}`;
+
+  match = textValue.match(/^(\d+) 笔$/);
+  if (match) return `${match[1]} ${t('笔')}`;
+
+  match = textValue.match(/^(\d+) 条$/);
+  if (match) return `${match[1]} ${t('条')}`;
+
+  match = textValue.match(/^(\d+) 个$/);
+  if (match) return `${match[1]} ${t('个')}`;
+
+  match = textValue.match(/^(\d+) 待结算$/);
+  if (match) return `${match[1]} pending`;
+
+  match = textValue.match(/^(.+) 用户 \/ 有效 (.+)$/);
+  if (match) return `${match[1]} users / ${match[2]} valid`;
+
+  match = textValue.match(/^还有 (.+) 个周期未显示。$/);
+  if (match) return `${match[1]} more periods are hidden.`;
+
+  match = textValue.match(/^还有 (.+) 个用户未显示。$/);
+  if (match) return `${match[1]} more users are hidden.`;
+
+  match = textValue.match(/^链上已有 (.+) 个用户，但当前合约用户索引为空。升级后需要执行 syncRegisteredUsers 同步历史用户。$/);
+  if (match) return `There are ${match[1]} on-chain users, but the current contract user index is empty. Run syncRegisteredUsers after upgrade to sync historical users.`;
+
+  match = textValue.match(/^当前仅回显 (.+) \/ (.+) 个链上用户。要完全一致，请用 syncRegisteredUsers 补齐历史用户索引。$/);
+  if (match) return `Currently showing only ${match[1]} / ${match[2]} on-chain users. Use syncRegisteredUsers to complete the historical user index.`;
+
+  match = textValue.match(/^周期 (.+)$/);
+  if (match) return `${t('周期')} ${match[1]}`;
+
+  match = textValue.match(/^流水 (.+) U$/);
+  if (match) return `${t('流水')} ${match[1]} U`;
+
+  match = textValue.match(/^本金 (.+) U$/);
+  if (match) return `${t('本金')} ${match[1]} U`;
+
+  match = textValue.match(/^收益 (.+) U$/);
+  if (match) return `${t('收益')} ${match[1]} U`;
+
+  match = textValue.match(/^申请 (.+) U$/);
+  if (match) return `Requested ${match[1]} U`;
+
+  match = textValue.match(/^到账 (.+) U$/);
+  if (match) return `Received ${match[1]} U`;
+
+  match = textValue.match(/^手续费 (.+) U$/);
+  if (match) return `Fee ${match[1]} U`;
+
+  match = textValue.match(/^创建 (.+) \/ 解锁 (.+)$/);
+  if (match) return `Created ${match[1]} / Unlocks ${match[2]}`;
+
+  match = textValue.match(/^到账 (.+) \/ 手续费 (.+) \/ 申请 (.+)$/);
+  if (match) return `Received ${match[1]} / Fee ${match[2]} / Requested ${match[3]}`;
+
+  match = textValue.match(/^(.+) \/ 收益 (.+) \/ 结算 (.+)$/);
+  if (match) return `${t(match[1])} / Reward ${match[2]} / Settlement ${match[3]}`;
+
+  match = textValue.match(/^(.+) \/ 申请 (.+) \/ (.+)$/);
+  if (match) return `${match[1]} / Requested ${match[2]} / ${t(match[3])}`;
+
+  match = textValue.match(/^(.+) \/ 周期 (.+)$/);
+  if (match) return `${match[1]} / Period ${match[2]}`;
+
+  match = textValue.match(/^(\d+) 天$/);
+  if (match) return `${match[1]} ${t('天')}`;
+
+  match = textValue.match(/^(\d+) 小时$/);
+  if (match) return `${match[1]} ${t('小时')}`;
+
+  match = textValue.match(/^(\d+) 分钟$/);
+  if (match) return `${match[1]} ${t('分钟')}`;
+
+  match = textValue.match(/^(\d+) 秒$/);
+  if (match) return `${match[1]} ${t('秒')}`;
+
+  return undefined;
+}
+
+function translateText(locale: LocaleKey, textValue: string): string {
+  if (locale === 'zh-CN' || !/[\u4e00-\u9fff]/.test(textValue)) return textValue;
+  return TEXT_TRANSLATIONS[locale]?.[textValue] ?? translatePattern(locale, textValue) ?? textValue;
+}
+
+function useI18n() {
+  const context = useContext(LocaleContext);
+  if (!context) {
+    return {
+      locale: DEFAULT_LOCALE,
+      copy: LOCALE_COPY[DEFAULT_LOCALE],
+      setLocale: () => undefined,
+      t: (textValue: string) => textValue,
+    };
+  }
+  return context;
+}
+
+function rainbowKitLocaleForLocale(locale: LocaleKey): RainbowKitLocale {
+  const localeMap: Record<LocaleKey, RainbowKitLocale> = {
+    'zh-CN': 'zh-CN',
+    'zh-TW': 'zh-TW',
+    en: 'en-US',
+    ja: 'ja-JP',
+    ko: 'ko-KR',
+    vi: 'vi-VN',
+    ms: 'ms-MY',
+  };
+  return localeMap[locale];
+}
+
+function localizeNode(locale: LocaleKey, value: React.ReactNode) {
+  return typeof value === 'string' ? translateText(locale, value) : value;
+}
+
 const CONTRACT_ERROR_MESSAGES: readonly [needle: string, message: string][] = [
   ['not super admin', '当前钱包没有超级管理员权限，无法执行该操作。'],
   ['reentrant call', '上一笔交易仍在处理中，请稍后再试。'],
@@ -1063,7 +1703,7 @@ function shanghaiDateTimeParts(timestampSeconds: bigint) {
 
 function shanghaiDateTimeLabel(timestampSeconds: bigint) {
   const parts = shanghaiDateTimeParts(timestampSeconds);
-  return parts ? `${parts.year}年${parts.month}月${parts.day}日 ${parts.hour}:${parts.minute}` : '--';
+  return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` : '--';
 }
 
 function effectiveSettlementCycle(day: bigint, settlementCycle: bigint) {
@@ -1188,6 +1828,7 @@ function PaginationControls({
   end: number;
   onPageChange: (page: number) => void;
 }) {
+  const { t } = useI18n();
   if (totalPages <= 1) return null;
 
   return (
@@ -1199,7 +1840,7 @@ function PaginationControls({
           className="pagination-button"
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          aria-label="上一页"
+          aria-label={t('上一页')}
         >
           <ChevronLeft size={16} />
         </button>
@@ -1209,7 +1850,7 @@ function PaginationControls({
           className="pagination-button"
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          aria-label="下一页"
+          aria-label={t('下一页')}
         >
           <ChevronRight size={16} />
         </button>
@@ -1335,7 +1976,7 @@ function currentUnixSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
-function formatCountdown(targetAt: bigint, nowSeconds: number) {
+function formatCountdown(targetAt: bigint, nowSeconds: number, locale: LocaleKey = DEFAULT_LOCALE) {
   const remaining = Math.max(0, Number(targetAt - BigInt(nowSeconds)));
   const days = Math.floor(remaining / SECONDS_PER_DAY);
   const hours = Math.floor((remaining % SECONDS_PER_DAY) / SECONDS_PER_HOUR);
@@ -1343,7 +1984,7 @@ function formatCountdown(targetAt: bigint, nowSeconds: number) {
   const seconds = remaining % 60;
   const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
 
-  return `${days}天 ${clock}`;
+  return `${days} ${translateText(locale, '天')} ${clock}`;
 }
 
 function principalStatusLabelForLocale(order: PrincipalOrderData, copy: LocaleCopy, nowSeconds = currentUnixSeconds()) {
@@ -1356,9 +1997,9 @@ function stakeStatusLabelForLocale(order: StakeOrderData, copy: LocaleCopy, nowS
   return BigInt(nowSeconds) >= order.settleAt ? copy.status.settleable : copy.status.pending;
 }
 
-function principalOrderHomeTime(order: PrincipalOrderData, copy: LocaleCopy, nowSeconds: number) {
+function principalOrderHomeTime(order: PrincipalOrderData, copy: LocaleCopy, nowSeconds: number, locale: LocaleKey = DEFAULT_LOCALE) {
   if (order.status === 1) return `${copy.order.unlock} ${dateTime(order.unlockAt)}`;
-  if (BigInt(nowSeconds) < order.unlockAt) return `${copy.order.unlock} ${formatCountdown(order.unlockAt, nowSeconds)}`;
+  if (BigInt(nowSeconds) < order.unlockAt) return `${copy.order.unlock} ${formatCountdown(order.unlockAt, nowSeconds, locale)}`;
   return `${copy.status.redeemable} / ${copy.order.unlock} ${dateTime(order.unlockAt)}`;
 }
 
@@ -1455,7 +2096,7 @@ function collectErrorParts(error: unknown, seen = new Set<unknown>()) {
   return [...new Set(parts)];
 }
 
-function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' | 'rawError'> {
+function normalizeTxError(error: unknown, t: TranslateFn = (textValue) => textValue): Pick<TxState, 'error' | 'errorKind' | 'rawError'> {
   const rawError = collectErrorParts(error).join('\n');
   const lower = rawError.toLowerCase();
 
@@ -1466,25 +2107,25 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('rejected the request') ||
     lower.includes('denied transaction signature')
   ) {
-    return { error: '你已取消钱包确认，交易未提交。', errorKind: 'userRejected', rawError };
+    return { error: t('你已取消钱包确认，交易未提交。'), errorKind: 'userRejected', rawError };
   }
 
   for (const [needle, message] of CONTRACT_ERROR_MESSAGES) {
     if (lower.includes(needle)) {
-      return { error: message, errorKind: 'contract', rawError };
+      return { error: t(message), errorKind: 'contract', rawError };
     }
   }
 
   if (lower.includes('enforcedpause')) {
-    return { error: '合约当前已暂停，暂不能执行该操作。', errorKind: 'contract', rawError };
+    return { error: t('合约当前已暂停，暂不能执行该操作。'), errorKind: 'contract', rawError };
   }
 
   if (lower.includes('accesscontrolunauthorizedaccount')) {
-    return { error: '当前钱包没有执行该操作的权限。', errorKind: 'contract', rawError };
+    return { error: t('当前钱包没有执行该操作的权限。'), errorKind: 'contract', rawError };
   }
 
   if (lower.includes('erc20insufficientallowance') || lower.includes('insufficient allowance')) {
-    return { error: 'USDT 授权额度不足，请先完成授权后再入金。', errorKind: 'allowance', rawError };
+    return { error: t('USDT 授权额度不足，请先完成授权后再入金。'), errorKind: 'allowance', rawError };
   }
 
   if (
@@ -1492,11 +2133,11 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('transfer amount exceeds balance') ||
     lower.includes('exceeds balance')
   ) {
-    return { error: 'USDT 余额不足，请降低金额或先补充余额。', errorKind: 'balance', rawError };
+    return { error: t('USDT 余额不足，请降低金额或先补充余额。'), errorKind: 'balance', rawError };
   }
 
   if (lower.includes('insufficient funds for gas') || lower.includes('insufficient funds')) {
-    return { error: '钱包 BNB 余额不足，无法支付 Gas。', errorKind: 'balance', rawError };
+    return { error: t('钱包 BNB 余额不足，无法支付 Gas。'), errorKind: 'balance', rawError };
   }
 
   if (
@@ -1506,7 +2147,7 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('switch chain') ||
     lower.includes('not connected to requested chain')
   ) {
-    return { error: `钱包网络不正确，请切换到 ${selectedBscChain.name} 后重试。`, errorKind: 'network', rawError };
+    return { error: `${t('钱包网络不正确，请切换网络后重试。')} ${selectedBscChain.name}`, errorKind: 'network', rawError };
   }
 
   if (
@@ -1516,7 +2157,7 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('wallet is not connected') ||
     lower.includes('disconnected')
   ) {
-    return { error: '钱包未连接或已断开，请重新连接钱包。', errorKind: 'wallet', rawError };
+    return { error: t('钱包未连接或已断开，请重新连接钱包。'), errorKind: 'wallet', rawError };
   }
 
   if (
@@ -1526,7 +2167,7 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('gas required exceeds allowance') ||
     lower.includes('intrinsic gas too low')
   ) {
-    return { error: `钱包无法识别或估算这笔交易，请确认当前网络为 ${selectedBscChain.name}、钱包有足够 BNB 支付 Gas 后重试。`, errorKind: 'wallet', rawError };
+    return { error: `${t('钱包无法识别或估算这笔交易，请确认网络和 Gas 余额后重试。')} ${selectedBscChain.name}`, errorKind: 'wallet', rawError };
   }
 
   if (
@@ -1536,15 +2177,15 @@ function normalizeTxError(error: unknown): Pick<TxState, 'error' | 'errorKind' |
     lower.includes('timeout') ||
     lower.includes('rpc')
   ) {
-    return { error: '链上网络请求失败，请稍后重试或切换 RPC。', errorKind: 'rpc', rawError };
+    return { error: t('链上网络请求失败，请稍后重试或切换 RPC。'), errorKind: 'rpc', rawError };
   }
 
   if (lower.includes('execution reverted') || (lower.includes('contract function') && lower.includes('reverted'))) {
-    return { error: '合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。', errorKind: 'contract', rawError };
+    return { error: t('合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。'), errorKind: 'contract', rawError };
   }
 
   return {
-    error: DEFAULT_TX_ERROR,
+    error: t(DEFAULT_TX_ERROR),
     errorKind: 'unknown',
     rawError,
   };
@@ -1719,8 +2360,40 @@ function buildUserTree(rows: AdminUserRow[]) {
 
 function App() {
   const isAdminRoute = window.location.pathname.startsWith('/admin');
+  const [locale, setLocale] = useState<LocaleKey>(initialLocale);
+  const copy = LOCALE_COPY[locale];
+  const localeContext = useMemo<LocaleContextValue>(
+    () => ({
+      locale,
+      copy,
+      setLocale,
+      t: (textValue: string) => translateText(locale, textValue),
+    }),
+    [copy, locale],
+  );
 
-  return isAdminRoute ? <AdminConsole /> : <CustomerApp />;
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
+    } catch {
+      // localStorage may be unavailable in restricted browser contexts.
+    }
+  }, [locale]);
+
+  return (
+    <LocaleContext.Provider value={localeContext}>
+      <RainbowKitProvider
+        locale={rainbowKitLocaleForLocale(locale)}
+        theme={darkTheme({
+          accentColor: '#111111',
+          accentColorForeground: '#ffffff',
+          borderRadius: 'medium',
+        })}
+      >
+        {isAdminRoute ? <AdminConsole /> : <CustomerApp />}
+      </RainbowKitProvider>
+    </LocaleContext.Provider>
+  );
 }
 
 function useUserOrders(accountAddress: Address, enabled: boolean) {
@@ -2183,6 +2856,7 @@ function useIronBrotherData(scope: NavKey = 'home') {
 }
 
 function useTxRunner() {
+  const { t } = useI18n();
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
   const { address } = useAccount();
@@ -2220,7 +2894,7 @@ function useTxRunner() {
 
   async function runTx(label: string, request: () => Promise<Hash>) {
     if (!publicClient) {
-      setTx({ label, status: 'failed', error: 'RPC 客户端未初始化，请刷新页面后重试。', errorKind: 'rpc' });
+      setTx({ label, status: 'failed', error: t('RPC 客户端未初始化，请刷新页面后重试。'), errorKind: 'rpc' });
       return;
     }
 
@@ -2236,7 +2910,7 @@ function useTxRunner() {
               label,
               hash,
               status: 'failed',
-              error: '交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。',
+              error: t('交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。'),
               errorKind: 'contract',
             },
       );
@@ -2245,14 +2919,14 @@ function useTxRunner() {
       setTx({
         label,
         status: 'failed',
-        ...normalizeTxError(error),
+        ...normalizeTxError(error, t),
       });
     }
   }
 
   async function runTxFlow(label: string, steps: TxFlowStep[]) {
     if (!publicClient) {
-      setTx({ label, status: 'failed', error: 'RPC 客户端未初始化，请刷新页面后重试。', errorKind: 'rpc' });
+      setTx({ label, status: 'failed', error: t('RPC 客户端未初始化，请刷新页面后重试。'), errorKind: 'rpc' });
       return;
     }
 
@@ -2260,7 +2934,7 @@ function useTxRunner() {
       let lastHash: Hash | undefined;
 
       for (const [index, step] of steps.entries()) {
-        const stepLabel = steps.length > 1 ? `${label}（${index + 1}/${steps.length} ${step.label}）` : label;
+        const stepLabel = steps.length > 1 ? `${label} (${index + 1}/${steps.length} ${step.label})` : label;
         setTx({ label: stepLabel, status: 'wallet' });
         const hash = await step.request();
         lastHash = hash;
@@ -2272,7 +2946,7 @@ function useTxRunner() {
             label: stepLabel,
             hash,
             status: 'failed',
-            error: '交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。',
+            error: t('交易已提交，但链上执行失败。请打开 BscScan 查看失败原因。'),
             errorKind: 'contract',
           });
           return;
@@ -2285,7 +2959,7 @@ function useTxRunner() {
       setTx({
         label,
         status: 'failed',
-        ...normalizeTxError(error),
+        ...normalizeTxError(error, t),
       });
     }
   }
@@ -2295,15 +2969,14 @@ function useTxRunner() {
 
 function CustomerApp() {
   const [nav, setNav] = useState<NavKey>('home');
-  const [locale, setLocale] = useState<LocaleKey>(initialLocale);
   const [dismissedReferrerPromptFor, setDismissedReferrerPromptFor] = useState<Address | undefined>();
+  const { locale, setLocale, copy, t } = useI18n();
   const promotionReferrer = useMemo(urlReferrer, []);
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const data = useIronBrotherData(nav);
   const wrongNetwork = isConnected && chainId !== selectedBscChain.id;
-  const copy = LOCALE_COPY[locale];
   const productTitle = productTitleForLocale(locale);
   const effectiveReferrer = useMemo(() => {
     if (!promotionReferrer) return data.defaultReferrer;
@@ -2323,14 +2996,6 @@ function CustomerApp() {
         !connectedDefaultReferrer &&
         dismissedReferrerPromptFor !== address,
     );
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
-    } catch {
-      // localStorage may be unavailable in restricted browser contexts.
-    }
-  }, [locale]);
 
   return (
     <div className="app-shell">
@@ -2352,26 +3017,28 @@ function CustomerApp() {
         )}
         {wrongNetwork && (
           <button className="notice danger action-notice" onClick={() => switchChain({ chainId: selectedBscChain.id })}>
-            切换到 {selectedBscChain.name}
+            {t('切换到')} {selectedBscChain.name}
           </button>
         )}
       </header>
 
       <main className="mobile-frame content-frame">
         {nav === 'home' && <HomeScreen data={data} copy={copy} disabled={!isConnected || wrongNetwork || !isContractConfigured} onNavigate={setNav} />}
-        {nav === 'stake' && <StakeScreen data={data} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
+        {nav === 'stake' && <StakeScreen data={data} copy={copy} locale={locale} disabled={!isConnected || wrongNetwork || !isContractConfigured} />}
         {nav === 'wallet' && (
           <WalletScreen
             data={data}
+            copy={copy}
+            locale={locale}
             disabled={!isConnected || wrongNetwork || !isContractConfigured}
             suggestedReferrer={effectiveReferrer}
           />
         )}
-        {nav === 'bot' && <BotRewardsScreen address={address} data={data} />}
-        {nav === 'team' && <TeamScreen address={address} data={data} />}
+        {nav === 'bot' && <BotRewardsScreen address={address} data={data} locale={locale} />}
+        {nav === 'team' && <TeamScreen address={address} data={data} locale={locale} />}
       </main>
 
-      <nav className="mobile-frame bottom-nav" aria-label="主导航">
+      <nav className="mobile-frame bottom-nav" aria-label={t('主导航')}>
         <NavButton icon={<Landmark />} label={copy.nav.home} active={nav === 'home'} onClick={() => setNav('home')} />
         <NavButton icon={<Coins />} label={copy.nav.stake} active={nav === 'stake'} onClick={() => setNav('stake')} />
         <NavButton icon={<Wallet />} label={copy.nav.wallet} active={nav === 'wallet'} onClick={() => setNav('wallet')} />
@@ -2383,6 +3050,7 @@ function CustomerApp() {
         <BindReferrerModal
           address={address}
           defaultReferrer={effectiveReferrer}
+          locale={locale}
           onDismiss={() => setDismissedReferrerPromptFor(address)}
         />
       )}
@@ -2393,23 +3061,26 @@ function CustomerApp() {
 function BindReferrerModal({
   address,
   defaultReferrer,
+  locale,
   onDismiss,
 }: {
   address: Address;
   defaultReferrer: Address;
+  locale: LocaleKey;
   onDismiss: () => void;
 }) {
+  const { t } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const [referrer, setReferrer] = useState(defaultReferrer === zeroAddress ? '' : defaultReferrer);
   const trimmedReferrer = referrer.trim();
   const referrerAddress = isAddress(trimmedReferrer) ? (trimmedReferrer as Address) : undefined;
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
   const validationMessage = !trimmedReferrer
-    ? '请输入推荐人钱包地址。'
+    ? t('请输入推荐人钱包地址。')
     : !referrerAddress
-      ? '请输入有效的钱包地址。'
+      ? t('请输入有效的钱包地址。')
       : referrerAddress.toLowerCase() === address.toLowerCase()
-        ? '推荐人不能是当前钱包。'
+        ? t('推荐人不能是当前钱包。')
         : '';
 
   useEffect(() => {
@@ -2424,17 +3095,17 @@ function BindReferrerModal({
         <div className="section-title">
           <div>
             <p className="eyebrow">Referrer</p>
-            <h2 id="bind-referrer-title">绑定推荐人</h2>
+            <h2 id="bind-referrer-title">{t('绑定推荐人')}</h2>
           </div>
           <Users size={18} />
         </div>
         <p className="modal-helper">
           {defaultReferrer === zeroAddress
-            ? '当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。'
-            : '当前钱包还没有推荐人。系统已填入默认推荐人，绑定后不可更改。'}
+            ? t('当前钱包还没有推荐人。绑定后推荐关系将写入链上，确认后不能更换。')
+            : t('当前钱包还没有推荐人。系统已填入默认推荐人，绑定后不可更改。')}
         </p>
         <label>
-          推荐人地址
+          {t('推荐人地址')}
           <input
             value={referrer}
             onChange={(event) => setReferrer(event.target.value)}
@@ -2445,7 +3116,7 @@ function BindReferrerModal({
         {validationMessage && <p className="field-error">{validationMessage}</p>}
         <div className="modal-actions">
           <button className="secondary-button" type="button" disabled={transactionBusy} onClick={onDismiss}>
-            稍后绑定
+            {t('稍后绑定')}
           </button>
           <button
             className="primary-button"
@@ -2453,7 +3124,7 @@ function BindReferrerModal({
             disabled={transactionBusy || Boolean(validationMessage)}
             onClick={() => {
               if (!referrerAddress) return;
-              runTx('绑定推荐人', () =>
+              runTx(t('绑定推荐人'), () =>
                 writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -2463,7 +3134,7 @@ function BindReferrerModal({
               );
             }}
           >
-            绑定推荐人
+            {t('绑定推荐人')}
           </button>
         </div>
         <TxStatus tx={tx} />
@@ -2483,6 +3154,7 @@ function HomeScreen({
   disabled: boolean;
   onNavigate: (nav: NavKey) => void;
 }) {
+  const { locale } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const currentSessionLabel = sessionLabelForLocale(data.currentSession, copy);
   const morningRange = sessionTimeRange(data.morningStart, data.morningEnd);
@@ -2497,7 +3169,7 @@ function HomeScreen({
         label: `${principalSourceLabelForLocale(order.source, copy)} #${order.id.toString()}`,
         amount: order.amount,
         status: principalStatusLabelForLocale(order, copy, nowSeconds),
-        time: principalOrderHomeTime(order, copy, nowSeconds),
+        time: principalOrderHomeTime(order, copy, nowSeconds, locale),
         createdAt: order.createdAt,
         canRedeem: order.status === 0 && BigInt(nowSeconds) >= order.unlockAt,
       }))
@@ -2506,7 +3178,7 @@ function HomeScreen({
         return createdDiff !== 0 ? createdDiff : compareBigIntDesc(a.orderId, b.orderId);
       })
       .slice(0, HOME_LATEST_ORDER_LIMIT);
-  }, [copy, data.principalOrders, nowSeconds]);
+  }, [copy, data.principalOrders, locale, nowSeconds]);
 
   return (
     <section className="screen-stack">
@@ -2593,7 +3265,18 @@ function HomeScreen({
   );
 }
 
-function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
+function StakeScreen({
+  data,
+  copy,
+  locale,
+  disabled,
+}: {
+  data: ReturnType<typeof useIronBrotherData>;
+  copy: LocaleCopy;
+  locale: LocaleKey;
+  disabled: boolean;
+}) {
+  const { t } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const [amount, setAmount] = useState(() => tokenInput(data.availablePrincipal));
   const previousDefaultAmountRef = useRef(amount);
@@ -2615,21 +3298,21 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
     }
   }, [amount]);
   const estimatedReward = (parsedAmount * data.yieldBps) / 10_000n;
-  const sessionSettleLabel = data.sessionSettleAt > 0n ? dateTime(data.sessionSettleAt) : '未开放';
+  const sessionSettleLabel = data.sessionSettleAt > 0n ? dateTime(data.sessionSettleAt) : t('未开放');
   const stakingWindowOpen = data.currentSession === 1 || data.currentSession === 2;
   const amountExceedsAvailable = parsedAmount > data.availablePrincipal;
   const sessionGuardMessage = data.isSessionLoading
-    ? '正在读取链上场次，请稍候。'
+    ? t('正在读取链上场次，请稍候。')
     : stakingWindowOpen
       ? ''
-      : '当前场次未开放，请等待下一场开启。';
-  const amountGuardMessage = amountExceedsAvailable ? '带单金额不能超过可带单余额。' : '';
+      : t('当前场次未开放，请等待下一场开启。');
+  const amountGuardMessage = amountExceedsAvailable ? t('带单金额不能超过可带单余额。') : '';
   const stakeDisabled = disabled || !stakingWindowOpen || data.isSessionLoading || parsedAmount <= 0n || amountExceedsAvailable;
 
   function submitStake() {
     if (stakeDisabled) return;
 
-    runTx('确认带单', () =>
+    runTx(t('确认带单'), () =>
       writeContractAsync({
         address: CONTRACT_ADDRESS,
         abi: ironBrotherAbi,
@@ -2644,18 +3327,18 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
       <section className="panel pay-panel">
         <div className="section-title centered">
           <span />
-          <h2>带单</h2>
+          <h2>{copy.nav.stake}</h2>
           <Clock3 size={18} />
         </div>
         <label className="amount-field">
-          <span>带单金额</span>
+          <span>{t('带单金额')}</span>
           <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" />
-          <small>可带单 <MoneyAmount value={data.availablePrincipal} /></small>
+          <small>{copy.home.availableStake} <MoneyAmount value={data.availablePrincipal} /></small>
         </label>
 
         <div className="calc-grid">
-          <MetricCard label="链上场次" value={sessionLabel(data.currentSession)} trend={`东八区 ${currentSessionRange(data)}`} />
-          <MetricCard label="预计收益" value={<MoneyAmount value={estimatedReward} prefix="+" />} trend={`${bpsToPercent(data.yieldBps)} / 结算 ${sessionSettleLabel}`} />
+          <MetricCard label={t('链上场次')} value={sessionLabelForLocale(data.currentSession, copy)} trend={`${t('东八区')} ${translateText(locale, currentSessionRange(data))}`} />
+          <MetricCard label={t('预计收益')} value={<MoneyAmount value={estimatedReward} prefix="+" />} trend={`${bpsToPercent(data.yieldBps)} / ${copy.order.settle} ${sessionSettleLabel}`} />
         </div>
 
         <button
@@ -2664,7 +3347,7 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
           disabled={stakeDisabled}
           onClick={submitStake}
         >
-          确认带单
+          {t('确认带单')}
         </button>
         {sessionGuardMessage && <p className="field-error">{sessionGuardMessage}</p>}
         {amountGuardMessage && <p className="field-error">{amountGuardMessage}</p>}
@@ -2678,24 +3361,30 @@ function StakeScreen({ data, disabled }: { data: ReturnType<typeof useIronBrothe
 
 function WalletScreen({
   data,
+  copy,
+  locale,
   disabled,
   suggestedReferrer,
 }: {
   data: ReturnType<typeof useIronBrotherData>;
+  copy: LocaleCopy;
+  locale: LocaleKey;
   disabled: boolean;
   suggestedReferrer: Address;
 }) {
+  const { t } = useI18n();
   return (
     <section className="screen-stack">
-      <DepositPanel disabled={disabled} suggestedReferrer={suggestedReferrer} />
-      <WalletActions data={data} disabled={disabled} />
+      <DepositPanel copy={copy} disabled={disabled} suggestedReferrer={suggestedReferrer} />
+      <WalletActions data={data} copy={copy} disabled={disabled} />
       <WithdrawalRequestList requests={data.withdrawalRequests} />
       <PrincipalOrderList orders={data.principalOrders} disabled={disabled} />
     </section>
   );
 }
 
-function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; suggestedReferrer: Address }) {
+function DepositPanel({ copy, disabled, suggestedReferrer }: { copy: LocaleCopy; disabled: boolean; suggestedReferrer: Address }) {
+  const { t } = useI18n();
   const { address } = useAccount();
   const { runTxFlow, tx, writeContractAsync } = useTxRunner();
   const [amount, setAmount] = useState('');
@@ -2716,12 +3405,12 @@ function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; sugg
   });
   const allowance = (allowanceQuery.data as bigint | undefined) ?? 0n;
   const needsApproval = parsedAmount > 0n && allowance < parsedAmount;
-  const depositButtonLabel = needsApproval ? '授权并入金' : '确认入金';
+  const depositButtonLabel = needsApproval ? t('授权并入金') : t('确认入金');
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
 
   function submitDeposit() {
     const depositStep: TxFlowStep = {
-      label: '确认入金',
+      label: t('确认入金'),
       request: () =>
         writeContractAsync({
           address: CONTRACT_ADDRESS,
@@ -2734,7 +3423,7 @@ function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; sugg
     const steps: TxFlowStep[] = needsApproval
       ? [
           {
-            label: '授权 USDT',
+            label: t('授权 USDT'),
             request: () =>
               writeContractAsync({
                 address: BSC_USDT_ADDRESS,
@@ -2755,16 +3444,16 @@ function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; sugg
       <div className="section-title">
         <div>
           <p className="eyebrow">BEP-20 USDT</p>
-          <h2>链上入金</h2>
+          <h2>{t('链上入金')}</h2>
         </div>
         <span className="status-chip">BSC</span>
       </div>
       <label className="full-field">
-        入金金额
+        {t('入金金额')}
         <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
       </label>
       <p className="helper-line">
-        新用户入金时，将使用推荐人：{suggestedReferrer === zeroAddress ? '未设置' : shortAddress(suggestedReferrer)}
+        {t('新用户入金时，将使用推荐人：')} {suggestedReferrer === zeroAddress ? t('未设置') : shortAddress(suggestedReferrer)}
       </p>
       <button className="primary-button" disabled={disabled || parsedAmount <= 0n || transactionBusy} onClick={submitDeposit}>
         {depositButtonLabel}
@@ -2774,7 +3463,8 @@ function DepositPanel({ disabled, suggestedReferrer }: { disabled: boolean; sugg
   );
 }
 
-function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrotherData>; disabled: boolean }) {
+function WalletActions({ data, copy, disabled }: { data: ReturnType<typeof useIronBrotherData>; copy: LocaleCopy; disabled: boolean }) {
+  const { t } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const rewardBalanceInput = tokenInput(data.account.rewardBalance);
   const [reinvestAmount, setReinvestAmount] = useState(() => rewardBalanceInput);
@@ -2813,16 +3503,16 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
     }
   }, [withdrawAmount]);
   const netWithdrawal = withdrawParsed > data.withdrawFee ? withdrawParsed - data.withdrawFee : 0n;
-  const withdrawActionLabel = data.withdrawalApprovalRequired ? '申请提现' : '确认提现';
+  const withdrawActionLabel = data.withdrawalApprovalRequired ? t('申请提现') : t('确认提现');
   const withdrawHelper = data.withdrawalApprovalRequired
-    ? <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />，提交后需后台审批打款。</>
-    : <>提现手续费 <MoneyAmount value={data.withdrawFee} />，预计到账 <MoneyAmount value={netWithdrawal} />。</>;
-  const reinvestValidation = reinvestParsed > data.account.rewardBalance ? '复投金额不能超过收益钱包余额。' : '';
+    ? <>{t('提现手续费')} <MoneyAmount value={data.withdrawFee} />, {t('预计到账')} <MoneyAmount value={netWithdrawal} />, {t('提交后需后台审批打款。')}</>
+    : <>{t('提现手续费')} <MoneyAmount value={data.withdrawFee} />, {t('预计到账')} <MoneyAmount value={netWithdrawal} />.</>;
+  const reinvestValidation = reinvestParsed > data.account.rewardBalance ? t('复投金额不能超过收益钱包余额。') : '';
   const withdrawValidation =
     withdrawParsed > data.account.rewardBalance
-      ? '提现金额不能超过收益钱包余额。'
+      ? t('提现金额不能超过收益钱包余额。')
       : withdrawParsed > 0n && withdrawParsed <= data.withdrawFee
-        ? '提现金额必须大于手续费。'
+        ? t('提现金额必须大于手续费。')
         : '';
 
   return (
@@ -2830,27 +3520,27 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
       <div className="section-title reward-wallet-title">
         <div>
           <p className="eyebrow">Reward wallet</p>
-          <h2>收益钱包</h2>
+          <h2>{copy.home.rewardWallet}</h2>
         </div>
         <div className="wallet-balance-summary">
-          <span>可用收益</span>
+          <span>{t('可用收益')}</span>
           <strong><MoneyAmount value={data.account.rewardBalance} /></strong>
         </div>
       </div>
       <div className="calc-grid reward-wallet-metrics">
-        <MetricCard label="静态累计" value={<MoneyAmount value={data.account.totalStaticReward} />} trend="带单按次结算" />
-        <MetricCard label="动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="每日 0 点后可结算" />
+        <MetricCard label={t('静态累计')} value={<MoneyAmount value={data.account.totalStaticReward} />} trend={t('带单按次结算')} />
+        <MetricCard label={t('动态累计')} value={<MoneyAmount value={data.account.totalDynamicReward} />} trend={t('每日 0 点后可结算')} />
       </div>
       <div className="form-grid reward-wallet-form">
         <label className="wallet-field">
-          复投金额
+          {t('复投金额')}
           <input value={reinvestAmount} onChange={(event) => setReinvestAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
-          <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
+          <small>{t('可用')} <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
         <label className="wallet-field">
-          提现金额
+          {t('提现金额')}
           <input value={withdrawAmount} onChange={(event) => setWithdrawAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
-          <small>可用 <MoneyAmount value={data.account.rewardBalance} /></small>
+          <small>{t('可用')} <MoneyAmount value={data.account.rewardBalance} /></small>
         </label>
       </div>
       <p className="helper-line reward-wallet-helper">{withdrawHelper}</p>
@@ -2861,7 +3551,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
           className="secondary-button"
           disabled={disabled || reinvestParsed <= 0n || Boolean(reinvestValidation)}
           onClick={() =>
-            runTx('收益复投', () =>
+            runTx(t('收益复投'), () =>
               writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -2871,7 +3561,7 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
             )
           }
         >
-          复投
+          {copy.home.actions.reinvest}
         </button>
         <button
           className="primary-button"
@@ -2895,7 +3585,8 @@ function WalletActions({ data, disabled }: { data: ReturnType<typeof useIronBrot
   );
 }
 
-function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
+function BotRewardsScreen({ address, data, locale }: { address?: Address; data: ReturnType<typeof useIronBrotherData>; locale: LocaleKey }) {
+  const { t } = useI18n();
   const runner = useTxRunner();
   const details = useDynamicRewardDetails(address);
   const pendingRewards = usePendingDynamicRewards(address, data.currentLocalDay);
@@ -2933,7 +3624,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
 
   function runPendingDynamicSettlement() {
     const steps = pendingSettlementBatches.map((rows, index, batches): TxFlowStep => ({
-      label: batches.length > 1 ? `动态收益结算 ${index + 1}/${batches.length}` : '动态收益结算',
+      label: batches.length > 1 ? `${t('动态收益结算')} ${index + 1}/${batches.length}` : t('动态收益结算'),
       request: () =>
         runner.writeContractAsync({
           address: CONTRACT_ADDRESS,
@@ -2944,7 +3635,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
     }));
 
     if (steps.length === 0) return;
-    runner.runTxFlow('领取动态收益', steps);
+    runner.runTxFlow(t('领取动态收益'), steps);
   }
 
   return (
@@ -2953,16 +3644,16 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
         <div className="section-title">
           <div>
             <p className="eyebrow">User settlement</p>
-            <h2>动态收益</h2>
+            <h2>{t('动态收益')}</h2>
           </div>
           <Gift size={18} />
         </div>
         <div className="calc-grid dynamic-reward-grid">
-          <MetricCard label="链上动态累计" value={<MoneyAmount value={data.account.totalDynamicReward} />} trend="已进入收益钱包" />
+          <MetricCard label={t('链上动态累计')} value={<MoneyAmount value={data.account.totalDynamicReward} />} trend={t('已进入收益钱包')} />
           <MetricCard
-            label="待结算动态"
+            label={t('待结算动态')}
             value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />}
-            trend={pendingRewards.isError ? '读取失败' : `${pendingRows.length} 条待结算明细`}
+            trend={pendingRewards.isError ? t('读取失败') : `${pendingRows.length} ${t('条')} ${t('待结算动态')}`}
           />
         </div>
       </section>
@@ -2971,37 +3662,37 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
         <div className="section-title">
           <div>
             <p className="eyebrow">Reward details</p>
-            <h2>动态收益明细</h2>
+            <h2>{t('动态收益明细')}</h2>
           </div>
-          <span className="status-chip">{details.isLoading ? '读取中' : details.isError ? '读取失败' : `${details.rows.length} 条`}</span>
+          <span className="status-chip">{details.isLoading ? t('读取中') : details.isError ? t('读取失败') : `${details.rows.length} ${t('条')}`}</span>
         </div>
         <div className="settlement-stats reward-summary-grid">
-          <InfoLine label="当前周期" value={localPeriodLabel(data.currentLocalDay, settlementCycle)} />
-          <InfoLine label="最近结算" value={latestDetail ? localPeriodLabel(latestDetail.day, settlementCycle) : '--'} />
-          <InfoLine label="最近来源" value={latestDetail ? shortAddress(latestDetail.source) : '--'} />
-          <InfoLine label="最近奖励" value={latestDetail ? <MoneyAmount value={latestDetail.reward} prefix="+" /> : '--'} />
+          <InfoLine label={t('当前周期')} value={localPeriodLabel(data.currentLocalDay, settlementCycle)} />
+          <InfoLine label={t('最近结算')} value={latestDetail ? localPeriodLabel(latestDetail.day, settlementCycle) : '--'} />
+          <InfoLine label={t('最近来源')} value={latestDetail ? shortAddress(latestDetail.source) : '--'} />
+          <InfoLine label={t('最近奖励')} value={latestDetail ? <MoneyAmount value={latestDetail.reward} prefix="+" /> : '--'} />
         </div>
         <div className="list-stack reward-detail-list">
           {details.isLoading ? (
-            <EmptyState title="正在读取动态明细" detail="明细来自合约 history，确认后会自动出现在这里。" />
+            <EmptyState title={t('正在读取动态明细')} detail={t('明细来自合约 history，确认后会自动出现在这里。')} />
           ) : details.isError ? (
-            <EmptyState title="动态明细读取失败" detail="链上动态奖励 history 读取失败，请稍后重试。" />
+            <EmptyState title={t('动态明细读取失败')} detail={t('链上动态奖励 history 读取失败，请稍后重试。')} />
           ) : details.rows.length > 0 ? (
             visibleDetails.map((detail) => <DynamicRewardDetailRow key={`${detail.upline}-${detail.historyIndex}`} detail={detail} settlementCycle={settlementCycle} />)
           ) : (
-            <EmptyState title="暂无动态收益明细" />
+            <EmptyState title={t('暂无动态收益明细')} />
           )}
         </div>
         {hasMoreDetails && (
           <div className="load-more-footer">
-            <span>已显示 {shownDetailCount} / {details.rows.length} 条</span>
+            <span>{t('已显示')} {shownDetailCount} / {details.rows.length} {t('条')}</span>
             <button
               type="button"
               className="load-more-button"
               onClick={() => setVisibleDetailCount((count) => count + DYNAMIC_REWARD_DETAIL_BATCH_SIZE)}
             >
               <ChevronDown size={16} />
-              点击加载更多
+              {t('点击加载更多')}
             </button>
           </div>
         )}
@@ -3011,18 +3702,18 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
         <div className="section-title">
           <div>
             <p className="eyebrow">Pending rewards</p>
-            <h2>待结算动态收益</h2>
+            <h2>{t('待结算动态收益')}</h2>
           </div>
-          <span className="status-chip">{pendingRewards.isLoading ? '读取中' : pendingRewards.isError ? '读取失败' : `${pendingRows.length} 条`}</span>
+          <span className="status-chip">{pendingRewards.isLoading ? t('读取中') : pendingRewards.isError ? t('读取失败') : `${pendingRows.length} ${t('条')}`}</span>
         </div>
         <div className="settlement-stats reward-summary-grid">
-          <InfoLine label="扫描周期" value={`最近 ${pendingRewards.data?.scannedDays.length ?? PENDING_DYNAMIC_LOOKBACK_PERIODS} 期`} />
+          <InfoLine label={t('扫描周期')} value={translateText(locale, `最近 ${pendingRewards.data?.scannedDays.length ?? PENDING_DYNAMIC_LOOKBACK_PERIODS} 期`)} />
           <InfoLine
-            label="团队来源"
-            value={`${pendingRewards.data?.sourceCount ?? 0} 个${pendingRewards.data?.isSourceLimitReached ? '+' : ''}`}
+            label={t('团队来源')}
+            value={`${pendingRewards.data?.sourceCount ?? 0} ${t('个')}${pendingRewards.data?.isSourceLimitReached ? '+' : ''}`}
           />
-          <InfoLine label="待结算笔数" value={`${pendingRows.length} 笔`} />
-          <InfoLine label="待结算金额" value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
+          <InfoLine label={t('待结算笔数')} value={`${pendingRows.length} ${t('笔')}`} />
+          <InfoLine label={t('待结算金额')} value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
         </div>
         <button
           className="primary-button"
@@ -3030,16 +3721,16 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
           disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
           onClick={runPendingDynamicSettlement}
         >
-          领取待结算动态收益
+          {t('领取待结算动态收益')}
         </button>
         <p className="helper-line">
-          由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。
+          {t('由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。')}
         </p>
         <div className="list-stack reward-detail-list">
           {pendingRewards.isLoading ? (
-            <EmptyState title="正在读取待结算动态收益" detail="正在读取直推关系、已关闭周期流水和动态奖励比例。" />
+            <EmptyState title={t('正在读取待结算动态收益')} detail={t('正在读取直推关系、已关闭周期流水和动态奖励比例。')} />
           ) : pendingRewards.isError ? (
-            <EmptyState title="待结算动态收益读取失败" detail="链上读取失败，请检查网络后重试。" />
+            <EmptyState title={t('待结算动态收益读取失败')} detail={t('链上读取失败，请检查网络后重试。')} />
           ) : pendingRows.length > 0 ? (
             pendingRows.map((row) => (
               <PendingDynamicRewardListRow
@@ -3048,7 +3739,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
                 settlementCycle={settlementCycle}
                 disabled={transactionBusy}
                 onClaim={() =>
-                  runner.runTx('领取单条动态收益', () =>
+                  runner.runTx(t('领取单条动态收益'), () =>
                     runner.writeContractAsync({
                       address: CONTRACT_ADDRESS,
                       abi: ironBrotherAbi,
@@ -3060,7 +3751,7 @@ function BotRewardsScreen({ address, data }: { address?: Address; data: ReturnTy
               />
             ))
           ) : (
-            <EmptyState title="暂无待结算动态收益" detail="下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。" />
+            <EmptyState title={t('暂无待结算动态收益')} detail={t('下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。')} />
           )}
         </div>
         <TxStatus tx={runner.tx} />
@@ -3080,20 +3771,21 @@ function PendingDynamicRewardListRow({
   disabled?: boolean;
   onClaim?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="admin-list-row reward-detail-row pending-reward-row">
       <div className="row-icon"><Clock3 size={17} /></div>
       <div>
-        <strong>待结算 {shortAddress(row.source)} / {row.generation} 代</strong>
-        <small>周期 {localPeriodLabel(row.day, settlementCycle)} / 比例 {bpsToPercent(row.rateBps)}</small>
+        <strong>{t('待结算')} {shortAddress(row.source)} / {row.generation} {t('代')}</strong>
+        <small>{t('周期')} {localPeriodLabel(row.day, settlementCycle)} / {t('比例')} {bpsToPercent(row.rateBps)}</small>
       </div>
       <div className="row-metrics">
-        <span>流水 {token(row.volume)} U</span>
+        <span>{t('流水')} {token(row.volume)} U</span>
         <span className="amount-positive">+{token(row.reward)} U</span>
       </div>
       {onClaim && (
         <button className="row-action-button" type="button" disabled={disabled} onClick={onClaim}>
-          领取
+          {t('领取')}
         </button>
       )}
     </div>
@@ -3101,22 +3793,24 @@ function PendingDynamicRewardListRow({
 }
 
 function DynamicRewardDetailRow({ detail, settlementCycle }: { detail: DynamicRewardDetail; settlementCycle: bigint }) {
+  const { t } = useI18n();
   return (
     <div className="admin-list-row reward-detail-row">
       <div className="row-icon"><Gift size={17} /></div>
       <div>
-        <strong>来自 {shortAddress(detail.source)} / {detail.generation} 代</strong>
-        <small>周期 {localPeriodLabel(detail.day, settlementCycle)}</small>
+        <strong>{t('来自')} {shortAddress(detail.source)} / {detail.generation} {t('代')}</strong>
+        <small>{t('周期')} {localPeriodLabel(detail.day, settlementCycle)}</small>
       </div>
       <div className="row-metrics">
-        <span>流水 {token(detail.volume)} U</span>
+        <span>{t('流水')} {token(detail.volume)} U</span>
         <span className="amount-positive">+{token(detail.reward)} U</span>
       </div>
     </div>
   );
 }
 
-function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typeof useIronBrotherData> }) {
+function TeamScreen({ address, data, locale }: { address?: Address; data: ReturnType<typeof useIronBrotherData>; locale: LocaleKey }) {
+  const { t } = useI18n();
   return (
     <section className="screen-stack">
       <section className="panel profile-panel">
@@ -3128,64 +3822,65 @@ function TeamScreen({ address, data }: { address?: Address; data: ReturnType<typ
       <PromotionLinkCard address={address} />
       <section className="panel">
         <InfoLine
-          label="我的推荐人"
+          label={t('我的推荐人')}
           value={
             data.account.referrer !== zeroAddress
               ? shortAddress(data.account.referrer)
               : data.defaultReferrer === zeroAddress
-                ? '未绑定'
-                : `${shortAddress(data.defaultReferrer)}（默认）`
+                ? t('未绑定')
+                : `${shortAddress(data.defaultReferrer)} (${t('默认')})`
           }
         />
       </section>
       <div className="quick-grid">
         <MetricCard
-          label="团队充值总业绩"
+          label={t('团队充值总业绩')}
           value={data.isTeamSummaryLoading ? '--' : <MoneyAmount value={data.teamSummary.totalDeposited} />}
-          trend="累计下级入金"
+          trend={t('累计下级入金')}
         />
         <MetricCard
-          label="团队人数"
-          value={data.isTeamSummaryLoading ? '--' : `${data.teamSummary.totalMembers} 人`}
-          trend="含所有下级成员"
+          label={t('团队人数')}
+          value={data.isTeamSummaryLoading ? '--' : `${data.teamSummary.totalMembers} ${t('人')}`}
+          trend={t('含所有下级成员')}
         />
       </div>
       <section className="panel">
         <div className="section-title">
-          <h2>直推列表</h2>
-          <span>{data.directReferrals.length} 人</span>
+          <h2>{t('直推列表')}</h2>
+          <span>{data.directReferrals.length} {t('人')}</span>
         </div>
         {data.directReferrals.length > 0 ? (
           data.directReferrals.map((item) => <DirectReferralListRow key={item.address} item={item} />)
         ) : (
-          <EmptyState title="暂无直推数据" />
+          <EmptyState title={t('暂无直推数据')} />
         )}
       </section>
       <section className="panel">
         <div className="section-title">
           <div>
             <p className="eyebrow">Account</p>
-            <h2>我的资料</h2>
+            <h2>{t('我的资料')}</h2>
           </div>
           <UserRound size={18} />
         </div>
-        <InfoLine label="USDT 合约" value={shortAddress(BSC_USDT_ADDRESS)} />
-        <InfoLine label="业务合约" value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : '未配置'} />
-        <InfoLine label="网络" value={selectedBscChain.name} />
-        <InfoLine label="当前周期" value={localPeriodLabel(data.currentLocalDay, data.settlementCycle)} />
-        <InfoLine label="累计入金" value={<MoneyAmount value={data.account.totalDeposited} />} />
-        <InfoLine label="累计提现" value={<MoneyAmount value={data.account.totalWithdrawn} />} />
+        <InfoLine label={t('USDT 合约')} value={shortAddress(BSC_USDT_ADDRESS)} />
+        <InfoLine label={t('业务合约')} value={isContractConfigured ? shortAddress(CONTRACT_ADDRESS) : t('未配置')} />
+        <InfoLine label={t('网络')} value={selectedBscChain.name} />
+        <InfoLine label={t('当前周期')} value={localPeriodLabel(data.currentLocalDay, data.settlementCycle)} />
+        <InfoLine label={t('累计入金')} value={<MoneyAmount value={data.account.totalDeposited} />} />
+        <InfoLine label={t('累计提现')} value={<MoneyAmount value={data.account.totalWithdrawn} />} />
       </section>
     </section>
   );
 }
 
 function PromotionLinkCard({ address }: { address?: Address }) {
+  const { t } = useI18n();
   const promotionLink = useMemo(() => promotionLinkForAddress(address), [address]);
   const promotionLinkLabel = address ? `ref=${shortAddress(address)}` : '';
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const copyStatus =
-    copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败，请手动复制' : '分享给新用户绑定推荐关系';
+    copyState === 'copied' ? t('已复制') : copyState === 'failed' ? t('复制失败，请手动复制') : t('分享给新用户绑定推荐关系');
 
   useEffect(() => {
     setCopyState('idle');
@@ -3196,7 +3891,7 @@ function PromotionLinkCard({ address }: { address?: Address }) {
       <div className="section-title">
         <div>
           <p className="eyebrow">Referral</p>
-          <h2>推广链接</h2>
+          <h2>{t('推广链接')}</h2>
         </div>
         <Link2 size={18} />
       </div>
@@ -3204,15 +3899,15 @@ function PromotionLinkCard({ address }: { address?: Address }) {
         <>
           <div className="promotion-link-row">
             <div className="promotion-link-content">
-              <span>我的推广链接</span>
+              <span>{t('我的推广链接')}</span>
               <strong>{promotionLinkLabel}</strong>
             </div>
             <div className="promotion-link-actions">
               <button
                 className="icon-button"
                 type="button"
-                title="复制推广链接"
-                aria-label="复制推广链接"
+                title={t('复制推广链接')}
+                aria-label={t('复制推广链接')}
                 onClick={async () => {
                   try {
                     await copyText(promotionLink);
@@ -3231,13 +3926,14 @@ function PromotionLinkCard({ address }: { address?: Address }) {
           </p>
         </>
       ) : (
-        <EmptyState title="暂无推广链接" />
+        <EmptyState title={t('暂无推广链接')} />
       )}
     </section>
   );
 }
 
 function AdminConsole() {
+  const { locale, setLocale, copy, t } = useI18n();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const wrongNetwork = isConnected && chainId !== selectedBscChain.id;
@@ -3266,15 +3962,15 @@ function AdminConsole() {
   const canWrite = isContractConfigured && !wrongNetwork;
   const readOnly = isContractConfigured && role.isManager && !role.isSuperAdmin;
   const navItems: { key: AdminNavKey; label: string }[] = [
-    { key: 'dashboard', label: '数据看板' },
-    { key: 'users', label: '用户管理' },
-    { key: 'principal', label: '本金订单' },
-    { key: 'stakes', label: '带单订单' },
-    { key: 'rewards', label: '收益流水' },
-    { key: 'withdrawals', label: '提现申请' },
-    { key: 'team', label: '团队关系' },
-    { key: 'config', label: '合约配置' },
-    { key: 'roles', label: '权限管理' },
+    { key: 'dashboard', label: t('数据看板') },
+    { key: 'users', label: t('用户管理') },
+    { key: 'principal', label: t('本金订单') },
+    { key: 'stakes', label: t('带单订单') },
+    { key: 'rewards', label: t('收益流水') },
+    { key: 'withdrawals', label: t('提现申请') },
+    { key: 'team', label: t('团队关系') },
+    { key: 'config', label: t('合约配置') },
+    { key: 'roles', label: t('权限管理') },
   ];
 
   if (accessStatus === 'denied') {
@@ -3288,7 +3984,7 @@ function AdminConsole() {
           <p className="eyebrow">{PRODUCT_BRAND}</p>
           <h1>Admin</h1>
         </div>
-        <a href="/">客户页面</a>
+        <a href="/">{t('客户页面')}</a>
         {adminAllowed && navItems.map((item) => (
           <button
             key={item.key}
@@ -3306,15 +4002,18 @@ function AdminConsole() {
             <img className="brand-logo" src={PRODUCT_LOGO_SRC} alt={PRODUCT_BRAND} />
             <div>
               <p className="eyebrow">BSC Contract Console</p>
-              <h1>链上管理面板</h1>
+              <h1>{t('链上管理面板')}</h1>
             </div>
           </div>
-          <WalletConnectButton />
+          <div className="topbar-actions">
+            <TopLanguageSwitcher locale={locale} copy={copy} onChange={setLocale} />
+            <WalletConnectButton />
+          </div>
         </header>
 
         {adminAllowed ? (
           <>
-            {readOnly && <div className="notice">当前钱包是 Manager，只能查看数据，不能修改合约配置。</div>}
+            {readOnly && <div className="notice">{t('当前钱包是 Manager，只能查看数据，不能修改合约配置。')}</div>}
 
             {nav === 'dashboard' && <AdminDashboardPage dashboard={dashboard} />}
             {nav === 'users' && <AdminUsersPage />}
@@ -3344,12 +4043,13 @@ function AdminConsole() {
 }
 
 function AdminAccessRedirect() {
+  const { t } = useI18n();
   return (
     <div className="admin-auth-redirect">
       <section className="admin-panel">
-        <EmptyState title="无权访问 Admin" detail="当前钱包没有 Admin/Manager 权限，正在返回客户页面。" />
+        <EmptyState title={t('无权访问 Admin')} detail={t('当前钱包没有 Admin/Manager 权限，正在返回客户页面。')} />
         <a className="secondary-button full-button" href="/">
-          返回客户页面
+          {t('返回客户页面')}
         </a>
       </section>
     </div>
@@ -3363,12 +4063,13 @@ function AdminAccessGate({
   status: Exclude<AdminAccessStatus, 'allowed'>;
   onSwitchChain: () => void;
 }) {
+  const { t } = useI18n();
   if (status === 'switch-network') {
     return (
       <section className="admin-panel">
-        <EmptyState title="需要切换网络" detail={`Admin 后台只允许在 ${selectedBscChain.name} 读取权限。`} />
+        <EmptyState title={t('需要切换网络')} detail={`Admin console only reads permissions on ${selectedBscChain.name}.`} />
         <button className="primary-button full-button" type="button" onClick={onSwitchChain}>
-          切换到 {selectedBscChain.name}
+          {t('切换到')} {selectedBscChain.name}
         </button>
       </section>
     );
@@ -3376,20 +4077,20 @@ function AdminAccessGate({
 
   const content: Record<Exclude<AdminAccessStatus, 'allowed' | 'switch-network'>, { title: string; detail: string }> = {
     checking: {
-      title: '正在验证权限',
-      detail: '正在读取当前钱包的 Admin/Manager 链上角色。',
+      title: t('正在验证权限'),
+      detail: t('正在读取当前钱包的 Admin/Manager 链上角色。'),
     },
     connect: {
-      title: '请连接管理员钱包',
-      detail: '连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。',
+      title: t('请连接管理员钱包'),
+      detail: t('连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。'),
     },
     denied: {
-      title: '无权访问 Admin',
-      detail: '当前钱包没有 Admin/Manager 权限，不能进入后台页面。',
+      title: t('无权访问 Admin'),
+      detail: t('当前钱包没有 Admin/Manager 权限，不能进入后台页面。'),
     },
     unconfigured: {
-      title: '后台未启用',
-      detail: '合约地址未配置，暂不能进入 Admin 后台。',
+      title: t('后台未启用'),
+      detail: t('合约地址未配置，暂不能进入 Admin 后台。'),
     },
   };
   const { title, detail } = content[status];
@@ -3399,7 +4100,7 @@ function AdminAccessGate({
       <EmptyState title={title} detail={detail} />
       {status === 'denied' && (
         <a className="secondary-button full-button" href="/">
-          返回客户页面
+          {t('返回客户页面')}
         </a>
       )}
     </section>
@@ -3423,6 +4124,7 @@ function AdminDashboardPage({ dashboard }: { dashboard: ReturnType<typeof useAdm
 }
 
 function AdminUsersPage() {
+  const { locale, t } = useI18n();
   const [search, setSearch] = useState('');
   const lookupAddress = isAddress(search.trim()) ? (search.trim() as Address) : undefined;
   const [selectedAddress, setSelectedAddress] = useState<Address | undefined>();
@@ -3482,7 +4184,7 @@ function AdminUsersPage() {
   }, [pagination.setPage, selectedAddress, sortedRows]);
 
   const registeredRows = sortedRows.filter((row) => row.account.registered);
-  const totalUsersLabel = totalUsers > 0n ? `${registeredRows.length}/${totalUsers.toString()} 人` : `${registeredRows.length} 人`;
+  const totalUsersLabel = totalUsers > 0n ? `${registeredRows.length}/${totalUsers.toString()} ${t('人')}` : `${registeredRows.length} ${t('人')}`;
   const showPartialUserWarning = totalUsers > BigInt(registeredRows.length);
 
   return (
@@ -3492,21 +4194,21 @@ function AdminUsersPage() {
           <div className="section-title">
             <div>
               <p className="eyebrow">Users</p>
-              <h2>用户管理</h2>
+              <h2>{t('用户管理')}</h2>
             </div>
             <span className="status-chip">{totalUsersLabel}</span>
           </div>
           <label className="full-field">
-            搜索钱包地址
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="输入 0x 地址可直接读取该用户链上资料" />
+            {t('搜索钱包地址')}
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('输入 0x 地址可直接读取该用户链上资料')} />
           </label>
-          {users.isLoading && <p className="helper-line">正在读取用户索引/事件和链上账户...</p>}
-          {users.eventError && users.indexedCount === 0 && <p className="field-error">合约用户索引为空，用户事件读取也失败，已尝试从订单地址兜底回显。请检查线上 RPC 或先执行历史用户同步。</p>}
+          {users.isLoading && <p className="helper-line">{t('正在读取用户索引/事件和链上账户...')}</p>}
+          {users.eventError && users.indexedCount === 0 && <p className="field-error">{t('合约用户索引为空，用户事件读取也失败，已尝试从订单地址兜底回显。请检查线上 RPC 或先执行历史用户同步。')}</p>}
           {!users.eventError && users.indexedCount === 0 && users.eventCount === 0 && totalUsers > 0n && (
-            <p className="field-error">链上已有 {totalUsers.toString()} 个用户，但当前合约用户索引为空。升级后需要执行 syncRegisteredUsers 同步历史用户。</p>
+            <p className="field-error">{translateText(locale, `链上已有 ${totalUsers.toString()} 个用户，但当前合约用户索引为空。升级后需要执行 syncRegisteredUsers 同步历史用户。`)}</p>
           )}
           {showPartialUserWarning && (
-            <p className="field-error">当前仅回显 {registeredRows.length} / {totalUsers.toString()} 个链上用户。要完全一致，请用 syncRegisteredUsers 补齐历史用户索引。</p>
+            <p className="field-error">{translateText(locale, `当前仅回显 ${registeredRows.length} / ${totalUsers.toString()} 个链上用户。要完全一致，请用 syncRegisteredUsers 补齐历史用户索引。`)}</p>
           )}
           <div className="list-stack">
             {sortedRows.length > 0 ? (
@@ -3519,7 +4221,7 @@ function AdminUsersPage() {
                 />
               ))
             ) : (
-              <EmptyState title="暂无注册记录" detail="可输入钱包地址，直接查询该用户的链上资料。" />
+              <EmptyState title={t('暂无注册记录')} detail={t('可输入钱包地址，直接查询该用户的链上资料。')} />
             )}
           </div>
           <PaginationControls {...pagination} onPageChange={pagination.setPage} />
@@ -3532,7 +4234,7 @@ function AdminUsersPage() {
         <div className="section-title">
           <div>
             <p className="eyebrow">User Tree</p>
-            <h2>全部用户关系树</h2>
+            <h2>{t('全部用户关系树')}</h2>
           </div>
           <span className="status-chip">{totalUsersLabel}</span>
         </div>
@@ -3551,17 +4253,18 @@ function AdminUserListRow({
   selected: boolean;
   onSelect: (address: Address) => void;
 }) {
+  const { t } = useI18n();
   return (
     <button className={`admin-list-row wide user-row-button${selected ? ' selected' : ''}`} type="button" onClick={() => onSelect(row.address)}>
       <div className="row-icon"><UserRound size={17} /></div>
       <div>
         <strong>{shortAddress(row.address)}</strong>
-        <small>上级 {shortAddress(row.account.referrer)} / 直推 {row.account.directCount.toString()}</small>
+        <small>{t('上级')} {shortAddress(row.account.referrer)} / {t('直推')} {row.account.directCount.toString()}</small>
       </div>
       <div className="row-metrics">
-        <span>本金 {token(row.account.principalBalance)} U</span>
-        <span>收益 {token(row.account.rewardBalance)} U</span>
-        <span>{row.account.whitelist40 ? '40 代白名单' : row.account.registered ? '已注册' : '未注册'}</span>
+        <span>{t('本金')} {token(row.account.principalBalance)} U</span>
+        <span>{t('收益')} {token(row.account.rewardBalance)} U</span>
+        <span>{row.account.whitelist40 ? t('40 代白名单') : row.account.registered ? t('已注册') : t('未注册')}</span>
       </div>
     </button>
   );
@@ -3576,10 +4279,11 @@ function AdminUserTree({
   selectedAddress?: Address;
   onSelect: (address: Address) => void;
 }) {
+  const { t } = useI18n();
   const tree = useMemo(() => buildUserTree(rows), [rows]);
 
   if (tree.length === 0) {
-    return <EmptyState title="暂无用户树" detail="用户注册后，会按推荐关系在这里生成层级树。" />;
+    return <EmptyState title={t('暂无用户树')} detail={t('用户注册后，会按推荐关系在这里生成层级树。')} />;
   }
 
   return (
@@ -3604,6 +4308,7 @@ function AdminUserTreeNode({
   selectedAddress?: Address;
   onSelect: (address: Address) => void;
 }) {
+  const { t } = useI18n();
   const key = node.address.toLowerCase();
   const cyclic = seen.has(key);
   const nextSeen = new Set(seen);
@@ -3616,13 +4321,13 @@ function AdminUserTreeNode({
         <div className="row-icon"><Users size={17} /></div>
         <div>
           <strong>{shortAddress(node.address)}</strong>
-          <small>上级 {shortAddress(node.account.referrer)} / 直推 {node.account.directCount.toString()}</small>
+          <small>{t('上级')} {shortAddress(node.account.referrer)} / {t('直推')} {node.account.directCount.toString()}</small>
         </div>
         <div className="row-metrics">
-          <span>入金 {token(node.account.totalDeposited)} U</span>
-          <span>本金 {token(node.account.principalBalance)} U</span>
-          <span>动态 {token(node.account.totalDynamicReward)} U</span>
-          {cyclic && <span className="amount-muted">循环引用</span>}
+          <span>{t('入金')} {token(node.account.totalDeposited)} U</span>
+          <span>{t('本金')} {token(node.account.principalBalance)} U</span>
+          <span>{t('动态')} {token(node.account.totalDynamicReward)} U</span>
+          {cyclic && <span className="amount-muted">{t('循环引用')}</span>}
         </div>
       </button>
       {!cyclic && node.children.length > 0 && (
@@ -3650,6 +4355,7 @@ function AdminUserDetailPanel({
   row?: AdminUserRow;
   onSelect: (address: Address) => void;
 }) {
+  const { t } = useI18n();
   const address = row?.address ?? zeroAddress;
   const enabled = Boolean(row && address !== zeroAddress);
   const orders = useUserOrders(address, enabled);
@@ -3668,24 +4374,24 @@ function AdminUserDetailPanel({
         <div className="section-title">
           <div>
             <p className="eyebrow">User Detail</p>
-            <h2>用户详细信息</h2>
+            <h2>{t('用户详细信息')}</h2>
           </div>
-          <span className="status-chip">未选择</span>
+          <span className="status-chip">{t('未选择')}</span>
         </div>
-        <EmptyState title="请选择用户" detail="从用户列表或关系树点击钱包地址后，会在这里回显链上明细。" />
+        <EmptyState title={t('请选择用户')} detail={t('从用户列表或关系树点击钱包地址后，会在这里回显链上明细。')} />
       </section>
     );
   }
 
   const account = row.account;
-  const accountStatus = account.whitelist40 ? '40 代白名单' : account.registered ? '已注册' : '未注册';
+  const accountStatus = account.whitelist40 ? t('40 代白名单') : account.registered ? t('已注册') : t('未注册');
 
   return (
     <section className="admin-panel user-detail-panel">
       <div className="section-title">
         <div>
           <p className="eyebrow">User Detail</p>
-          <h2>用户详细信息</h2>
+          <h2>{t('用户详细信息')}</h2>
         </div>
         <span className="status-chip">{accountStatus}</span>
       </div>
@@ -3693,44 +4399,44 @@ function AdminUserDetailPanel({
       <div className="user-detail-address">
         <div>
           <strong>{row.address}</strong>
-          <small>上级 {account.referrer === zeroAddress ? '未绑定' : shortAddress(account.referrer)} / 直推 {account.directCount.toString()} 人</small>
+          <small>{t('上级')} {account.referrer === zeroAddress ? t('未绑定') : shortAddress(account.referrer)} / {t('直推')} {account.directCount.toString()} {t('人')}</small>
         </div>
         <a href={`${bscExplorerBaseUrl}/address/${row.address}`} target="_blank" rel="noreferrer">BscScan</a>
       </div>
 
       <div className="settlement-stats user-detail-stats">
-        <InfoLine label="本金余额" value={`${token(account.principalBalance)} U`} />
-        <InfoLine label="带单中本金" value={`${token(account.principalStaked)} U`} />
-        <InfoLine label="收益余额" value={`${token(account.rewardBalance)} U`} />
-        <InfoLine label="累计入金" value={`${token(account.totalDeposited)} U`} />
-        <InfoLine label="累计带单" value={`${token(account.totalStaked)} U`} />
-        <InfoLine label="累计提现" value={`${token(account.totalWithdrawn)} U`} />
-        <InfoLine label="静态收益" value={`${token(account.totalStaticReward)} U`} />
-        <InfoLine label="动态收益" value={`${token(account.totalDynamicReward)} U`} />
-        <InfoLine label="团队人数" value={teamSummary.isLoading ? '读取中' : `${teamSummary.data?.totalMembers ?? 0} 人`} />
-        <InfoLine label="团队入金" value={teamSummary.isLoading ? '读取中' : `${token(teamSummary.data?.totalDeposited ?? 0n)} U`} />
-        <InfoLine label="本金订单" value={`${orders.principalOrders.length} 笔`} />
-        <InfoLine label="带单订单" value={`${orders.stakeOrders.length} 笔`} />
+        <InfoLine label={t('本金余额')} value={`${token(account.principalBalance)} U`} />
+        <InfoLine label={t('带单中本金')} value={`${token(account.principalStaked)} U`} />
+        <InfoLine label={t('收益余额')} value={`${token(account.rewardBalance)} U`} />
+        <InfoLine label={t('累计入金')} value={`${token(account.totalDeposited)} U`} />
+        <InfoLine label={t('累计带单')} value={`${token(account.totalStaked)} U`} />
+        <InfoLine label={t('累计提现')} value={`${token(account.totalWithdrawn)} U`} />
+        <InfoLine label={t('静态收益')} value={`${token(account.totalStaticReward)} U`} />
+        <InfoLine label={t('动态收益')} value={`${token(account.totalDynamicReward)} U`} />
+        <InfoLine label={t('团队人数')} value={teamSummary.isLoading ? t('读取中') : `${teamSummary.data?.totalMembers ?? 0} ${t('人')}`} />
+        <InfoLine label={t('团队入金')} value={teamSummary.isLoading ? t('读取中') : `${token(teamSummary.data?.totalDeposited ?? 0n)} U`} />
+        <InfoLine label={t('本金订单')} value={`${orders.principalOrders.length} ${t('笔')}`} />
+        <InfoLine label={t('带单订单')} value={`${orders.stakeOrders.length} ${t('笔')}`} />
       </div>
 
       <section className="user-detail-section">
         <div className="section-title compact-title">
-          <h3>直推用户</h3>
-          <span>{referrals.rows.length} 人</span>
+          <h3>{t('直推用户')}</h3>
+          <span>{referrals.rows.length} {t('人')}</span>
         </div>
         <div className="list-stack">
           {referrals.rows.length > 0 ? (
             referrals.rows.map((item) => <DirectReferralListRow key={item.address} item={item} onSelect={onSelect} />)
           ) : (
-            <EmptyState title="暂无直推用户" detail="该用户当前没有链上直推记录。" />
+            <EmptyState title={t('暂无直推用户')} detail={t('该用户当前没有链上直推记录。')} />
           )}
         </div>
       </section>
 
       <section className="user-detail-section">
         <div className="section-title compact-title">
-          <h3>最近订单</h3>
-          <span>{orders.isLoading ? '读取中' : `${orders.principalOrders.length + orders.stakeOrders.length + orders.withdrawalRequests.length} 笔`}</span>
+          <h3>{t('最近订单')}</h3>
+          <span>{orders.isLoading ? t('读取中') : `${orders.principalOrders.length + orders.stakeOrders.length + orders.withdrawalRequests.length} ${t('笔')}`}</span>
         </div>
         <div className="list-stack">
           {latestPrincipalOrders.map((order) => (
@@ -3739,29 +4445,29 @@ function AdminUserDetailPanel({
               label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
               amount={order.amount}
               status={principalStatusLabel(order)}
-              time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
+              time={`${t('创建')} ${dateTime(order.createdAt)} / ${t('解锁')} ${dateTime(order.unlockAt)}`}
             />
           ))}
           {latestStakeOrders.map((order) => (
             <OrderRow
               key={`stake-${order.id.toString()}`}
-              label={`带单订单 #${order.id.toString()}`}
+              label={`${t('带单订单')} #${order.id.toString()}`}
               amount={order.amount}
               status={stakeStatusLabel(order)}
-              time={`${sessionLabel(order.session)} / 收益 ${token(order.reward)} U / 结算 ${dateTime(order.settleAt)}`}
+              time={`${t(sessionLabel(order.session))} / ${t('收益')} ${token(order.reward)} U / ${t('结算')} ${dateTime(order.settleAt)}`}
             />
           ))}
           {latestWithdrawalRequests.map((request) => (
             <OrderRow
               key={`withdrawal-${request.id.toString()}`}
-              label={`提现申请 #${request.id.toString()}`}
+              label={`${t('提现申请')} #${request.id.toString()}`}
               amount={request.amount}
               status={withdrawalStatusLabel(request)}
-              time={`到账 ${token(request.netAmount)} U / 申请 ${dateTime(request.requestedAt)}`}
+              time={`${t('到账')} ${token(request.netAmount)} U / ${t('申请')} ${dateTime(request.requestedAt)}`}
             />
           ))}
           {latestPrincipalOrders.length + latestStakeOrders.length + latestWithdrawalRequests.length === 0 && (
-            <EmptyState title="暂无订单记录" detail="该用户暂未产生本金、带单或提现申请。" />
+            <EmptyState title={t('暂无订单记录')} detail={t('该用户暂未产生本金、带单或提现申请。')} />
           )}
         </div>
       </section>
@@ -3770,6 +4476,7 @@ function AdminUserDetailPanel({
 }
 
 function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { t } = useI18n();
   const orderBook = useAdminOrderBook();
   const pagination = usePaginatedItems(
     orderBook.principalOrders,
@@ -3782,9 +4489,9 @@ function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; run
       <div className="section-title">
         <div>
           <p className="eyebrow">Principal Orders</p>
-          <h2>本金订单</h2>
+          <h2>{t('本金订单')}</h2>
         </div>
-        <span className="status-chip">{orderBook.principalOrders.length} 笔</span>
+        <span className="status-chip">{orderBook.principalOrders.length} {t('笔')}</span>
       </div>
       <div className="list-stack">
         {orderBook.principalOrders.length > 0 ? (
@@ -3792,7 +4499,7 @@ function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; run
             <AdminPrincipalOrderRow key={order.id.toString()} order={order} canWrite={canWrite} runner={runner} />
           ))
         ) : (
-          <EmptyState title="暂无本金订单" detail="用户入金或复投后，本金订单会自动显示在这里。" />
+          <EmptyState title={t('暂无本金订单')} detail={t('用户入金或复投后，本金订单会自动显示在这里。')} />
         )}
       </div>
       <PaginationControls {...pagination} onPageChange={pagination.setPage} />
@@ -3801,6 +4508,7 @@ function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; run
 }
 
 function AdminStakeOrdersPage() {
+  const { t } = useI18n();
   const orderBook = useAdminOrderBook();
   const config = useContractConfig();
   const pagination = usePaginatedItems(
@@ -3814,15 +4522,15 @@ function AdminStakeOrdersPage() {
       <div className="section-title">
         <div>
           <p className="eyebrow">Stake Orders</p>
-          <h2>带单订单</h2>
+          <h2>{t('带单订单')}</h2>
         </div>
-        <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
+        <span className="status-chip">{orderBook.stakeOrders.length} {t('笔')}</span>
       </div>
       <div className="list-stack">
         {orderBook.stakeOrders.length > 0 ? (
           pagination.items.map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={config.settlementCycle} />)
         ) : (
-          <EmptyState title="暂无带单订单" detail="用户完成带单后，订单会自动显示在这里。" />
+          <EmptyState title={t('暂无带单订单')} detail={t('用户完成带单后，订单会自动显示在这里。')} />
         )}
       </div>
       <PaginationControls {...pagination} onPageChange={pagination.setPage} />
@@ -3831,6 +4539,7 @@ function AdminStakeOrdersPage() {
 }
 
 function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { locale, t } = useI18n();
   const [dynamicUser, setDynamicUser] = useState('');
   const [dynamicPeriodStart, setDynamicPeriodStart] = useState('');
   const [batchUsers, setBatchUsers] = useState('');
@@ -3880,7 +4589,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
 
   function runAllDynamicSettlement() {
     const steps = allSettlementBatches.map((rows, index, batches): TxFlowStep => ({
-      label: batches.length > 1 ? `全量批次 ${index + 1}/${batches.length}` : '全部待结算',
+      label: batches.length > 1 ? `Full batch ${index + 1}/${batches.length}` : t('全部待结算'),
       request: () =>
         runner.writeContractAsync({
           address: CONTRACT_ADDRESS,
@@ -3891,7 +4600,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
     }));
 
     if (steps.length === 0) return;
-    runner.runTxFlow('全量一键动态结算', steps);
+    runner.runTxFlow(t('全量一键动态结算'), steps);
   }
 
   return (
@@ -3900,7 +4609,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         <div className="section-title">
           <div>
             <p className="eyebrow">Cycle settlement</p>
-            <h2>收益结算</h2>
+            <h2>{t('收益结算')}</h2>
           </div>
           <Clock3 size={20} />
         </div>
@@ -3908,55 +4617,55 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
           <div className="section-title">
             <div>
               <p className="eyebrow">Auto settlement</p>
-              <h2>全量一键动态结算</h2>
+              <h2>{t('全量一键动态结算')}</h2>
             </div>
             <span className="status-chip">
-              {allSettlement.isLoading ? '扫描中' : allSettlement.isError ? '读取失败' : `${allPendingRows.length} 待结算`}
+              {allSettlement.isLoading ? t('扫描中') : allSettlement.isError ? t('读取失败') : `${allPendingRows.length} ${t('待结算')}`}
             </span>
           </div>
           <div className="settlement-stats">
-            <InfoLine label="扫描用户" value={`${users.rows.filter((row) => row.account.registered).length} 人`} />
-            <InfoLine label="未结算周期" value={`${allSettlementGroups.length} 个`} />
-            <InfoLine label="有效流水用户" value={`${allValidPendingCount} 人`} />
-            <InfoLine label="预计交易" value={`${allSettlementTxCount} 笔`} />
-            <InfoLine label="未结算流水" value={`${token(allPendingVolume)} U`} />
+            <InfoLine label={t('扫描用户')} value={`${users.rows.filter((row) => row.account.registered).length} ${t('人')}`} />
+            <InfoLine label={t('未结算周期')} value={`${allSettlementGroups.length} ${t('个')}`} />
+            <InfoLine label={t('有效流水用户')} value={`${allValidPendingCount} ${t('人')}`} />
+            <InfoLine label={t('预计交易')} value={`${allSettlementTxCount} ${t('笔')}`} />
+            <InfoLine label={t('未结算流水')} value={`${token(allPendingVolume)} U`} />
           </div>
           <button
             className="primary-button"
             disabled={!canWrite || users.isLoading || allSettlement.isLoading || allSettlementGroups.length === 0}
             onClick={runAllDynamicSettlement}
           >
-            自动结算全部未结算动态奖励
+            {t('自动结算全部未结算动态奖励')}
           </button>
           <p className="helper-line">
-            系统会自动扫描所有已登记用户的已关闭带单周期，并按周期分组提交结算；不需要手动输入地址或周期。
+            {t('系统会自动扫描所有已登记用户的已关闭带单周期，并按周期分组提交结算；不需要手动输入地址或周期。')}
           </p>
           <div className="settlement-preview">
             {allSettlement.isLoading ? (
-              <span>正在扫描所有带单周期...</span>
+              <span>{t('正在扫描所有带单周期...')}</span>
             ) : allSettlement.isError ? (
-              <span>全量待结算读取失败，请刷新后重试。</span>
+              <span>{t('全量待结算读取失败，请刷新后重试。')}</span>
             ) : allSettlementGroups.length > 0 ? (
               allSettlementGroups.slice(0, 8).map((group) => (
                 <div className="settlement-row" key={group.day.toString()}>
-                  <span>周期 {group.day.toString()}</span>
-                  <span>{group.addresses.length} 用户 / 有效 {group.validCount}</span>
+                  <span>{t('周期')} {group.day.toString()}</span>
+                  <span>{group.addresses.length} users / valid {group.validCount}</span>
                   <span>{token(group.totalVolume)} U</span>
                 </div>
               ))
             ) : (
-              <span>暂无未结算动态奖励。</span>
+              <span>{t('暂无未结算动态奖励。')}</span>
             )}
-            {allSettlementGroups.length > 8 && <span>还有 {allSettlementGroups.length - 8} 个周期未显示。</span>}
+            {allSettlementGroups.length > 8 && <span>{translateText(locale, `还有 ${allSettlementGroups.length - 8} 个周期未显示。`)}</span>}
           </div>
         </div>
         <div className="form-grid">
           <label>
-            用户地址
+            {t('用户地址')}
             <input value={dynamicUser} onChange={(event) => setDynamicUser(event.target.value)} placeholder="0x..." />
           </label>
           <label>
-            结算周期开始时间
+            {t('结算周期开始时间')}
             <input
               type="datetime-local"
               value={dynamicPeriodStart}
@@ -3967,14 +4676,14 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
                 }
               }}
             />
-            <small>所选周期：{selectedPeriodLabel}</small>
+            <small>{t('所选周期：')} {selectedPeriodLabel}</small>
           </label>
         </div>
         <button
           className="primary-button compact"
           disabled={!canWrite || settlementDay <= 0n || !isAddress(dynamicUser)}
           onClick={() =>
-            runner.runTx('结算动态奖励', () =>
+            runner.runTx(t('结算动态奖励'), () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -3984,27 +4693,27 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             )
           }
         >
-          结算该用户动态奖励
+          {t('结算该用户动态奖励')}
         </button>
         <div className="settlement-box">
           <div className="section-title">
             <div>
               <p className="eyebrow">Cycle batch</p>
-              <h2>周期一键动态结算</h2>
+              <h2>{t('周期一键动态结算')}</h2>
             </div>
-            <span className="status-chip">{oneClickAddresses.length} 待结算</span>
+            <span className="status-chip">{oneClickAddresses.length} {t('待结算')}</span>
           </div>
           <div className="settlement-stats">
-            <InfoLine label="当前周期" value={currentPeriodLabel} />
-            <InfoLine label="结算周期" value={selectedPeriodLabel} />
-            <InfoLine label="有流水用户" value={`${settlement.rows.length} 人`} />
-            <InfoLine label="有效流水用户" value={`${validPendingCount} 人`} />
+            <InfoLine label={t('当前周期')} value={currentPeriodLabel} />
+            <InfoLine label={t('结算周期')} value={selectedPeriodLabel} />
+            <InfoLine label={t('有流水用户')} value={`${settlement.rows.length} ${t('人')}`} />
+            <InfoLine label={t('有效流水用户')} value={`${validPendingCount} ${t('人')}`} />
           </div>
           <button
             className="primary-button"
             disabled={!canWrite || !dayClosed || oneClickAddresses.length === 0}
             onClick={() =>
-              runner.runTx('一键动态结算', () =>
+              runner.runTx(t('一键动态结算'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4014,38 +4723,38 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
               )
             }
           >
-            一键结算所选周期
+            {t('一键结算所选周期')}
           </button>
           <p className="helper-line">
             {dayClosed
-              ? '将结算所选周期内已产生流水且尚未结算的用户。'
-              : '只能结算已经结束的周期，通常选择当前周期的上一期。'}
+              ? t('将结算所选周期内已产生流水且尚未结算的用户。')
+              : t('只能结算已经结束的周期，通常选择当前周期的上一期。')}
           </p>
           <div className="settlement-preview">
             {settlement.isLoading ? (
-              <span>正在读取候选用户...</span>
+              <span>{t('正在读取候选用户...')}</span>
             ) : settlement.pendingRows.length > 0 ? (
               settlement.pendingRows.slice(0, 8).map((row) => (
                 <div className="settlement-row" key={row.address}>
                   <span>{shortAddress(row.address)}</span>
                   <span>{token(row.dailyStakeVolume)} U</span>
-                  <span>{row.isValidOnDay ? '有效直推' : '普通流水'}</span>
+                  <span>{row.isValidOnDay ? t('有效直推') : t('普通流水')}</span>
                 </div>
               ))
             ) : (
-              <span>暂无待结算用户。</span>
+              <span>{t('暂无待结算用户。')}</span>
             )}
-            {settlement.pendingRows.length > 8 && <span>还有 {settlement.pendingRows.length - 8} 个用户未显示。</span>}
+            {settlement.pendingRows.length > 8 && <span>{translateText(locale, `还有 ${settlement.pendingRows.length - 8} 个用户未显示。`)}</span>}
           </div>
         </div>
         <div className="form-grid spaced">
           <label>
-            批量用户地址
-            <input value={batchUsers} onChange={(event) => setBatchUsers(event.target.value)} placeholder="多个地址用逗号或空格分隔" />
+            {t('批量用户地址')}
+            <input value={batchUsers} onChange={(event) => setBatchUsers(event.target.value)} placeholder={t('多个地址用逗号或空格分隔')} />
           </label>
           <label>
-            批量带单 ID
-            <input value={stakeIds} onChange={(event) => setStakeIds(event.target.value)} placeholder="多个 ID 用逗号或空格分隔" />
+            {t('批量带单 ID')}
+            <input value={stakeIds} onChange={(event) => setStakeIds(event.target.value)} placeholder={t('多个 ID 用逗号或空格分隔')} />
           </label>
         </div>
         <div className="split-buttons">
@@ -4053,7 +4762,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
             className="secondary-button"
             disabled={!canWrite || parseAddressList(batchUsers).length === 0 || settlementDay <= 0n}
             onClick={() =>
-              runner.runTx('批量结算动态奖励', () =>
+              runner.runTx(t('批量结算动态奖励'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4063,13 +4772,13 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
               )
             }
           >
-            批量动态结算
+            {t('批量动态结算')}
           </button>
           <button
             className="secondary-button"
             disabled={!canWrite || parseIdList(stakeIds).length === 0}
             onClick={() =>
-              runner.runTx('批量结算带单', () =>
+              runner.runTx(t('批量结算带单'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4079,7 +4788,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
               )
             }
           >
-            批量带单结算
+            {t('批量带单结算')}
           </button>
         </div>
       </section>
@@ -4088,22 +4797,22 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         <div className="section-title">
           <div>
             <p className="eyebrow">Stake Flow</p>
-            <h2>带单流水回显</h2>
+            <h2>{t('带单流水回显')}</h2>
           </div>
-          <span className="status-chip">{orderBook.stakeOrders.length} 笔</span>
+          <span className="status-chip">{orderBook.stakeOrders.length} {t('笔')}</span>
         </div>
         <div className="settlement-stats">
-          <InfoLine label="当前周期" value={currentPeriodLabel} />
-          <InfoLine label="本周期带单笔数" value={`${currentDayStakeOrders.length} 笔`} />
-          <InfoLine label="本周期带单流水" value={`${token(currentDayStakeVolume)} U`} />
-          <InfoLine label="未结算带单" value={`${unsettledStakeOrders.length} 笔`} />
-          <InfoLine label="最近带单流水" value={`${token(recentStakeVolume)} U`} />
+          <InfoLine label={t('当前周期')} value={currentPeriodLabel} />
+          <InfoLine label={t('本周期带单笔数')} value={`${currentDayStakeOrders.length} ${t('笔')}`} />
+          <InfoLine label={t('本周期带单流水')} value={`${token(currentDayStakeVolume)} U`} />
+          <InfoLine label={t('未结算带单')} value={`${unsettledStakeOrders.length} ${t('笔')}`} />
+          <InfoLine label={t('最近带单流水')} value={`${token(recentStakeVolume)} U`} />
         </div>
         <div className="list-stack">
           {orderBook.stakeOrders.length > 0 ? (
             orderBook.stakeOrders.slice(0, 8).map((order) => <AdminStakeOrderRow key={order.id.toString()} order={order} settlementCycle={settlementCycle} />)
           ) : (
-            <EmptyState title="暂无带单流水" detail="这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。" />
+            <EmptyState title={t('暂无带单流水')} detail={t('这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。')} />
           )}
         </div>
       </section>
@@ -4112,15 +4821,15 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
         <div className="section-title">
           <div>
             <p className="eyebrow">Events</p>
-            <h2>收益流水</h2>
+            <h2>{t('收益流水')}</h2>
           </div>
-          <span className="status-chip">{events.data?.length ?? 0} 条</span>
+          <span className="status-chip">{events.data?.length ?? 0} {t('条')}</span>
         </div>
         <div className="list-stack">
           {(events.data ?? []).length > 0 ? (
             events.data?.map((event) => <EventRow key={`${event.transactionHash}-${event.logIndex}`} event={event} />)
           ) : (
-            <EmptyState title="暂无流水事件" detail="流水来自合约事件日志，会按区块倒序读取最近链上记录。" />
+            <EmptyState title={t('暂无流水事件')} detail={t('流水来自合约事件日志，会按区块倒序读取最近链上记录。')} />
           )}
         </div>
       </section>
@@ -4137,6 +4846,7 @@ function AdminWithdrawalsPage({
   canApprove: boolean;
   runner: ReturnType<typeof useTxRunner>;
 }) {
+  const { t } = useI18n();
   const { address } = useAccount();
   const [fundAmount, setFundAmount] = useState('1000');
   const [contractWithdrawReceiver, setContractWithdrawReceiver] = useState('');
@@ -4188,22 +4898,22 @@ function AdminWithdrawalsPage({
         <div className="section-title">
           <div>
             <p className="eyebrow">Withdrawals</p>
-            <h2>提现申请处理</h2>
+            <h2>{t('提现申请处理')}</h2>
           </div>
           <span className="status-chip">
-            {config.withdrawalApprovalRequired ? `${withdrawals.pendingRequests.length} 待审 / ${token(pendingWithdrawalAmount)} U` : `免审批 / ${withdrawals.pendingRequests.length} 历史待审`}
+            {config.withdrawalApprovalRequired ? `${withdrawals.pendingRequests.length} ${t('待审')} / ${token(pendingWithdrawalAmount)} U` : `${t('免审批')} / ${withdrawals.pendingRequests.length} ${t('历史待审')}`}
           </span>
         </div>
         <p className="helper-line">
           {config.withdrawalApprovalRequired
-            ? '审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。'
-            : '当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。'}
+            ? t('审批会从当前 Admin 钱包扣除申请金额，并向用户钱包打款；请先确认当前钱包有足够 USDT。')
+            : t('当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。')}
         </p>
         <div className="settlement-stats">
-          <InfoLine label="提现申请" value={`${withdrawals.requests.length} 笔`} />
-          <InfoLine label="待审申请" value={`${withdrawals.pendingRequests.length} 笔`} />
-          <InfoLine label="待审金额" value={`${token(pendingWithdrawalAmount)} U`} />
-          <InfoLine label="奖励池余额" value={`${token(rewardPoolBalance)} U`} />
+          <InfoLine label={t('提现申请')} value={`${withdrawals.requests.length} ${t('笔')}`} />
+          <InfoLine label={t('待审申请')} value={`${withdrawals.pendingRequests.length} ${t('笔')}`} />
+          <InfoLine label={t('待审金额')} value={`${token(pendingWithdrawalAmount)} U`} />
+          <InfoLine label={t('奖励池余额')} value={`${token(rewardPoolBalance)} U`} />
         </div>
       </section>
 
@@ -4211,17 +4921,17 @@ function AdminWithdrawalsPage({
         <div className="section-title">
           <div>
             <p className="eyebrow">Payout Pool</p>
-            <h2>奖励池与合约出金</h2>
+            <h2>{t('奖励池与合约出金')}</h2>
           </div>
           <Wallet size={20} />
         </div>
         <div className="form-grid">
           <label>
-            奖励池充值 U
+            {t('奖励池充值 U')}
             <input value={fundAmount} onChange={(event) => setFundAmount(event.target.value)} inputMode="decimal" />
           </label>
           <div className="inline-info-box">
-            <span>合约奖励池余额</span>
+            <span>{t('合约奖励池余额')}</span>
             <strong>{token(rewardPoolBalance)} U</strong>
           </div>
         </div>
@@ -4229,9 +4939,9 @@ function AdminWithdrawalsPage({
           className="secondary-button full-button"
           disabled={!canWrite || fundParsed <= 0n}
           onClick={() =>
-            runner.runTxFlow('充值奖励池', [
+            runner.runTxFlow(t('充值奖励池'), [
               {
-                label: '授权 USDT',
+                label: t('授权 USDT'),
                 request: () =>
                   runner.writeContractAsync({
                     address: BSC_USDT_ADDRESS,
@@ -4241,7 +4951,7 @@ function AdminWithdrawalsPage({
                   }),
               },
               {
-                label: '充值奖励池',
+                label: t('充值奖励池'),
                 request: () =>
                   runner.writeContractAsync({
                     address: CONTRACT_ADDRESS,
@@ -4253,11 +4963,11 @@ function AdminWithdrawalsPage({
             ])
           }
         >
-          充值奖励池
+          {t('充值奖励池')}
         </button>
         <div className="form-grid spaced">
           <label>
-            合约出金接收地址
+            {t('合约出金接收地址')}
             <input
               value={contractWithdrawReceiver}
               onChange={(event) => setContractWithdrawReceiver(event.target.value)}
@@ -4265,7 +4975,7 @@ function AdminWithdrawalsPage({
             />
           </label>
           <label>
-            合约出金金额 U
+            {t('合约出金金额 U')}
             <input value={contractWithdrawAmount} onChange={(event) => setContractWithdrawAmount(event.target.value)} inputMode="decimal" />
           </label>
         </div>
@@ -4273,7 +4983,7 @@ function AdminWithdrawalsPage({
           className="secondary-button full-button"
           disabled={!canWithdrawContractFunds}
           onClick={() =>
-            runner.runTx('提走合约 USDT', () =>
+            runner.runTx(t('提走合约 USDT'), () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -4283,18 +4993,18 @@ function AdminWithdrawalsPage({
             )
           }
         >
-          提走合约 USDT
+          {t('提走合约 USDT')}
         </button>
-        <p className="helper-line">仅 Super Admin 可提走合约奖励池当前持有的 USDT。</p>
+        <p className="helper-line">{t('仅 Super Admin 可提走合约奖励池当前持有的 USDT。')}</p>
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
           <div>
             <p className="eyebrow">Requests</p>
-            <h2>提现申请列表</h2>
+            <h2>{t('提现申请列表')}</h2>
           </div>
-          <span className="status-chip">{withdrawals.isLoading ? '读取中' : `${sortedRequests.length} 笔`}</span>
+          <span className="status-chip">{withdrawals.isLoading ? t('读取中') : `${sortedRequests.length} ${t('笔')}`}</span>
         </div>
         <div className="list-stack">
           {sortedRequests.length > 0 ? (
@@ -4302,7 +5012,7 @@ function AdminWithdrawalsPage({
               <AdminWithdrawalRequestRow key={request.id.toString()} request={request} canWrite={canApprove} runner={runner} />
             ))
           ) : (
-            <EmptyState title="暂无提现申请" detail={config.withdrawalApprovalRequired ? '用户提交提现后，会在这里等待 Admin 审批。' : '免审批提现会自动打款并直接显示为已打款记录。'} />
+            <EmptyState title={t('暂无提现申请')} detail={config.withdrawalApprovalRequired ? t('用户提交提现后，会在这里等待 Admin 审批。') : t('免审批提现会自动打款并直接显示为已打款记录。')} />
           )}
         </div>
         <PaginationControls {...pagination} onPageChange={pagination.setPage} />
@@ -4312,6 +5022,7 @@ function AdminWithdrawalsPage({
 }
 
 function AdminTeamPage({ defaultAddress }: { defaultAddress?: Address }) {
+  const { t } = useI18n();
   const [rootInput, setRootInput] = useState('');
   const root = isAddress(rootInput.trim()) ? (rootInput.trim() as Address) : defaultAddress ?? zeroAddress;
   const referrals = useDirectReferralRows(root, root !== zeroAddress);
@@ -4321,19 +5032,19 @@ function AdminTeamPage({ defaultAddress }: { defaultAddress?: Address }) {
       <div className="section-title">
         <div>
           <p className="eyebrow">Referrals</p>
-          <h2>团队关系</h2>
+          <h2>{t('团队关系')}</h2>
         </div>
-        <span className="status-chip">{referrals.rows.length} 人</span>
+        <span className="status-chip">{referrals.rows.length} {t('人')}</span>
       </div>
       <label className="full-field">
-        上级钱包地址
-        <input value={rootInput} onChange={(event) => setRootInput(event.target.value)} placeholder="留空默认读取当前钱包的直推" />
+        {t('上级钱包地址')}
+        <input value={rootInput} onChange={(event) => setRootInput(event.target.value)} placeholder={t('留空默认读取当前钱包的直推')} />
       </label>
       <div className="list-stack">
         {referrals.rows.length > 0 ? (
           referrals.rows.map((item) => <DirectReferralListRow key={item.address} item={item} />)
         ) : (
-          <EmptyState title="暂无直推关系" detail="团队关系通过 getDirectReferrals(root) 和 users(address) 读取。" />
+          <EmptyState title={t('暂无直推关系')} detail={t('团队关系通过 getDirectReferrals(root) 和 users(address) 读取。')} />
         )}
       </div>
     </section>
@@ -4341,6 +5052,7 @@ function AdminTeamPage({ defaultAddress }: { defaultAddress?: Address }) {
 }
 
 function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { locale, t } = useI18n();
   const config = useContractConfig();
   const [yieldPercent, setYieldPercent] = useState('1');
   const [minYieldPercent, setMinYieldPercent] = useState('0.5');
@@ -4393,47 +5105,47 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
   return (
     <section className="screen-stack">
       <section className="admin-grid">
-        <AdminCard icon={<Settings />} label="当前收益率" value={bpsToPercent(config.yieldBps)} />
-        <AdminCard icon={<ArrowDownToLine />} label="最低入金" value={`${token(config.minAmount)} U`} />
-        <AdminCard icon={<Send />} label="提现手续费" value={`${token(config.withdrawFee)} U`} />
-        <AdminCard icon={<LockKeyhole />} label="锁仓周期" value={`${secondsToDays(config.lockPeriod)} 天`} />
-        <AdminCard icon={<Repeat2 />} label="动态结算周期" value={settlementCycleLabel(config.settlementCycle)} />
-        <AdminCard icon={<PauseCircle />} label="合约状态" value={config.paused ? '已暂停' : '运行中'} />
-        <AdminCard icon={<Users />} label="默认推荐人" value={config.defaultReferrer === zeroAddress ? '未设置' : shortAddress(config.defaultReferrer)} />
-        <AdminCard icon={<Shield />} label="提现审批" value={config.withdrawalApprovalRequired ? '开启' : '关闭'} />
-        <AdminCard icon={<Wallet />} label="下个入金钱包" value={`#${Number(config.nextDepositReceiverIndex) + 1}`} />
+        <AdminCard icon={<Settings />} label={t('当前收益率')} value={bpsToPercent(config.yieldBps)} />
+        <AdminCard icon={<ArrowDownToLine />} label={t('最低入金')} value={`${token(config.minAmount)} U`} />
+        <AdminCard icon={<Send />} label={t('提现手续费')} value={`${token(config.withdrawFee)} U`} />
+        <AdminCard icon={<LockKeyhole />} label={t('锁仓周期')} value={`${secondsToDays(config.lockPeriod)} ${t('天')}`} />
+        <AdminCard icon={<Repeat2 />} label={t('动态结算周期')} value={translateText(locale, settlementCycleLabel(config.settlementCycle))} />
+        <AdminCard icon={<PauseCircle />} label={t('合约状态')} value={config.paused ? t('已暂停') : t('运行中')} />
+        <AdminCard icon={<Users />} label={t('默认推荐人')} value={config.defaultReferrer === zeroAddress ? t('未设置') : shortAddress(config.defaultReferrer)} />
+        <AdminCard icon={<Shield />} label={t('提现审批')} value={config.withdrawalApprovalRequired ? t('开启') : t('关闭')} />
+        <AdminCard icon={<Wallet />} label={t('下个入金钱包')} value={`#${Number(config.nextDepositReceiverIndex) + 1}`} />
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
           <div>
             <p className="eyebrow">Owner / Admin</p>
-            <h2>合约配置</h2>
+            <h2>{t('合约配置')}</h2>
           </div>
           <Settings size={20} />
         </div>
         <div className="form-grid">
           <label>
-            单次收益率 %
+            {t('单次收益率 %')}
             <input value={yieldPercent} onChange={(event) => setYieldPercent(event.target.value)} />
           </label>
           <label>
-            提现手续费 U
+            {t('提现手续费 U')}
             <input value={feeAmount} onChange={(event) => setFeeAmount(event.target.value)} />
           </label>
           <label>
-            最低收益率 %
+            {t('最低收益率 %')}
             <input value={minYieldPercent} onChange={(event) => setMinYieldPercent(event.target.value)} />
           </label>
           <label>
-            最高收益率 %
+            {t('最高收益率 %')}
             <input value={maxYieldPercent} onChange={(event) => setMaxYieldPercent(event.target.value)} />
           </label>
         </div>
         <div className="setting-toggle-row">
           <div>
-            <strong>提现需要 Admin 审批</strong>
-            <small>{config.withdrawalApprovalRequired ? '用户提现会进入待审列表，由 Admin 审批打款。' : '用户提现会从合约奖励池自动打款，请确保奖励池余额充足。'}</small>
+            <strong>{t('提现需要 Admin 审批')}</strong>
+            <small>{config.withdrawalApprovalRequired ? t('用户提现会进入待审列表，由 Admin 审批打款。') : t('用户提现会从合约奖励池自动打款，请确保奖励池余额充足。')}</small>
           </div>
           <button
             className={config.withdrawalApprovalRequired ? 'toggle-button on' : 'toggle-button'}
@@ -4441,7 +5153,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             aria-pressed={config.withdrawalApprovalRequired}
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx(config.withdrawalApprovalRequired ? '关闭提现审批' : '开启提现审批', () =>
+              runner.runTx(config.withdrawalApprovalRequired ? t('关闭提现审批') : t('开启提现审批'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4459,7 +5171,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             className="primary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置收益率', () =>
+              runner.runTx(t('设置收益率'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4469,13 +5181,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存收益率
+            {t('保存收益率')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置提现手续费', () =>
+              runner.runTx(t('设置提现手续费'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4485,14 +5197,14 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存手续费
+            {t('保存手续费')}
           </button>
         </div>
         <button
           className="secondary-button full-button"
           disabled={!canEdit}
           onClick={() =>
-            runner.runTx('设置收益率上下限', () =>
+            runner.runTx(t('设置收益率上下限'), () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -4502,47 +5214,47 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             )
           }
         >
-          保存收益率范围
+          {t('保存收益率范围')}
         </button>
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
-          <h2>金额与时间规则</h2>
+          <h2>{t('金额与时间规则')}</h2>
           <Clock3 size={20} />
         </div>
         <div className="form-grid">
           <label>
-            单笔最小 U
+            {t('单笔最小 U')}
             <input value={minAmount} onChange={(event) => setMinAmount(event.target.value)} />
           </label>
           <label>
-            单笔最大 U
+            {t('单笔最大 U')}
             <input value={maxAmount} onChange={(event) => setMaxAmount(event.target.value)} />
           </label>
           <label>
-            本金上限 U
+            {t('本金上限 U')}
             <input value={maxPrincipal} onChange={(event) => setMaxPrincipal(event.target.value)} />
           </label>
           <label>
-            锁仓天数
+            {t('锁仓天数')}
             <input value={lockDays} onChange={(event) => setLockDays(event.target.value)} />
           </label>
           <label>
-            有效流水门槛 U
+            {t('有效流水门槛 U')}
             <input value={threshold} onChange={(event) => setThreshold(event.target.value)} />
           </label>
           <label>
-            手续费接收地址
+            {t('手续费接收地址')}
             <input value={feeReceiver} onChange={(event) => setFeeReceiver(event.target.value)} placeholder="0x..." />
           </label>
           <label>
-            默认推荐人地址
-            <input value={defaultReferrer} onChange={(event) => setDefaultReferrer(event.target.value)} placeholder="留空则关闭默认推荐人" />
+            {t('默认推荐人地址')}
+            <input value={defaultReferrer} onChange={(event) => setDefaultReferrer(event.target.value)} placeholder={t('留空则关闭默认推荐人')} />
           </label>
           {depositReceivers.map((receiver, index) => (
             <label key={`deposit-receiver-${index}`}>
-              入金收款钱包 {index + 1}
+              {t('入金收款钱包')} {index + 1}
               <input
                 value={receiver}
                 onChange={(event) =>
@@ -4558,7 +5270,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置金额规则', () =>
+              runner.runTx(t('设置金额规则'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4568,13 +5280,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存金额规则
+            {t('保存金额规则')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置锁仓周期', () =>
+              runner.runTx(t('设置锁仓周期'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4584,7 +5296,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存锁仓周期
+            {t('保存锁仓周期')}
           </button>
         </div>
         <div className="split-buttons">
@@ -4592,7 +5304,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置有效流水门槛', () =>
+              runner.runTx(t('设置有效流水门槛'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4602,13 +5314,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存有效门槛
+            {t('保存有效门槛')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit || !isAddress(feeReceiver)}
             onClick={() =>
-              runner.runTx('设置手续费接收地址', () =>
+              runner.runTx(t('设置手续费接收地址'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4618,13 +5330,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存手续费地址
+            {t('保存手续费地址')}
           </button>
           <button
             className="secondary-button"
             disabled={!canSaveDefaultReferrer}
             onClick={() =>
-              runner.runTx('设置默认推荐人', () =>
+              runner.runTx(t('设置默认推荐人'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4634,13 +5346,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存默认推荐人
+            {t('保存默认推荐人')}
           </button>
           <button
             className="secondary-button"
             disabled={!canSaveDepositReceivers}
             onClick={() =>
-              runner.runTx('设置入金收款钱包', () =>
+              runner.runTx(t('设置入金收款钱包'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4650,7 +5362,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存5个收款钱包
+            {t('保存5个收款钱包')}
           </button>
         </div>
       </section>
@@ -4659,14 +5371,14 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
         <div className="section-title">
           <div>
             <p className="eyebrow">Admin</p>
-            <h2>动态结算与上下场次</h2>
+            <h2>{t('动态结算与上下场次')}</h2>
           </div>
           <Clock3 size={20} />
         </div>
-        <p className="helper-line">测试环境可把结算周期调短，并把上午场、下午场压缩到同一个周期内。</p>
+        <p className="helper-line">{t('测试环境可把结算周期调短，并把上午场、下午场压缩到同一个周期内。')}</p>
         <div className="form-grid schedule-config-grid">
           <label>
-            动态奖励结算周期（分钟）
+            {t('动态奖励结算周期（分钟）')}
             <input
               type="number"
               value={settlementCycleMinutes}
@@ -4676,26 +5388,26 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               max="1440"
               placeholder="1-1440"
             />
-            <small>当前：{settlementCycleLabel(config.settlementCycle)}；范围 1-1440 分钟</small>
+            <small>{t('当前：')}{translateText(locale, settlementCycleLabel(config.settlementCycle))}; range 1-1440 {t('分钟')}</small>
           </label>
           <label>
-            场次时区
-            <input value="UTC+8（东八区，链上自动识别）" readOnly />
+            {t('场次时区')}
+            <input value={t('UTC+8（东八区，链上自动识别）')} readOnly />
           </label>
           <label>
-            上午场开始
+            {t('上午场开始')}
             <input value={morningStart} onChange={(event) => setMorningStart(event.target.value)} placeholder="09:00" inputMode="numeric" />
           </label>
           <label>
-            上午场结束
+            {t('上午场结束')}
             <input value={morningEnd} onChange={(event) => setMorningEnd(event.target.value)} placeholder="12:00" inputMode="numeric" />
           </label>
           <label>
-            下午场开始
+            {t('下午场开始')}
             <input value={afternoonStart} onChange={(event) => setAfternoonStart(event.target.value)} placeholder="14:00" inputMode="numeric" />
           </label>
           <label>
-            下午场结束
+            {t('下午场结束')}
             <input value={afternoonEnd} onChange={(event) => setAfternoonEnd(event.target.value)} placeholder="17:00" inputMode="numeric" />
           </label>
         </div>
@@ -4704,7 +5416,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             className="secondary-button"
             disabled={!canSaveSettlementCycle}
             onClick={() =>
-              runner.runTx('设置动态奖励结算周期', () =>
+              runner.runTx(t('设置动态奖励结算周期'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4714,13 +5426,13 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存动态结算周期
+            {t('保存动态结算周期')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('设置带单场次', () =>
+              runner.runTx(t('设置带单场次'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4735,23 +5447,23 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
               )
             }
           >
-            保存上下午时间范围
+            {t('保存上下午时间范围')}
           </button>
         </div>
       </section>
 
       <section className="admin-panel">
         <div className="section-title">
-          <h2>代数与合约状态</h2>
+          <h2>{t('代数与合约状态')}</h2>
           <Users size={20} />
         </div>
         <div className="form-grid">
           <label>
-            代数
+            {t('代数')}
             <input value={generation} onChange={(event) => setGeneration(event.target.value)} />
           </label>
           <label>
-            代数奖励 %
+            {t('代数奖励 %')}
             <input value={generationRate} onChange={(event) => setGenerationRate(event.target.value)} />
           </label>
         </div>
@@ -4759,7 +5471,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
           className="secondary-button full-button"
           disabled={!canEdit}
           onClick={() =>
-            runner.runTx('设置代数奖励比例', () =>
+            runner.runTx(t('设置代数奖励比例'), () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -4769,32 +5481,32 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
             )
           }
         >
-          保存代数奖励比例
+          {t('保存代数奖励比例')}
         </button>
         <div className="split-buttons">
           <button
             className="secondary-button danger-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('暂停合约', () =>
+              runner.runTx(t('暂停合约'), () =>
                 runner.writeContractAsync({ address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'pause' }),
               )
             }
           >
             <PauseCircle size={17} />
-            暂停
+            {t('暂停')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit}
             onClick={() =>
-              runner.runTx('恢复合约', () =>
+              runner.runTx(t('恢复合约'), () =>
                 runner.writeContractAsync({ address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'unpause' }),
               )
             }
           >
             <CheckCircle2 size={17} />
-            恢复
+            {t('恢复')}
           </button>
         </div>
       </section>
@@ -4803,6 +5515,7 @@ function AdminConfigPage({ canEdit, runner }: { canEdit: boolean; runner: Return
 }
 
 function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnType<typeof useTxRunner> }) {
+  const { t } = useI18n();
   const { address } = useAccount();
   const [targetAddress, setTargetAddress] = useState('');
   const [ownerTransferTarget, setOwnerTransferTarget] = useState<Address>();
@@ -4824,26 +5537,26 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
         <div className="section-title">
           <div>
             <p className="eyebrow">Roles</p>
-            <h2>权限与白名单</h2>
+            <h2>{t('权限与白名单')}</h2>
           </div>
           <Shield size={20} />
         </div>
         <label className="full-field">
-          钱包地址
+          {t('钱包地址')}
           <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
         </label>
         <div className="admin-grid compact-grid">
-          <AdminCard icon={<Shield />} label="Admin 权限" value={role.isSuperAdmin ? '是' : '否'} />
-          <AdminCard icon={<Settings />} label="Manager 权限" value={role.isManager ? '是' : '否'} />
-          <AdminCard icon={<Gift />} label="40 代白名单" value={account.whitelist40 ? '是' : '否'} />
-          <AdminCard icon={<Users />} label="直推数" value={account.directCount.toString()} />
+          <AdminCard icon={<Shield />} label={t('Admin 权限')} value={role.isSuperAdmin ? t('是') : t('否')} />
+          <AdminCard icon={<Settings />} label={t('Manager 权限')} value={role.isManager ? t('是') : t('否')} />
+          <AdminCard icon={<Gift />} label={t('40 代白名单')} value={account.whitelist40 ? t('是') : t('否')} />
+          <AdminCard icon={<Users />} label={t('直推数')} value={account.directCount.toString()} />
         </div>
         <div className="button-stack spaced">
           <button
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('开启 40 代白名单', () =>
+              runner.runTx(t('开启 40 代白名单'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4853,13 +5566,13 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            开启 40 代白名单
+            {t('开启 40 代白名单')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('关闭 40 代白名单', () =>
+              runner.runTx(t('关闭 40 代白名单'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4869,13 +5582,13 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            关闭 40 代白名单
+            {t('关闭 40 代白名单')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('授予 Manager 权限', () =>
+              runner.runTx(t('授予 Manager 权限'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4885,13 +5598,13 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            授予 Manager 权限
+            {t('授予 Manager 权限')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('撤销 Manager 权限', () =>
+              runner.runTx(t('撤销 Manager 权限'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4901,13 +5614,13 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            撤销 Manager 权限
+            {t('撤销 Manager 权限')}
           </button>
           <button
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('授予 Admin 权限', () =>
+              runner.runTx(t('授予 Admin 权限'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4917,13 +5630,13 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            授予 Admin 权限
+            {t('授予 Admin 权限')}
           </button>
           <button
             className="secondary-button danger-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx('撤销 Admin 权限', () =>
+              runner.runTx(t('撤销 Admin 权限'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -4933,7 +5646,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
               )
             }
           >
-            撤销 Admin 权限
+            {t('撤销 Admin 权限')}
           </button>
           <button
             className="secondary-button danger-button"
@@ -4943,9 +5656,9 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             }}
           >
             <Shield size={17} />
-            转移 Owner 权限
+            {t('转移 Owner 权限')}
           </button>
-          <p className="helper-line">转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。</p>
+          <p className="helper-line">{t('转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。')}</p>
         </div>
       </section>
       {ownerTransferTarget && (
@@ -4955,7 +5668,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
           busy={transactionBusy}
           onCancel={() => setOwnerTransferTarget(undefined)}
           onConfirm={() => {
-            runner.runTx('转移 Owner 权限', () =>
+            runner.runTx(t('转移 Owner 权限'), () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -4984,30 +5697,31 @@ function OwnerTransferConfirmModal({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="referrer-modal danger-modal" role="dialog" aria-modal="true" aria-labelledby="owner-transfer-title">
         <div className="section-title">
           <div>
             <p className="eyebrow">Owner Transfer</p>
-            <h2 id="owner-transfer-title">转移 Owner 权限</h2>
+            <h2 id="owner-transfer-title">{t('转移 Owner 权限')}</h2>
           </div>
           <Shield size={18} />
         </div>
         <p className="modal-helper">
-          这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。
+          {t('这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。')}
         </p>
         <div className="confirm-summary">
-          <InfoLine label="当前钱包" value={shortAddress(currentOwner)} />
-          <InfoLine label="新 Owner" value={shortAddress(newOwner)} />
-          <InfoLine label="默认推荐人" value="如仍指向当前钱包，将同步到新 Owner" />
+          <InfoLine label={t('当前钱包')} value={shortAddress(currentOwner)} />
+          <InfoLine label={t('新 Owner')} value={shortAddress(newOwner)} />
+          <InfoLine label={t('默认推荐人')} value={t('如仍指向当前钱包，将同步到新 Owner')} />
         </div>
         <div className="modal-actions">
           <button className="secondary-button" type="button" disabled={busy} onClick={onCancel}>
-            取消
+            {t('取消')}
           </button>
           <button className="primary-button danger-primary-button" type="button" disabled={busy} onClick={onConfirm}>
-            确认转移
+            {t('确认转移')}
           </button>
         </div>
       </section>
@@ -5769,6 +6483,7 @@ function walletConnectionErrorLabel(error: unknown) {
 }
 
 function WalletConnectButton() {
+  const { t } = useI18n();
   const { connectAsync, connectors, isPending, reset } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const [connectError, setConnectError] = useState<string>();
@@ -5817,19 +6532,19 @@ function WalletConnectButton() {
           return (
             <button className="wallet-connect-button" type="button" disabled>
               <Wallet size={17} />
-              <span>钱包</span>
+              <span>{t('钱包')}</span>
             </button>
           );
         }
 
         if (!connected) {
-          const buttonLabel = isPending ? '连接中...' : connectError ? '连接失败' : '连接钱包';
+          const buttonLabel = isPending ? t('连接中...') : connectError ? t('连接失败') : t('连接钱包');
 
           return (
             <button
               className={connectError ? 'wallet-connect-button danger' : 'wallet-connect-button'}
               type="button"
-              title={connectError}
+              title={connectError ? t(connectError) : undefined}
               disabled={isPending}
               onClick={() => {
                 void connectDirect(openConnectModal);
@@ -5845,7 +6560,7 @@ function WalletConnectButton() {
           return (
             <button className="wallet-connect-button danger" type="button" onClick={openChainModal}>
               <Wallet size={17} />
-              <span>网络错误</span>
+              <span>{t('网络错误')}</span>
             </button>
           );
         }
@@ -5930,10 +6645,11 @@ function TopLanguageSwitcher({ locale, copy, onChange }: { locale: LocaleKey; co
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+  const { locale } = useI18n();
   return (
     <button className={active ? 'nav-button active' : 'nav-button'} onClick={onClick}>
       {icon}
-      <span>{label}</span>
+      <span>{translateText(locale, label)}</span>
     </button>
   );
 }
@@ -5956,35 +6672,38 @@ function MoneyAmount({
 }
 
 function MetricCard({ label, value, trend }: { label: string; value: React.ReactNode; trend: React.ReactNode }) {
+  const { locale } = useI18n();
   return (
     <div className="metric-card">
-      <span>{label}</span>
+      <span>{translateText(locale, label)}</span>
       <strong>{value}</strong>
-      <small>{trend}</small>
+      <small>{localizeNode(locale, trend)}</small>
     </div>
   );
 }
 
 function ActionPill({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  const { locale } = useI18n();
   return (
     <button className="action-pill" type="button" onClick={onClick}>
       {icon}
-      <span>{label}</span>
+      <span>{translateText(locale, label)}</span>
     </button>
   );
 }
 
 function SessionRow({ title, time, state, amount }: { title: string; time: string; state: string; amount: string }) {
+  const { locale } = useI18n();
   return (
     <div className="session-row">
       <div className="row-icon"><Clock3 size={17} /></div>
       <div>
-        <strong>{title}</strong>
+        <strong>{translateText(locale, title)}</strong>
         <small>{time}</small>
       </div>
       <div className="row-right">
-        <span>{state}</span>
-        <small>{amount}</small>
+        <span>{translateText(locale, state)}</span>
+        <small>{translateText(locale, amount)}</small>
       </div>
     </div>
   );
@@ -6003,16 +6722,17 @@ function OrderRow({
   time: React.ReactNode;
   action?: React.ReactNode;
 }) {
+  const { locale } = useI18n();
   return (
     <div className="list-row">
       <div className="row-icon"><Landmark size={17} /></div>
       <div>
-        <strong>{label}</strong>
-        <small>{time}</small>
+        <strong>{translateText(locale, label)}</strong>
+        <small>{localizeNode(locale, time)}</small>
       </div>
       <div className="row-right">
         <MoneyAmount value={amount} />
-        <small>{status}</small>
+        <small>{translateText(locale, status)}</small>
         {action}
       </div>
     </div>
@@ -6020,6 +6740,7 @@ function OrderRow({
 }
 
 function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[] }) {
+  const { t } = useI18n();
   const sortedRequests = useMemo(() => [...requests].sort(compareWithdrawalRequestLatest), [requests]);
   const pagination = usePaginatedItems(
     sortedRequests,
@@ -6030,21 +6751,21 @@ function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[]
   return (
     <section className="panel">
       <div className="section-title">
-        <h2>提现申请</h2>
-        <span>{sortedRequests.length} 笔</span>
+        <h2>{t('提现申请')}</h2>
+        <span>{sortedRequests.length} {t('笔')}</span>
       </div>
       {sortedRequests.length > 0 ? (
         pagination.items.map((request) => (
           <OrderRow
             key={request.id.toString()}
-            label={`提现申请 #${request.id.toString()}`}
+            label={`${t('提现申请')} #${request.id.toString()}`}
             amount={request.amount}
             status={withdrawalStatusLabel(request)}
-            time={<>到账 <MoneyAmount value={request.netAmount} /> / 手续费 <MoneyAmount value={request.fee} /> / 申请 {dateTime(request.requestedAt)}</>}
+            time={<>{t('到账')} <MoneyAmount value={request.netAmount} /> / {t('手续费')} <MoneyAmount value={request.fee} /> / {t('申请')} {dateTime(request.requestedAt)}</>}
           />
         ))
       ) : (
-        <EmptyState title="暂无提现申请" detail="提交提现后，提现记录会在这里显示。" />
+        <EmptyState title={t('暂无提现申请')} detail={t('提交提现后，提现记录会在这里显示。')} />
       )}
       <PaginationControls {...pagination} onPageChange={pagination.setPage} />
     </section>
@@ -6052,6 +6773,7 @@ function WithdrawalRequestList({ requests }: { requests: WithdrawalRequestData[]
 }
 
 function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]; disabled: boolean }) {
+  const { t } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const nowSeconds = useNowSeconds();
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
@@ -6065,8 +6787,8 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
   return (
     <section className="panel">
       <div className="section-title">
-        <h2>本金订单</h2>
-        <span>{sortedOrders.length} 笔</span>
+        <h2>{t('本金订单')}</h2>
+        <span>{sortedOrders.length} {t('笔')}</span>
       </div>
       {sortedOrders.length > 0 ? (
         pagination.items.map((order) => {
@@ -6078,7 +6800,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
               label={`${principalSourceLabel(order.source)} #${order.id.toString()}`}
               amount={order.amount}
               status={principalStatusLabel(order)}
-              time={`创建 ${dateTime(order.createdAt)} / 解锁 ${dateTime(order.unlockAt)}`}
+              time={`${t('创建')} ${dateTime(order.createdAt)} / ${t('解锁')} ${dateTime(order.unlockAt)}`}
               action={
                 canRedeem ? (
                   <button
@@ -6086,7 +6808,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
                     type="button"
                     disabled={disabled || transactionBusy}
                     onClick={() =>
-                      runTx(`赎回本金 #${order.id.toString()}`, () =>
+                      runTx(`${t('赎回')} ${t('本金')} #${order.id.toString()}`, () =>
                         writeContractAsync({
                           address: CONTRACT_ADDRESS,
                           abi: ironBrotherAbi,
@@ -6096,7 +6818,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
                       )
                     }
                   >
-                    赎回
+                    {t('赎回')}
                   </button>
                 ) : undefined
               }
@@ -6104,7 +6826,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
           );
         })
       ) : (
-        <EmptyState title="暂无本金订单" />
+        <EmptyState title={t('暂无本金订单')} />
       )}
       <PaginationControls {...pagination} onPageChange={pagination.setPage} />
       <TxStatus tx={tx} />
@@ -6113,6 +6835,7 @@ function PrincipalOrderList({ orders, disabled }: { orders: PrincipalOrderData[]
 }
 
 function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabled: boolean }) {
+  const { t } = useI18n();
   const { runTx, tx, writeContractAsync } = useTxRunner();
   const nowSeconds = useNowSeconds();
   const transactionBusy = tx.status === 'wallet' || tx.status === 'pending';
@@ -6126,8 +6849,8 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
   return (
     <section className="panel">
       <div className="section-title">
-        <h2>带单订单</h2>
-        <span>{sortedOrders.length} 笔</span>
+        <h2>{t('带单订单')}</h2>
+        <span>{sortedOrders.length} {t('笔')}</span>
       </div>
       {sortedOrders.length > 0 ? (
         pagination.items.map((order) => {
@@ -6136,10 +6859,10 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
           return (
             <OrderRow
               key={order.id.toString()}
-              label={`带单订单 #${order.id.toString()}`}
+              label={`${t('带单订单')} #${order.id.toString()}`}
               amount={order.amount}
               status={stakeStatusLabel(order)}
-              time={<>{sessionLabel(order.session)} / 收益 <MoneyAmount value={order.reward} /> / 结算 {dateTime(order.settleAt)}</>}
+              time={<>{t(sessionLabel(order.session))} / {t('收益')} <MoneyAmount value={order.reward} /> / {t('结算')} {dateTime(order.settleAt)}</>}
               action={
                 canSettle ? (
                   <button
@@ -6147,7 +6870,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
                     type="button"
                     disabled={disabled || transactionBusy}
                     onClick={() =>
-                      runTx(`结算带单 #${order.id.toString()}`, () =>
+                      runTx(`${t('结算')} ${t('带单')} #${order.id.toString()}`, () =>
                         writeContractAsync({
                           address: CONTRACT_ADDRESS,
                           abi: ironBrotherAbi,
@@ -6157,7 +6880,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
                       )
                     }
                   >
-                    结算
+                    {t('结算')}
                   </button>
                 ) : undefined
               }
@@ -6165,7 +6888,7 @@ function StakeOrderList({ orders, disabled }: { orders: StakeOrderData[]; disabl
           );
         })
       ) : (
-        <EmptyState title="暂无带单订单" detail="带单后会从 stakeOrders(id) 读取显示。" />
+        <EmptyState title={t('暂无带单订单')} detail={t('带单后会从 stakeOrders(id) 读取显示。')} />
       )}
       <PaginationControls {...pagination} onPageChange={pagination.setPage} />
       <TxStatus tx={tx} />
@@ -6180,14 +6903,15 @@ function DirectReferralListRow({
   item: DirectReferralRow;
   onSelect?: (address: Address) => void;
 }) {
+  const { t } = useI18n();
   const volumeLabel =
-    item.settlementCycle === BigInt(SECONDS_PER_DAY) ? '单日流水' : '本周期流水';
+    item.settlementCycle === BigInt(SECONDS_PER_DAY) ? t('单日流水') : t('本周期流水');
   const content = (
     <>
       <div className="row-icon"><Users size={17} /></div>
       <div>
         <strong>{shortAddress(item.address)}</strong>
-        <small>{volumeLabel} <MoneyAmount value={item.currentStakeVolume} /> / 本金 <MoneyAmount value={item.account.principalBalance} /></small>
+        <small>{volumeLabel} <MoneyAmount value={item.currentStakeVolume} /> / {t('本金')} <MoneyAmount value={item.account.principalBalance} /></small>
       </div>
     </>
   );
@@ -6221,6 +6945,7 @@ function AdminPrincipalOrderRow({
   canWrite: boolean;
   runner: ReturnType<typeof useTxRunner>;
 }) {
+  const { t } = useI18n();
   const [lockDays, setLockDays] = useState(() => principalOrderLockDays(order));
   const currentLockDays = principalOrderLockDays(order);
   const canUpdate = canWrite && order.status === 0 && Number(lockDays) >= 1 && lockDays !== currentLockDays;
@@ -6234,30 +6959,30 @@ function AdminPrincipalOrderRow({
       <div className="row-icon"><Landmark size={17} /></div>
       <div>
         <strong>{principalSourceLabel(order.source)} #{order.id.toString()}</strong>
-        <small>{shortAddress(order.user)} / 创建 {dateTime(order.createdAt)}</small>
+        <small>{shortAddress(order.user)} / {t('创建')} {dateTime(order.createdAt)}</small>
       </div>
       <div className="row-metrics">
         <span>{token(order.amount)} U</span>
-        <span>{principalStatusLabel(order)}</span>
-        <span>解锁 {dateTime(order.unlockAt)}</span>
+        <span>{t(principalStatusLabel(order))}</span>
+        <span>{t('解锁')} {dateTime(order.unlockAt)}</span>
       </div>
       <div className="principal-cycle-editor">
         <label>
-          赎回周期
+          {t('赎回周期')}
           <input
             value={lockDays}
             onChange={(event) => setLockDays(event.target.value)}
             inputMode="decimal"
             disabled={!canWrite || order.status !== 0}
           />
-          <span>天</span>
+          <span>{t('天')}</span>
         </label>
         <button
           className="row-action-button"
           type="button"
           disabled={!canUpdate}
           onClick={() =>
-            runner.runTx(`修改本金订单 #${order.id.toString()} 赎回周期`, () =>
+            runner.runTx(`Update principal order #${order.id.toString()} redemption cycle`, () =>
               runner.writeContractAsync({
                 address: CONTRACT_ADDRESS,
                 abi: ironBrotherAbi,
@@ -6267,7 +6992,7 @@ function AdminPrincipalOrderRow({
             )
           }
         >
-          保存
+          {t('保存')}
         </button>
       </div>
     </div>
@@ -6281,17 +7006,18 @@ function AdminStakeOrderRow({
   order: StakeOrderData;
   settlementCycle?: bigint;
 }) {
+  const { t } = useI18n();
   return (
     <div className="admin-list-row">
       <div className="row-icon"><Coins size={17} /></div>
       <div>
-        <strong>带单订单 #{order.id.toString()}</strong>
-        <small>{shortAddress(order.user)} / {sessionLabel(order.session)} / 周期 {localPeriodLabel(order.day, settlementCycle)}</small>
+        <strong>{t('带单订单')} #{order.id.toString()}</strong>
+        <small>{shortAddress(order.user)} / {t(sessionLabel(order.session))} / {t('周期')} {localPeriodLabel(order.day, settlementCycle)}</small>
       </div>
       <div className="row-metrics">
-        <span>本金 {token(order.amount)} U</span>
-        <span>收益 {token(order.reward)} U</span>
-        <span>{stakeStatusLabel(order)}</span>
+        <span>{t('本金')} {token(order.amount)} U</span>
+        <span>{t('收益')} {token(order.reward)} U</span>
+        <span>{t(stakeStatusLabel(order))}</span>
       </div>
     </div>
   );
@@ -6306,21 +7032,22 @@ function AdminWithdrawalRequestRow({
   canWrite: boolean;
   runner: ReturnType<typeof useTxRunner>;
 }) {
+  const { t } = useI18n();
   const pending = request.status === 0;
 
   return (
     <div className="admin-list-row wide">
       <div className="row-icon"><Send size={17} /></div>
       <div>
-        <strong>提现申请 #{request.id.toString()}</strong>
+        <strong>{t('提现申请')} #{request.id.toString()}</strong>
         <small>
-          {shortAddress(request.user)} / 申请 {dateTime(request.requestedAt)} / {withdrawalStatusLabel(request)}
+          {shortAddress(request.user)} / {t('申请')} {dateTime(request.requestedAt)} / {t(withdrawalStatusLabel(request))}
         </small>
       </div>
       <div className="row-metrics">
-        <span>申请 {token(request.amount)} U</span>
-        <span>到账 {token(request.netAmount)} U</span>
-        <span>手续费 {token(request.fee)} U</span>
+        <span>{t('申请')} {token(request.amount)} U</span>
+        <span>{t('到账')} {token(request.netAmount)} U</span>
+        <span>{t('手续费')} {token(request.fee)} U</span>
       </div>
       {pending && (
         <div className="split-buttons inline-actions">
@@ -6328,9 +7055,9 @@ function AdminWithdrawalRequestRow({
             className="secondary-button"
             disabled={!canWrite}
             onClick={() =>
-              runner.runTxFlow('审批提现', [
+              runner.runTxFlow(t('审批提现'), [
                 {
-                  label: '授权出款 USDT',
+                  label: t('授权出款 USDT'),
                   request: () =>
                     runner.writeContractAsync({
                       address: BSC_USDT_ADDRESS,
@@ -6340,7 +7067,7 @@ function AdminWithdrawalRequestRow({
                     }),
                 },
                 {
-                  label: '审批并打款',
+                  label: t('审批并打款'),
                   request: () =>
                     runner.writeContractAsync({
                       address: CONTRACT_ADDRESS,
@@ -6352,13 +7079,13 @@ function AdminWithdrawalRequestRow({
               ])
             }
           >
-            审批打款
+            {t('审批打款')}
           </button>
           <button
             className="secondary-button danger-action"
             disabled={!canWrite}
             onClick={() =>
-              runner.runTx('驳回提现', () =>
+              runner.runTx(t('驳回提现'), () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6368,7 +7095,7 @@ function AdminWithdrawalRequestRow({
               )
             }
           >
-            驳回
+            {t('驳回')}
           </button>
         </div>
       )}
@@ -6377,6 +7104,7 @@ function AdminWithdrawalRequestRow({
 }
 
 function EventRow({ event }: { event: ChainEventRecord }) {
+  const { t } = useI18n();
   const args = event.args ?? {};
   const primaryAddress = (args.user ?? args.source ?? args.upline ?? args.operator ?? args.funder) as string | undefined;
   const amount = (args.amount ?? args.reward ?? args.totalReward ?? args.netAmount ?? args.principal) as bigint | undefined;
@@ -6386,59 +7114,63 @@ function EventRow({ event }: { event: ChainEventRecord }) {
       <div className="row-icon"><BarChart3 size={17} /></div>
       <div>
         <strong>{event.eventName}</strong>
-        <small>区块 {event.blockNumber.toString()} / {primaryAddress ? shortAddress(primaryAddress) : shortAddress(event.transactionHash)}</small>
+        <small>{t('区块')} {event.blockNumber.toString()} / {primaryAddress ? shortAddress(primaryAddress) : shortAddress(event.transactionHash)}</small>
       </div>
       <div className="row-metrics">
-        <span>{amount !== undefined ? `${token(amount)} U` : '链上事件'}</span>
-        <a href={`${bscExplorerBaseUrl}/tx/${event.transactionHash}`} target="_blank" rel="noreferrer">查看交易</a>
+        <span>{amount !== undefined ? `${token(amount)} U` : t('链上事件')}</span>
+        <a href={`${bscExplorerBaseUrl}/tx/${event.transactionHash}`} target="_blank" rel="noreferrer">{t('查看交易')}</a>
       </div>
     </div>
   );
 }
 
 function EmptyState({ title, detail }: { title: string; detail?: string }) {
+  const { locale } = useI18n();
   return (
     <div className="empty-state">
-      <strong>{title}</strong>
-      {detail ? <span>{detail}</span> : null}
+      <strong>{translateText(locale, title)}</strong>
+      {detail ? <span>{translateText(locale, detail)}</span> : null}
     </div>
   );
 }
 
 function InfoLine({ label, value }: { label: string; value: React.ReactNode }) {
+  const { locale } = useI18n();
   return (
     <div className="info-line">
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span>{translateText(locale, label)}</span>
+      <strong>{localizeNode(locale, value)}</strong>
     </div>
   );
 }
 
 function AdminCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  const { locale } = useI18n();
   return (
     <div className="admin-card">
       <div className="row-icon">{icon}</div>
-      <span>{label}</span>
-      <strong>{value}</strong>
+      <span>{translateText(locale, label)}</span>
+      <strong>{translateText(locale, value)}</strong>
     </div>
   );
 }
 
 function TxStatus({ tx }: { tx: TxState }) {
+  const { locale, t } = useI18n();
   if (tx.status === 'idle') return null;
 
   return (
     <div className={`tx-status ${tx.status}`}>
-      <strong>{tx.label}</strong>
+      <strong>{translateText(locale, tx.label)}</strong>
       <span>
-        {tx.status === 'wallet' && '等待钱包确认'}
-        {tx.status === 'pending' && '交易已提交，等待链上确认'}
-        {tx.status === 'confirmed' && '交易已确认'}
-        {tx.status === 'failed' && (tx.error || DEFAULT_TX_ERROR)}
+        {tx.status === 'wallet' && t('等待钱包确认')}
+        {tx.status === 'pending' && t('交易已提交，等待链上确认')}
+        {tx.status === 'confirmed' && t('交易已确认')}
+        {tx.status === 'failed' && (tx.error || t(DEFAULT_TX_ERROR))}
       </span>
       {tx.hash && (
         <a href={`${bscExplorerBaseUrl}/tx/${tx.hash}`} target="_blank" rel="noreferrer">
-          查看交易
+          {t('查看交易')}
         </a>
       )}
     </div>

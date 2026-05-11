@@ -2,7 +2,7 @@ import type { Address } from 'viem';
 import { formatUnits, isAddress, parseUnits, zeroAddress } from 'viem';
 
 export function shortAddress(address?: string) {
-  if (!address) return '未连接';
+  if (!address) return '--';
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
@@ -58,6 +58,6 @@ export function dateTime(timestamp?: bigint) {
   const second = part('second');
 
   return year && month && day && hour && minute && second
-    ? `${year}年${month}月${day}日 ${hour}:${minute}:${second}`
+    ? `${year}-${month}-${day} ${hour}:${minute}:${second}`
     : '--';
 }
