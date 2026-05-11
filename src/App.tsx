@@ -30,6 +30,8 @@ import { formatUnits, isAddress, zeroAddress } from 'viem';
 import {
   useAccount,
   useChainId,
+  useConnect,
+  useDisconnect,
   usePublicClient,
   useReadContract,
   useReadContracts,
@@ -51,6 +53,7 @@ import {
   type PendingDynamicRewardSource,
 } from './lib/dynamicRewards';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
+import { hasInjectedEthereumProvider, selectDirectWalletConnector } from './lib/walletConnector';
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team';
 type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'withdrawals' | 'team' | 'config' | 'roles';
@@ -5747,7 +5750,64 @@ function useAdminRole(address?: Address) {
   };
 }
 
+function isConnectorAlreadyConnectedError(error: unknown) {
+  const lower = collectErrorParts(error).join('\n').toLowerCase();
+  return lower.includes('connectoralreadyconnectederror') || lower.includes('already connected');
+}
+
+function walletConnectionErrorLabel(error: unknown) {
+  const lower = collectErrorParts(error).join('\n').toLowerCase();
+
+  if (lower.includes('4001') || lower.includes('user rejected') || lower.includes('user denied')) {
+    return '已取消连接';
+  }
+  if (lower.includes('provider not found') || lower.includes('no provider') || lower.includes('wallet not found')) {
+    return '未检测到钱包';
+  }
+
+  return '连接失败，请重新打开钱包授权后再试。';
+}
+
 function WalletConnectButton() {
+  const { connectAsync, connectors, isPending, reset } = useConnect();
+  const { disconnectAsync } = useDisconnect();
+  const [connectError, setConnectError] = useState<string>();
+
+  async function connectDirect(openConnectModal?: () => void) {
+    setConnectError(undefined);
+    reset();
+
+    const connector = selectDirectWalletConnector(connectors, {
+      hasInjectedProvider: hasInjectedEthereumProvider(),
+    });
+
+    if (!connector) {
+      openConnectModal?.();
+      return;
+    }
+
+    try {
+      await connectAsync({ connector, chainId: selectedBscChain.id });
+    } catch (error) {
+      if (!isConnectorAlreadyConnectedError(error)) {
+        setConnectError(walletConnectionErrorLabel(error));
+        return;
+      }
+
+      try {
+        await disconnectAsync({ connector });
+      } catch {
+        // The wallet may already be disconnected outside the app.
+      }
+
+      try {
+        await connectAsync({ connector, chainId: selectedBscChain.id });
+      } catch (retryError) {
+        setConnectError(walletConnectionErrorLabel(retryError));
+      }
+    }
+  }
+
   return (
     <ConnectButton.Custom>
       {({ account, chain, mounted, openAccountModal, openChainModal, openConnectModal }) => {
@@ -5763,10 +5823,20 @@ function WalletConnectButton() {
         }
 
         if (!connected) {
+          const buttonLabel = isPending ? '连接中...' : connectError ? '连接失败' : '连接钱包';
+
           return (
-            <button className="wallet-connect-button" type="button" onClick={openConnectModal}>
+            <button
+              className={connectError ? 'wallet-connect-button danger' : 'wallet-connect-button'}
+              type="button"
+              title={connectError}
+              disabled={isPending}
+              onClick={() => {
+                void connectDirect(openConnectModal);
+              }}
+            >
               <Wallet size={17} />
-              <span>连接钱包</span>
+              <span>{buttonLabel}</span>
             </button>
           );
         }
