@@ -1283,23 +1283,39 @@ function promotionLinkForAddress(address?: Address) {
 }
 
 async function copyText(value: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '0';
+  textarea.style.width = '1px';
+  textarea.style.height = '1px';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.fontSize = '16px';
+  document.body.appendChild(textarea);
+  textarea.focus({ preventScroll: true });
+  textarea.select();
+  textarea.setSelectionRange(0, value.length);
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+
+  if (copied) return;
+
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
   }
 
-  const textarea = document.createElement('textarea');
-  textarea.value = value;
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  document.body.appendChild(textarea);
-  textarea.select();
-  const copied = document.execCommand('copy');
-  textarea.remove();
-
-  if (!copied) {
-    throw new Error('Copy failed');
-  }
+  throw new Error('Copy failed');
 }
 
 function sessionLabelForLocale(session: number, copy: LocaleCopy) {
@@ -3205,16 +3221,6 @@ function PromotionLinkCard({ address }: { address?: Address }) {
               >
                 <Copy size={16} />
               </button>
-              <a
-                className="icon-button"
-                href={promotionLink}
-                target="_blank"
-                rel="noreferrer"
-                title="打开推广链接"
-                aria-label="打开推广链接"
-              >
-                <ArrowUpRight size={16} />
-              </a>
             </div>
           </div>
           <p className={copyState === 'failed' ? 'promotion-copy-status danger' : 'promotion-copy-status'}>
