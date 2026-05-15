@@ -212,13 +212,16 @@ describe("IronBrother", function () {
     await expect(ironBrother.setSettlementCycle(120)).to.emit(ironBrother, "ConfigUpdated");
     await ironBrother.setSessionTimes(0, 60, 60, 120);
 
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await ironBrother.connect(bob).deposit(U("1000"), alice.address);
     await setNextCycleSecond(120, 10);
     const day = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     expect(await ironBrother.dailyStakeVolume(bob.address, day)).to.equal(U("1000"));
     expect(await ironBrother.dailyDirectValidCount(alice.address, day)).to.equal(1n);
+    expect(await ironBrother.isValidOnDay(alice.address, day)).to.equal(true);
     await expect(ironBrother.settleDynamicRewardForUser(bob.address, day)).to.be.revertedWith("day not closed");
 
     await setNextCycleSecond(120, 10);
@@ -282,6 +285,7 @@ describe("IronBrother", function () {
     await setNextLocalHour(10);
     const day = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("400"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextLocalHour(15);
     await ironBrother.connect(bob).stake(U("600"));
@@ -301,10 +305,41 @@ describe("IronBrother", function () {
     expect(history[0].reward).to.equal(U("2"));
   });
 
+  it("does not settle dynamic reward for an upline that is not valid that day", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextLocalHour(10);
+    const day = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+
+    expect(await ironBrother.dailyDirectValidCount(alice.address, day)).to.equal(1n);
+    expect(await ironBrother.isValidOnDay(alice.address, day)).to.equal(false);
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(0n);
+
+    await setNextLocalHour(10);
+    const preview = await ironBrother.settleDynamicRewardForSourceDays.staticCall([bob.address], [day]);
+    expect(preview[0]).to.equal(1n);
+    expect(preview[1]).to.equal(0n);
+    expect(preview[2]).to.equal(0n);
+
+    await ironBrother.settleDynamicRewardForSourceDays([bob.address], [day]);
+
+    const account = await ironBrother.users(alice.address);
+    expect(account.rewardBalance).to.equal(0);
+    expect(account.totalDynamicReward).to.equal(0);
+    expect(await ironBrother.getDynamicRewardHistory(alice.address)).to.have.lengthOf(0);
+    expect(await ironBrother.dynamicRewardSettled(bob.address, day)).to.equal(true);
+  });
+
   it("settles dynamic rewards for all staked volume within the eligible generation", async function () {
     const { alice, bob, carol, ironBrother } = await deployFixture();
 
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await ironBrother.connect(bob).deposit(U("1000"), alice.address);
     await ironBrother.connect(carol).deposit(U("100"), alice.address);
 
@@ -312,6 +347,7 @@ describe("IronBrother", function () {
     const day = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("1000"));
     await ironBrother.connect(carol).stake(U("100"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(1n);
     expect(await ironBrother.isValidOnDay(carol.address, day)).to.equal(false);
@@ -328,6 +364,7 @@ describe("IronBrother", function () {
     const directs = [bob, carol, dave, erin];
 
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     for (const direct of directs) {
       await ironBrother.connect(direct).deposit(U("1000"), alice.address);
     }
@@ -339,6 +376,13 @@ describe("IronBrother", function () {
     }
 
     expect(await ironBrother.dailyDirectValidCount(alice.address, day)).to.equal(4n);
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(0n);
+
+    await ironBrother.setWhitelist40(alice.address, true);
+    expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(0n);
+    await ironBrother.setWhitelist40(alice.address, false);
+
+    await ironBrother.connect(alice).stake(U("1000"));
     expect(await ironBrother.eligibleGeneration(alice.address, day)).to.equal(4n);
 
     await ironBrother.setWhitelist40(alice.address, true);
@@ -351,16 +395,20 @@ describe("IronBrother", function () {
     await ironBrother.setSettlementCycle(120);
     await ironBrother.setSessionTimes(0, 60, 60, 120);
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await ironBrother.connect(bob).deposit(U("1000"), alice.address);
 
     await setNextCycleSecond(120, 10);
     const firstDay = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextCycleSecond(120, 10);
     await ironBrother.settleStake(1);
+    await ironBrother.settleStake(2);
     const secondDay = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextCycleSecond(120, 10);
     const preview = await ironBrother.settleDynamicRewardForSourceDays.staticCall(
@@ -374,7 +422,8 @@ describe("IronBrother", function () {
     await ironBrother.settleDynamicRewardForSourceDays([bob.address, bob.address], [firstDay, secondDay]);
 
     const account = await ironBrother.users(alice.address);
-    expect(account.rewardBalance).to.equal(U("4"));
+    expect(account.rewardBalance).to.equal(U("14"));
+    expect(account.totalDynamicReward).to.equal(U("4"));
     expect(await ironBrother.dynamicRewardSettled(bob.address, firstDay)).to.equal(true);
     expect(await ironBrother.dynamicRewardSettled(bob.address, secondDay)).to.equal(true);
 
@@ -393,11 +442,13 @@ describe("IronBrother", function () {
 
     await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await ironBrother.connect(bob).deposit(U("1000"), alice.address);
 
     await setNextLocalHour(10);
     const day = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("400"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextLocalHour(15);
     await ironBrother.connect(bob).stake(U("600"));
@@ -430,11 +481,13 @@ describe("IronBrother", function () {
 
     await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
     await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
     await ironBrother.connect(bob).deposit(U("1000"), alice.address);
 
     await setNextLocalHour(10);
     const day = await ironBrother.currentLocalDay();
     await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextLocalHour(10);
     await expect(ironBrother.connect(alice).settleDynamicRewardForSourceDays([bob.address], [day]))

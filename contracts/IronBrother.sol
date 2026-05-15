@@ -594,6 +594,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function eligibleGeneration(address user, uint256 day) public view returns (uint8) {
+        if (!isValidOnDay[user][day]) {
+            return 0;
+        }
+
         if (users[user].whitelist40) {
             return MAX_GENERATION;
         }
@@ -777,7 +781,6 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
     function setTimezoneOffset(int256 newTimezoneOffset) external onlySuperAdmin {
         require(newTimezoneOffset == EAST8_TIMEZONE_OFFSET, "timezone fixed east8");
-        timezoneOffset = EAST8_TIMEZONE_OFFSET;
         emit ConfigUpdated("TIMEZONE_OFFSET", uint256(20 hours));
     }
 
