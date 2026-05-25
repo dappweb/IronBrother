@@ -327,6 +327,7 @@ const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
 const ADMIN_USER_PAGE_SIZE = 8;
 const ADMIN_ORDER_PAGE_SIZE = 12;
+const ADMIN_FULL_ORDER_READ_LIMIT = 2_500;
 const SECONDS_PER_HOUR = 60 * 60;
 const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const EAST8_TIMEZONE_SECONDS = 8 * SECONDS_PER_HOUR;
@@ -742,6 +743,7 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '本周期带单流水': 'Stake volume this period',
   '未结算带单': 'Unsettled stakes',
   '最近带单流水': 'Recent stake volume',
+  '已读取带单流水': 'Loaded stake volume',
   '暂无带单流水': 'No stake volume',
   '这里直接读取 stakeOrders(id)，用户完成带单后即使未结算也会显示。': 'This reads stakeOrders(id) directly. User stakes appear here even before settlement.',
   '暂无流水事件': 'No flow events',
@@ -922,12 +924,13 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '待结算笔数': 'Pending items',
   '待结算金额': 'Pending amount',
   '领取待结算动态收益': 'Claim pending dynamic rewards',
+  '领取累计动态收益': 'Claim accumulated dynamic rewards',
   '由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
+  '由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the accumulated settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
   '正在读取待结算动态收益': 'Reading pending dynamic rewards',
   '正在读取直推关系、已关闭周期流水和动态奖励比例。': 'Reading direct referrals, closed-period volume, and dynamic reward rates.',
   '待结算动态收益读取失败': 'Failed to read pending dynamic rewards',
   '链上读取失败，请检查网络后重试。': 'On-chain read failed. Check the network and try again.',
-  '领取单条动态收益': 'Claim one dynamic reward',
   '暂无待结算动态收益': 'No pending dynamic rewards',
   '下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。': 'When downlines have closed-period stake volume within eligible generations and are not settled, they appear here.',
   '待结算 ': 'Pending ',
@@ -2034,6 +2037,14 @@ function recentIds(nextId?: bigint, limit = 40) {
     if (id === 1n) break;
   }
   return ids;
+}
+
+function countFromNextId(nextId?: bigint) {
+  return nextId && nextId > 1n ? nextId - 1n : 0n;
+}
+
+function loadedCountLabel(loaded: number, total: bigint) {
+  return total > BigInt(loaded) ? `${loaded}/${total.toString()}` : loaded.toString();
 }
 
 function usePaginatedItems<T>(items: readonly T[], pageSize: number, resetKey?: unknown) {
@@ -3994,10 +4005,10 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
           disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
           onClick={runPendingDynamicSettlement}
         >
-          {t('领取待结算动态收益')}
+          {t('领取累计动态收益')}
         </button>
         <p className="helper-line">
-          {t('由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。')}
+          {t('由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。')}
         </p>
         <div className="list-stack reward-detail-list">
           {pendingRewards.isLoading ? (
@@ -4010,17 +4021,6 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
                 key={`${row.source}-${row.day}-${row.generation}`}
                 row={row}
                 settlementCycle={settlementCycle}
-                disabled={transactionBusy}
-                onClaim={() =>
-                  runner.runTx(t('领取单条动态收益'), () =>
-                    runner.writeContractAsync({
-                      address: CONTRACT_ADDRESS,
-                      abi: ironBrotherAbi,
-                      functionName: 'settleDynamicRewardForSourceDays',
-                      args: [[safeAddress(row.source)], [row.day]],
-                    }),
-                  )
-                }
               />
             ))
           ) : (
@@ -4036,13 +4036,9 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
 function PendingDynamicRewardListRow({
   row,
   settlementCycle,
-  disabled = false,
-  onClaim,
 }: {
   row: PendingDynamicRewardRow;
   settlementCycle: bigint;
-  disabled?: boolean;
-  onClaim?: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -4056,11 +4052,6 @@ function PendingDynamicRewardListRow({
         <span>{t('流水')} {token(row.volume)} U</span>
         <span className="amount-positive">+{token(row.reward)} U</span>
       </div>
-      {onClaim && (
-        <button className="row-action-button" type="button" disabled={disabled} onClick={onClaim}>
-          {t('领取')}
-        </button>
-      )}
     </div>
   );
 }
@@ -4750,7 +4741,7 @@ function AdminUserDetailPanel({
 
 function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; runner: ReturnType<typeof useTxRunner> }) {
   const { t } = useI18n();
-  const orderBook = useAdminOrderBook();
+  const orderBook = useAdminOrderBook(ADMIN_FULL_ORDER_READ_LIMIT);
   const pagination = usePaginatedItems(
     orderBook.principalOrders,
     ADMIN_ORDER_PAGE_SIZE,
@@ -4764,7 +4755,9 @@ function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; run
           <p className="eyebrow">Principal Orders</p>
           <h2>{t('本金订单')}</h2>
         </div>
-        <span className="status-chip">{orderBook.principalOrders.length} {t('笔')}</span>
+        <span className="status-chip">
+          {loadedCountLabel(orderBook.principalOrders.length, orderBook.principalOrderTotal)} {t('笔')}
+        </span>
       </div>
       <div className="list-stack">
         {orderBook.principalOrders.length > 0 ? (
@@ -4782,7 +4775,7 @@ function AdminPrincipalOrdersPage({ canWrite, runner }: { canWrite: boolean; run
 
 function AdminStakeOrdersPage() {
   const { t } = useI18n();
-  const orderBook = useAdminOrderBook();
+  const orderBook = useAdminOrderBook(ADMIN_FULL_ORDER_READ_LIMIT);
   const config = useContractConfig();
   const pagination = usePaginatedItems(
     orderBook.stakeOrders,
@@ -4797,7 +4790,9 @@ function AdminStakeOrdersPage() {
           <p className="eyebrow">Stake Orders</p>
           <h2>{t('带单订单')}</h2>
         </div>
-        <span className="status-chip">{orderBook.stakeOrders.length} {t('笔')}</span>
+        <span className="status-chip">
+          {loadedCountLabel(orderBook.stakeOrders.length, orderBook.stakeOrderTotal)} {t('笔')}
+        </span>
       </div>
       <div className="list-stack">
         {orderBook.stakeOrders.length > 0 ? (
@@ -4847,10 +4842,10 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
     [allPendingRows],
   );
   const allSettlementTxCount = allSettlementBatches.length;
-  const orderBook = useAdminOrderBook();
+  const orderBook = useAdminOrderBook(ADMIN_FULL_ORDER_READ_LIMIT);
   const currentDayStakeOrders = orderBook.stakeOrders.filter((order) => order.day === currentLocalDay);
   const unsettledStakeOrders = orderBook.stakeOrders.filter((order) => !order.settled);
-  const recentStakeVolume = orderBook.stakeOrders.reduce((sum, order) => sum + order.amount, 0n);
+  const loadedStakeVolume = orderBook.stakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const currentDayStakeVolume = currentDayStakeOrders.reduce((sum, order) => sum + order.amount, 0n);
   const events = useChainEvents(['StakeCreated', 'StakeSettled', 'DynamicRewardSettled', 'DynamicRewardBotSettled', 'WithdrawalRequested', 'WithdrawalApproved', 'WithdrawalRejected', 'RewardsFunded', 'ContractFundsWithdrawn', 'PrincipalRedeemed', 'Reinvested']);
 
@@ -5079,7 +5074,7 @@ function AdminRewardsPage({ canWrite, runner }: { canWrite: boolean; runner: Ret
           <InfoLine label={t('本周期带单笔数')} value={`${currentDayStakeOrders.length} ${t('笔')}`} />
           <InfoLine label={t('本周期带单流水')} value={`${token(currentDayStakeVolume)} U`} />
           <InfoLine label={t('未结算带单')} value={`${unsettledStakeOrders.length} ${t('笔')}`} />
-          <InfoLine label={t('最近带单流水')} value={`${token(recentStakeVolume)} U`} />
+          <InfoLine label={t('已读取带单流水')} value={`${token(loadedStakeVolume)} U`} />
         </div>
         <div className="list-stack">
           {orderBook.stakeOrders.length > 0 ? (
@@ -5124,7 +5119,7 @@ function AdminWithdrawalsPage({
   const [fundAmount, setFundAmount] = useState('1000');
   const [contractWithdrawReceiver, setContractWithdrawReceiver] = useState('');
   const [contractWithdrawAmount, setContractWithdrawAmount] = useState('');
-  const withdrawals = useAdminWithdrawalRequests();
+  const withdrawals = useAdminWithdrawalRequests(ADMIN_FULL_ORDER_READ_LIMIT);
   const config = useContractConfig();
   const pendingWithdrawalAmount = withdrawals.pendingRequests.reduce((sum, request) => sum + request.amount, 0n);
   const sortedRequests = useMemo(
@@ -5183,7 +5178,10 @@ function AdminWithdrawalsPage({
             : t('当前已关闭提现审批，新提现会从合约奖励池自动打款；这里仅处理关闭前留下的待审申请。')}
         </p>
         <div className="settlement-stats">
-          <InfoLine label={t('提现申请')} value={`${withdrawals.requests.length} ${t('笔')}`} />
+          <InfoLine
+            label={t('提现申请')}
+            value={`${loadedCountLabel(withdrawals.requests.length, withdrawals.requestTotal)} ${t('笔')}`}
+          />
           <InfoLine label={t('待审申请')} value={`${withdrawals.pendingRequests.length} ${t('笔')}`} />
           <InfoLine label={t('待审金额')} value={`${token(pendingWithdrawalAmount)} U`} />
           <InfoLine label={t('奖励池余额')} value={`${token(rewardPoolBalance)} U`} />
@@ -6117,7 +6115,7 @@ function useContractConfig() {
   };
 }
 
-function useAdminOrderBook() {
+function useAdminOrderBook(limit = 40) {
   const nextIdsQuery = useReadContracts({
     contracts: [
       { address: CONTRACT_ADDRESS, abi: ironBrotherAbi, functionName: 'nextPrincipalOrderId' },
@@ -6128,8 +6126,10 @@ function useAdminOrderBook() {
 
   const nextPrincipalOrderId = readResult(nextIdsQuery.data?.[0], 1n);
   const nextStakeOrderId = readResult(nextIdsQuery.data?.[1], 1n);
-  const principalIds = useMemo(() => recentIds(nextPrincipalOrderId), [nextPrincipalOrderId]);
-  const stakeIds = useMemo(() => recentIds(nextStakeOrderId), [nextStakeOrderId]);
+  const principalOrderTotal = countFromNextId(nextPrincipalOrderId);
+  const stakeOrderTotal = countFromNextId(nextStakeOrderId);
+  const principalIds = useMemo(() => recentIds(nextPrincipalOrderId, limit), [limit, nextPrincipalOrderId]);
+  const stakeIds = useMemo(() => recentIds(nextStakeOrderId, limit), [limit, nextStakeOrderId]);
 
   const principalOrderContracts = useMemo(
     () =>
@@ -6163,6 +6163,8 @@ function useAdminOrderBook() {
   });
 
   return {
+    principalOrderTotal,
+    stakeOrderTotal,
     principalOrders: (principalOrdersQuery.data ?? [])
       .map((result) => principalOrderFromTuple(readResult(result, undefined)))
       .filter((order): order is PrincipalOrderData => Boolean(order))
@@ -6171,10 +6173,11 @@ function useAdminOrderBook() {
       .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
       .filter((order): order is StakeOrderData => Boolean(order))
       .sort(compareStakeOrderLatest),
+    isLoading: nextIdsQuery.isLoading || principalOrdersQuery.isLoading || stakeOrdersQuery.isLoading,
   };
 }
 
-function useAdminWithdrawalRequests() {
+function useAdminWithdrawalRequests(limit = 80) {
   const nextIdQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -6182,7 +6185,8 @@ function useAdminWithdrawalRequests() {
     query: { enabled: isContractConfigured },
   });
 
-  const requestIds = useMemo(() => recentIds(nextIdQuery.data as bigint | undefined, 80), [nextIdQuery.data]);
+  const requestTotal = countFromNextId(nextIdQuery.data as bigint | undefined);
+  const requestIds = useMemo(() => recentIds(nextIdQuery.data as bigint | undefined, limit), [limit, nextIdQuery.data]);
   const requestContracts = useMemo(
     () =>
       requestIds.map((id) => ({
@@ -6209,6 +6213,7 @@ function useAdminWithdrawalRequests() {
   );
 
   return {
+    requestTotal,
     requests,
     pendingRequests: requests.filter((request) => request.status === 0),
     isLoading: nextIdQuery.isLoading || requestsQuery.isLoading,
