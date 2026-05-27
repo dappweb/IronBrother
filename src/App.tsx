@@ -322,6 +322,8 @@ const PENDING_DYNAMIC_MAX_PERIODS = 60;
 const PENDING_DYNAMIC_MAX_SOURCES = 400;
 const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
 const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
+const USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 10;
+const PENDING_DYNAMIC_PAGE_SIZE = 10;
 const HOME_LATEST_ORDER_LIMIT = 5;
 const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
@@ -923,10 +925,16 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '团队来源': 'Team sources',
   '待结算笔数': 'Pending items',
   '待结算金额': 'Pending amount',
+  '本页笔数': 'Current page items',
+  '本页金额': 'Current page amount',
   '领取待结算动态收益': 'Claim pending dynamic rewards',
   '领取累计动态收益': 'Claim accumulated dynamic rewards',
+  '领取本页动态收益': 'Claim current page',
+  '领取单条动态收益': 'Claim single dynamic reward',
+  '单条领取': 'Claim item',
   '由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
   '由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the accumulated settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
+  '每页显示 10 条，点击本页领取会一次结算当前页；也可以在明细中单条领取。': 'Shows 10 items per page. Claiming the page settles the current page; each row can also be claimed individually.',
   '正在读取待结算动态收益': 'Reading pending dynamic rewards',
   '正在读取直推关系、已关闭周期流水和动态奖励比例。': 'Reading direct referrals, closed-period volume, and dynamic reward rates.',
   '待结算动态收益读取失败': 'Failed to read pending dynamic rewards',
@@ -2449,6 +2457,10 @@ function normalizeTxError(error: unknown, t: TranslateFn = (textValue) => textVa
     return { error: `${t('钱包无法识别或估算这笔交易，请确认网络和 Gas 余额后重试。')} ${selectedBscChain.name}`, errorKind: 'wallet', rawError };
   }
 
+  if (lower.includes('execution reverted') || (lower.includes('contract function') && lower.includes('reverted'))) {
+    return { error: t('合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。'), errorKind: 'contract', rawError };
+  }
+
   if (
     lower.includes('http request failed') ||
     lower.includes('failed to fetch') ||
@@ -2457,10 +2469,6 @@ function normalizeTxError(error: unknown, t: TranslateFn = (textValue) => textVa
     lower.includes('rpc')
   ) {
     return { error: t('链上网络请求失败，请稍后重试或切换 RPC。'), errorKind: 'rpc', rawError };
-  }
-
-  if (lower.includes('execution reverted') || (lower.includes('contract function') && lower.includes('reverted'))) {
-    return { error: t('合约拒绝了这笔交易，请确认金额、余额、场次和权限后重试。'), errorKind: 'contract', rawError };
   }
 
   return {
@@ -3880,9 +3888,12 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
   const pendingRows = pendingRewards.data?.rows ?? [];
   const pendingTotal = pendingRewards.data?.total ?? 0n;
   const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
+  const pendingPagination = usePaginatedItems(pendingRows, PENDING_DYNAMIC_PAGE_SIZE, address);
+  const visiblePendingRows = pendingPagination.items;
+  const visiblePendingTotal = useMemo(() => sumPendingDynamicRewards(visiblePendingRows), [visiblePendingRows]);
   const pendingSettlementBatches = useMemo(() => {
     const sourceDays = new Map<string, { source: Address; day: bigint }>();
-    pendingRows.forEach((row) => {
+    visiblePendingRows.forEach((row) => {
       const source = safeAddress(row.source);
       if (source === zeroAddress) return;
       sourceDays.set(`${source.toLowerCase()}-${row.day.toString()}`, { source, day: row.day });
@@ -3890,11 +3901,11 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
 
     const rows = [...sourceDays.values()];
     const batches: { source: Address; day: bigint }[][] = [];
-    for (let index = 0; index < rows.length; index += ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
-      batches.push(rows.slice(index, index + ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE));
+    for (let index = 0; index < rows.length; index += USER_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
+      batches.push(rows.slice(index, index + USER_DYNAMIC_SETTLEMENT_BATCH_SIZE));
     }
     return batches;
-  }, [pendingRows]);
+  }, [visiblePendingRows]);
   const [visibleDetailCount, setVisibleDetailCount] = useState(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   const visibleDetails = useMemo(
     () => details.rows.slice(0, visibleDetailCount),
@@ -3907,8 +3918,25 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
     setVisibleDetailCount(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   }, [address]);
 
-  function runPendingDynamicSettlement() {
-    const steps = pendingSettlementBatches.map((rows, index, batches): TxFlowStep => ({
+  function settlementBatchesForRows(rowsToSettle: readonly PendingDynamicRewardRow[]) {
+    const sourceDays = new Map<string, { source: Address; day: bigint }>();
+    rowsToSettle.forEach((row) => {
+      const source = safeAddress(row.source);
+      if (source === zeroAddress) return;
+      sourceDays.set(`${source.toLowerCase()}-${row.day.toString()}`, { source, day: row.day });
+    });
+
+    const uniqueRows = [...sourceDays.values()];
+    const batches: { source: Address; day: bigint }[][] = [];
+    for (let index = 0; index < uniqueRows.length; index += USER_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
+      batches.push(uniqueRows.slice(index, index + USER_DYNAMIC_SETTLEMENT_BATCH_SIZE));
+    }
+    return batches;
+  }
+
+  function runPendingDynamicSettlement(rowsToSettle: readonly PendingDynamicRewardRow[] = visiblePendingRows, label = t('领取本页动态收益')) {
+    const batchesToSettle = settlementBatchesForRows(rowsToSettle);
+    const steps = batchesToSettle.map((rows, index, batches): TxFlowStep => ({
       label: batches.length > 1 ? `${t('动态收益结算')} ${index + 1}/${batches.length}` : t('动态收益结算'),
       request: () =>
         runner.writeContractAsync({
@@ -3920,7 +3948,7 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
     }));
 
     if (steps.length === 0) return;
-    runner.runTxFlow(t('领取动态收益'), steps);
+    runner.runTxFlow(label, steps);
   }
 
   return (
@@ -3999,19 +4027,21 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
           />
           <InfoLine label={t('待结算笔数')} value={`${pendingRows.length} ${t('笔')}`} />
           <InfoLine label={t('待结算金额')} value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
+          <InfoLine label={t('本页笔数')} value={`${visiblePendingRows.length} ${t('笔')}`} />
+          <InfoLine label={t('本页金额')} value={pendingRewards.isLoading ? '--' : <MoneyAmount value={visiblePendingTotal} prefix={visiblePendingTotal > 0n ? '+' : ''} />} />
         </div>
         <button
           className="primary-button"
           type="button"
           aria-busy={transactionBusy}
           disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
-          onClick={runPendingDynamicSettlement}
+          onClick={() => runPendingDynamicSettlement()}
         >
-          {transactionBusy ? t('正在处理交易') : t('领取累计动态收益')}
+          {transactionBusy ? t('正在处理交易') : `${t('领取本页动态收益')} (${visiblePendingRows.length} ${t('笔')})`}
         </button>
         <TxStatus tx={runner.tx} />
         <p className="helper-line">
-          {t('由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。')}
+          {t('每页显示 10 条，点击本页领取会一次结算当前页；也可以在明细中单条领取。')}
         </p>
         <div className="list-stack reward-detail-list">
           {pendingRewards.isLoading ? (
@@ -4019,17 +4049,20 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
           ) : pendingRewards.isError ? (
             <EmptyState title={t('待结算动态收益读取失败')} detail={t('链上读取失败，请检查网络后重试。')} />
           ) : pendingRows.length > 0 ? (
-            pendingRows.map((row) => (
+            visiblePendingRows.map((row) => (
               <PendingDynamicRewardListRow
                 key={`${row.source}-${row.day}-${row.generation}`}
                 row={row}
                 settlementCycle={settlementCycle}
+                disabled={!address || transactionBusy}
+                onClaim={() => runPendingDynamicSettlement([row], t('领取单条动态收益'))}
               />
             ))
           ) : (
             <EmptyState title={t('暂无待结算动态收益')} detail={t('下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。')} />
           )}
         </div>
+        <PaginationControls {...pendingPagination} onPageChange={pendingPagination.setPage} />
       </section>
     </section>
   );
@@ -4038,9 +4071,13 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
 function PendingDynamicRewardListRow({
   row,
   settlementCycle,
+  disabled,
+  onClaim,
 }: {
   row: PendingDynamicRewardRow;
   settlementCycle: bigint;
+  disabled: boolean;
+  onClaim: () => void;
 }) {
   const { t } = useI18n();
   return (
@@ -4053,6 +4090,9 @@ function PendingDynamicRewardListRow({
       <div className="row-metrics">
         <span>{t('流水')} {token(row.volume)} U</span>
         <span className="amount-positive">+{token(row.reward)} U</span>
+        <button type="button" className="row-action-button" disabled={disabled} onClick={onClaim}>
+          {t('单条领取')}
+        </button>
       </div>
     </div>
   );
