@@ -1,9 +1,7 @@
 import type { Address } from 'viem';
 import { isAddress, zeroAddress } from 'viem';
 
-import bscDeployment from '../../deployments/bsc.json';
-
-const BSC_MAINNET_USDT = '0x55d398326f99059fF775485246999027B3197955';
+import bscTestnetDeployment from '../../deployments/bsc-testnet.json';
 
 function resolveAddress(configuredAddress: string | undefined, fallbackAddress: string): Address {
   if (configuredAddress && isAddress(configuredAddress)) {
@@ -18,8 +16,8 @@ function resolveAddress(configuredAddress: string | undefined, fallbackAddress: 
 }
 
 const configuredUsdtAddress = import.meta.env.VITE_USDT_ADDRESS;
-const deployment = bscDeployment;
-const fallbackUsdtAddress = bscDeployment.usdt || BSC_MAINNET_USDT;
+const deployment = bscTestnetDeployment;
+const fallbackUsdtAddress = bscTestnetDeployment.usdt;
 
 export const BSC_USDT_ADDRESS = resolveAddress(configuredUsdtAddress, fallbackUsdtAddress);
 
