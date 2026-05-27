@@ -15,7 +15,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
     uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
-    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 200;
+    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 500;
     int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
@@ -491,7 +491,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward)
     {
         require(userList.length == dayList.length, "length mismatch");
-        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "bad batch");
 
         for (uint256 i = 0; i < userList.length; i++) {
             uint256 day = dayList[i];
@@ -519,7 +519,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished)
     {
         require(day < currentLocalDay(), "day not closed");
-        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
+        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "bad batch");
 
         uint256 userCount = registeredUsers.length;
         if (cursor >= userCount) {

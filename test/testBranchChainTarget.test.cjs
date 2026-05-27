@@ -42,7 +42,7 @@ describe('main branch chain target', function () {
     assert.match(chainsConfig, /https:\/\/bsc-dataseed\.bnbchain\.org/);
     assert.match(chainsConfig, /https:\/\/binance\.llamarpc\.com/);
 
-    assert.match(app, /USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 200/);
+    assert.match(app, /USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 500/);
     assert.match(app, /USER_DYNAMIC_SETTLEMENT_FALLBACK_BATCH_SIZE = 100/);
     assert.match(app, /functionName: 'MAX_BOT_SETTLEMENT_BATCH'/);
     assert.match(app, /index \+= userSettlementBatchSize/);

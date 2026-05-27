@@ -500,7 +500,7 @@ describe("IronBrother", function () {
     expect(await ironBrother.dynamicRewardSettled(bob.address, day)).to.equal(true);
   });
 
-  it("allows a user one-click dynamic settlement batches above 100 up to 200", async function () {
+  it("allows a user one-click dynamic settlement batches above 200 up to 500", async function () {
     const { alice, bob, ironBrother } = await deployFixture();
 
     await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
@@ -514,18 +514,18 @@ describe("IronBrother", function () {
     await ironBrother.connect(alice).stake(U("1000"));
 
     await setNextLocalHour(10);
-    expect(await ironBrother.MAX_BOT_SETTLEMENT_BATCH()).to.equal(200n);
+    expect(await ironBrother.MAX_BOT_SETTLEMENT_BATCH()).to.equal(500n);
 
-    const allowedUsers = Array(101).fill(bob.address);
-    const allowedDays = Array(101).fill(day);
+    const allowedUsers = Array(500).fill(bob.address);
+    const allowedDays = Array(500).fill(day);
     await expect(ironBrother.connect(alice).settleDynamicRewardForSourceDays(allowedUsers, allowedDays))
       .to.emit(ironBrother, "DynamicRewardSettled")
       .withArgs(bob.address, alice.address, day, 1, U("1000"), U("2"));
 
-    const tooManyUsers = Array(201).fill(bob.address);
-    const tooManyDays = Array(201).fill(day);
+    const tooManyUsers = Array(501).fill(bob.address);
+    const tooManyDays = Array(501).fill(day);
     await expect(ironBrother.connect(alice).settleDynamicRewardForSourceDays(tooManyUsers, tooManyDays))
-      .to.be.revertedWith("invalid batch size");
+      .to.be.revertedWith("bad batch");
   });
 
   it("allows a registered user without referrer to bind one later", async function () {

@@ -3,7 +3,7 @@ const path = require("path");
 const hre = require("hardhat");
 
 const EXPECTED_CHAIN_ID = 56n;
-const EXPECTED_BATCH_LIMIT = 200n;
+const EXPECTED_BATCH_LIMIT = 500n;
 const deploymentPath = path.join(__dirname, "..", "deployments", "bsc.json");
 
 function loadDeployment() {
