@@ -15,7 +15,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
     uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
-    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 100;
+    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 200;
     int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;

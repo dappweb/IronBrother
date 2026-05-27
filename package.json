@@ -10,6 +10,7 @@
     "test": "hardhat test",
     "deploy:bsc": "hardhat run scripts/deploy.cjs --network bsc",
     "upgrade:bsc": "hardhat run scripts/upgrade.cjs --network bsc",
+    "upgrade:bsc:batch-limit": "hardhat run scripts/upgrade-batch-limit.cjs --network bsc",
     "bot:dynamic:settle": "hardhat run scripts/bot-daily-dynamic-settlement.cjs",
     "bot:dynamic:settle:bsc": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bsc",
     "bot:dynamic:settle:bsc:daily": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-daily-dynamic-settlement.ps1 -Network bsc",
