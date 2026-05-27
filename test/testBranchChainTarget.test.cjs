@@ -25,9 +25,10 @@ describe('main branch chain target', function () {
   it('targets BSC mainnet across app config, env files, and deployment defaults', function () {
     const chainsConfig = read('src/config/chains.ts');
     const contractsConfig = read('src/config/contracts.ts');
+    const app = read('src/App.tsx');
     const viteEnvTypes = read('src/vite-env.d.ts');
     const deployment = JSON.parse(read('deployments/bsc.json'));
-    const expectedRpc = 'https://bsc-dataseed.bnbchain.org';
+    const expectedRpc = 'https://bsc-rpc.publicnode.com';
     const expectedUsdt = '0x55d398326f99059fF775485246999027B3197955';
     const expectedProxy = '0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3';
 
@@ -36,7 +37,13 @@ describe('main branch chain target', function () {
     assert.match(chainsConfig, /selectedBscChain = bsc/);
     assert.match(chainsConfig, /https:\/\/bscscan\.com/);
     assert.doesNotMatch(chainsConfig, /VITE_BSC_TESTNET_RPC_URL/);
+    assert.match(chainsConfig, /fallback\(bscRpcUrls\.map/);
+    assert.match(chainsConfig, /https:\/\/bsc-rpc\.publicnode\.com/);
     assert.match(chainsConfig, /https:\/\/bsc-dataseed\.bnbchain\.org/);
+    assert.match(chainsConfig, /https:\/\/binance\.llamarpc\.com/);
+
+    assert.match(app, /USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 20/);
+    assert.match(app, /index \+= USER_DYNAMIC_SETTLEMENT_BATCH_SIZE/);
 
     assert.match(contractsConfig, /deployments\/bsc\.json/);
     assert.doesNotMatch(contractsConfig, /deployments\/bsc-testnet\.json/);

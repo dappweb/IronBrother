@@ -322,6 +322,7 @@ const PENDING_DYNAMIC_MAX_PERIODS = 60;
 const PENDING_DYNAMIC_MAX_SOURCES = 400;
 const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
 const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
+const USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 20;
 const HOME_LATEST_ORDER_LIMIT = 5;
 const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
@@ -3890,8 +3891,8 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
 
     const rows = [...sourceDays.values()];
     const batches: { source: Address; day: bigint }[][] = [];
-    for (let index = 0; index < rows.length; index += ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
-      batches.push(rows.slice(index, index + ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE));
+    for (let index = 0; index < rows.length; index += USER_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
+      batches.push(rows.slice(index, index + USER_DYNAMIC_SETTLEMENT_BATCH_SIZE));
     }
     return batches;
   }, [pendingRows]);
