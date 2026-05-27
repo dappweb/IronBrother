@@ -43,7 +43,9 @@ describe('main branch chain target', function () {
     assert.match(chainsConfig, /https:\/\/binance\.llamarpc\.com/);
 
     assert.match(app, /USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 200/);
-    assert.match(app, /index \+= USER_DYNAMIC_SETTLEMENT_BATCH_SIZE/);
+    assert.match(app, /USER_DYNAMIC_SETTLEMENT_FALLBACK_BATCH_SIZE = 100/);
+    assert.match(app, /functionName: 'MAX_BOT_SETTLEMENT_BATCH'/);
+    assert.match(app, /index \+= userSettlementBatchSize/);
 
     assert.match(contractsConfig, /deployments\/bsc\.json/);
     assert.doesNotMatch(contractsConfig, /deployments\/bsc-testnet\.json/);

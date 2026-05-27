@@ -323,6 +323,7 @@ const PENDING_DYNAMIC_MAX_SOURCES = 400;
 const PENDING_DYNAMIC_MAX_STAKE_ORDERS_PER_SOURCE = 80;
 const ADMIN_DYNAMIC_SETTLEMENT_BATCH_SIZE = 80;
 const USER_DYNAMIC_SETTLEMENT_BATCH_SIZE = 200;
+const USER_DYNAMIC_SETTLEMENT_FALLBACK_BATCH_SIZE = 100;
 const HOME_LATEST_ORDER_LIMIT = 5;
 const DYNAMIC_REWARD_DETAIL_BATCH_SIZE = 3;
 const USER_ORDER_PAGE_SIZE = 8;
@@ -3876,11 +3877,26 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
   const runner = useTxRunner();
   const details = useDynamicRewardDetails(address);
   const pendingRewards = usePendingDynamicRewards(address, data.currentLocalDay);
+  const batchLimitQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'MAX_BOT_SETTLEMENT_BATCH',
+    query: {
+      enabled: isContractConfigured,
+      refetchInterval: SESSION_STATUS_REFETCH_MS,
+    },
+  });
   const latestDetail = details.rows[0];
   const settlementCycle = data.settlementCycle;
   const pendingRows = pendingRewards.data?.rows ?? [];
   const pendingTotal = pendingRewards.data?.total ?? 0n;
   const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
+  const userSettlementBatchSize = useMemo(() => {
+    const contractLimit = typeof batchLimitQuery.data === 'bigint' ? batchLimitQuery.data : BigInt(USER_DYNAMIC_SETTLEMENT_FALLBACK_BATCH_SIZE);
+    if (contractLimit <= 0n) return USER_DYNAMIC_SETTLEMENT_FALLBACK_BATCH_SIZE;
+    const targetLimit = BigInt(USER_DYNAMIC_SETTLEMENT_BATCH_SIZE);
+    return Number(contractLimit < targetLimit ? contractLimit : targetLimit);
+  }, [batchLimitQuery.data]);
   const pendingSettlementBatches = useMemo(() => {
     const sourceDays = new Map<string, { source: Address; day: bigint }>();
     pendingRows.forEach((row) => {
@@ -3891,11 +3907,11 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
 
     const rows = [...sourceDays.values()];
     const batches: { source: Address; day: bigint }[][] = [];
-    for (let index = 0; index < rows.length; index += USER_DYNAMIC_SETTLEMENT_BATCH_SIZE) {
-      batches.push(rows.slice(index, index + USER_DYNAMIC_SETTLEMENT_BATCH_SIZE));
+    for (let index = 0; index < rows.length; index += userSettlementBatchSize) {
+      batches.push(rows.slice(index, index + userSettlementBatchSize));
     }
     return batches;
-  }, [pendingRows]);
+  }, [pendingRows, userSettlementBatchSize]);
   const [visibleDetailCount, setVisibleDetailCount] = useState(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   const visibleDetails = useMemo(
     () => details.rows.slice(0, visibleDetailCount),
