@@ -966,6 +966,7 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '连接失败': 'Connection failed',
   '连接钱包': 'Connect wallet',
   '网络错误': 'Network error',
+  '正在处理交易': 'Processing transaction',
   '提交提现后，提现记录会在这里显示。': 'After submitting a withdrawal, records appear here.',
   '暂无提现申请': 'No withdrawal requests',
   '暂无本金订单': 'No principal orders',
@@ -984,7 +985,7 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '区块': 'Block',
   '链上事件': 'On-chain event',
   '查看交易': 'View transaction',
-  '等待钱包确认': 'Waiting for wallet confirmation',
+  '正在估算 Gas，随后请在钱包确认': 'Estimating gas. Confirm in your wallet when prompted',
   '交易已提交，等待链上确认': 'Transaction submitted. Waiting for on-chain confirmation',
   '交易已确认': 'Transaction confirmed',
   'RPC 客户端未初始化，请刷新页面后重试。': 'RPC client is not initialized. Refresh the page and try again.',
@@ -4002,11 +4003,13 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
         <button
           className="primary-button"
           type="button"
+          aria-busy={transactionBusy}
           disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
           onClick={runPendingDynamicSettlement}
         >
-          {t('领取累计动态收益')}
+          {transactionBusy ? t('正在处理交易') : t('领取累计动态收益')}
         </button>
+        <TxStatus tx={runner.tx} />
         <p className="helper-line">
           {t('由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。')}
         </p>
@@ -4027,7 +4030,6 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
             <EmptyState title={t('暂无待结算动态收益')} detail={t('下级已关闭周期有质押流水、且在可拿代数内未结算时，会显示在这里。')} />
           )}
         </div>
-        <TxStatus tx={runner.tx} />
       </section>
     </section>
   );
@@ -7441,7 +7443,7 @@ function TxStatus({ tx }: { tx: TxState }) {
     <div className={`tx-status ${tx.status}`}>
       <strong>{translateText(locale, tx.label)}</strong>
       <span>
-        {tx.status === 'wallet' && t('等待钱包确认')}
+        {tx.status === 'wallet' && t('正在估算 Gas，随后请在钱包确认')}
         {tx.status === 'pending' && t('交易已提交，等待链上确认')}
         {tx.status === 'confirmed' && t('交易已确认')}
         {tx.status === 'failed' && (tx.error || t(DEFAULT_TX_ERROR))}
