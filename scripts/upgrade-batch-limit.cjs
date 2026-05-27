@@ -5,6 +5,7 @@ const hre = require("hardhat");
 const EXPECTED_CHAIN_ID = 56n;
 const EXPECTED_BATCH_LIMIT = 500n;
 const deploymentPath = path.join(__dirname, "..", "deployments", "bsc.json");
+const manifestPath = path.join(__dirname, "..", ".openzeppelin", "bsc.json");
 
 function loadDeployment() {
   if (!fs.existsSync(deploymentPath)) {
@@ -57,6 +58,46 @@ async function assertUpgradeReady(proxyAddress) {
   return { currentLimit, deployer, implementationBefore };
 }
 
+async function validateUpgrade(proxyAddress, IronBrother) {
+  try {
+    await hre.upgrades.validateUpgrade(proxyAddress, IronBrother, { kind: "uups" });
+  } catch (error) {
+    const message = error?.message || "";
+    if (!message.includes("is not registered")) {
+      throw error;
+    }
+
+    console.log("Proxy implementation is missing from the local OpenZeppelin manifest; force importing for layout validation.");
+    await hre.upgrades.forceImport(proxyAddress, IronBrother, { kind: "uups" });
+    await hre.upgrades.validateUpgrade(proxyAddress, IronBrother, { kind: "uups" });
+  }
+}
+
+function preferManifestImplementation(implementation) {
+  if (!fs.existsSync(manifestPath)) return;
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const normalizedImplementation = implementation.toLowerCase();
+  for (const entry of Object.values(manifest.impls || {})) {
+    const addresses = [entry.address, ...(entry.allAddresses || [])].filter(Boolean);
+    const hasImplementation = addresses.some((address) => address.toLowerCase() === normalizedImplementation);
+    if (!hasImplementation) continue;
+
+    const allAddresses = new Set(addresses);
+    allAddresses.delete(implementation);
+    allAddresses.delete(entry.address);
+    entry.allAddresses = [entry.address, ...allAddresses].filter(
+      (address) => address.toLowerCase() !== normalizedImplementation,
+    );
+    entry.address = implementation;
+    if (entry.allAddresses.length === 0) {
+      delete entry.allAddresses;
+    }
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    return;
+  }
+}
+
 async function main() {
   const deployment = loadDeployment();
   const proxyAddress = resolveProxyAddress(deployment);
@@ -68,16 +109,35 @@ async function main() {
   }
 
   const IronBrother = await hre.ethers.getContractFactory("IronBrother");
-  const upgraded = await hre.upgrades.upgradeProxy(proxyAddress, IronBrother);
-  await upgraded.waitForDeployment();
+  await validateUpgrade(proxyAddress, IronBrother);
 
+  const implementationTx = await hre.upgrades.deployImplementation(IronBrother, {
+    kind: "uups",
+    redeployImplementation: "always",
+    getTxResponse: true,
+  });
+  const implementationReceipt = await implementationTx.wait();
+  const nextImplementation = implementationReceipt.contractAddress;
+  if (!nextImplementation || !hre.ethers.isAddress(nextImplementation)) {
+    throw new Error("Implementation deployment did not return a contract address.");
+  }
+
+  const proxy = await hre.ethers.getContractAt("IronBrother", proxyAddress, ready.deployer);
+  const upgradeTx = await proxy.upgradeToAndCall(nextImplementation, "0x");
+  await upgradeTx.wait();
+
+  const upgraded = await hre.ethers.getContractAt("IronBrother", proxyAddress, ready.deployer);
   const implementation = await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
+  if (implementation.toLowerCase() !== nextImplementation.toLowerCase()) {
+    throw new Error(`Unexpected implementation after upgrade: ${implementation}`);
+  }
   const batchLimit = await upgraded.MAX_BOT_SETTLEMENT_BATCH();
   if (batchLimit !== EXPECTED_BATCH_LIMIT) {
     throw new Error(`Unexpected batch limit after upgrade: ${batchLimit}`);
   }
 
-  const upgradeTx = upgraded.deploymentTransaction ? upgraded.deploymentTransaction() : null;
+  preferManifestImplementation(implementation);
+
   const updatedDeployment = {
     ...deployment,
     network: "bsc",
@@ -86,20 +146,18 @@ async function main() {
     ironBrotherProxy: proxyAddress,
     ironBrotherImplementation: implementation,
     maxBotSettlementBatch: Number(batchLimit),
+    upgradeImplementationTxHash: implementationTx.hash,
+    upgradeBatchLimitTxHash: upgradeTx.hash,
     proxyKind: "uups",
   };
-  if (upgradeTx && upgradeTx.hash) {
-    updatedDeployment.upgradeBatchLimitTxHash = upgradeTx.hash;
-  }
   fs.writeFileSync(deploymentPath, `${JSON.stringify(updatedDeployment, null, 2)}\n`);
 
   console.log("IronBrother proxy upgraded:", proxyAddress);
   console.log("Previous implementation:", ready.implementationBefore);
   console.log("New implementation:", implementation);
   console.log("New batch limit:", batchLimit.toString());
-  if (upgradeTx && upgradeTx.hash) {
-    console.log("Upgrade transaction:", upgradeTx.hash);
-  }
+  console.log("Implementation transaction:", implementationTx.hash);
+  console.log("Upgrade transaction:", upgradeTx.hash);
   console.log("Deployment file:", path.join("deployments", "bsc.json"));
 }
 
