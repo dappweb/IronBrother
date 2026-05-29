@@ -15,7 +15,7 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     uint256 public constant BPS = 10_000;
     uint8 public constant MAX_GENERATION = 40;
     uint8 public constant DEPOSIT_RECEIVER_COUNT = 5;
-    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 500;
+    uint256 public constant MAX_BOT_SETTLEMENT_BATCH = 100;
     int256 private constant EAST8_TIMEZONE_OFFSET = 8 hours;
 
     IERC20 public usdt;
@@ -491,11 +491,11 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward)
     {
         require(userList.length == dayList.length, "length mismatch");
-        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "bad batch");
+        require(userList.length > 0 && userList.length <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
 
         for (uint256 i = 0; i < userList.length; i++) {
             uint256 day = dayList[i];
-            require(day < currentLocalDay(), "day not closed");
+            require(_isDynamicRewardDayClosed(day), "day not closed");
 
             address user = userList[i];
             if (dynamicRewardSettled[user][day]) {
@@ -518,8 +518,8 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
         onlyRole(MANAGER_ROLE)
         returns (uint256 processed, uint256 rewardedUsers, uint256 totalReward, uint256 nextCursor, bool finished)
     {
-        require(day < currentLocalDay(), "day not closed");
-        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "bad batch");
+        require(_isDynamicRewardDayClosed(day), "day not closed");
+        require(limit > 0 && limit <= MAX_BOT_SETTLEMENT_BATCH, "invalid batch size");
 
         uint256 userCount = registeredUsers.length;
         if (cursor >= userCount) {
@@ -818,15 +818,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function _settleDynamicRewardForUser(address user, uint256 day) internal whenNotPaused returns (uint256 totalReward) {
-        require(day < currentLocalDay(), "day not closed");
+        require(_isDynamicRewardDayClosed(day), "day not closed");
         require(!dynamicRewardSettled[user][day], "dynamic settled");
 
         return _settleDynamicRewardForUserUnchecked(user, day);
     }
 
     function _settleDynamicRewardForUserUnchecked(address user, uint256 day) internal returns (uint256 totalReward) {
-        dynamicRewardSettled[user][day] = true;
         uint256 volume = dailyStakeVolume[user][day];
+        if (volume == 0) {
+            return 0;
+        }
+
+        dynamicRewardSettled[user][day] = true;
 
         address upline = users[user].referrer;
         for (uint8 generation = 1; generation <= MAX_GENERATION && upline != address(0); generation++) {
@@ -887,6 +891,10 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
 
     function _bindReferrer(address user, address referrer) internal {
         require(referrer != user, "self referrer");
+        for (address cursor = users[referrer].referrer; cursor != address(0); cursor = users[cursor].referrer) {
+            require(cursor != user, "referrer cycle");
+        }
+
         UserAccount storage account = users[user];
 
         if (!users[referrer].registered) {
@@ -957,20 +965,19 @@ contract IronBrother is Initializable, AccessControlUpgradeable, PausableUpgrade
     }
 
     function _localDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
-        require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) / settlementCycle();
+        return (timestamp + 8 hours) / settlementCycle();
     }
 
     function _localSecondOfDay(uint256 timestamp) internal view returns (uint256) {
-        int256 adjusted = int256(timestamp) + EAST8_TIMEZONE_OFFSET;
-        require(adjusted >= 0, "invalid adjusted time");
-        return uint256(adjusted) % settlementCycle();
+        return (timestamp + 8 hours) % settlementCycle();
     }
 
     function _localDayStartUtc(uint256 day) internal view returns (uint256) {
-        int256 timestamp = int256(day * settlementCycle()) - EAST8_TIMEZONE_OFFSET;
-        require(timestamp >= 0, "invalid day start");
-        return uint256(timestamp);
+        return day * settlementCycle() - 8 hours;
+    }
+
+    function _isDynamicRewardDayClosed(uint256 day) internal view returns (bool) {
+        uint256 currentDay = currentLocalDay();
+        return day < currentDay;
     }
 }

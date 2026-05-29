@@ -2,7 +2,7 @@
   "network": "bsc",
   "chainId": 56,
   "deployedAt": "2026-05-09T16:28:50.542Z",
-  "upgradedAt": "2026-05-27T08:00:22.127Z",
+  "upgradedAt": "2026-05-20T02:07:24.000Z",
   "deployer": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
   "feeReceiver": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
   "defaultReferrer": "0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8",
@@ -15,11 +15,10 @@
   ],
   "usdt": "0x55d398326f99059fF775485246999027B3197955",
   "ironBrotherProxy": "0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3",
-  "ironBrotherImplementation": "0xfb7814043DE093d9D370801936ef81947371b34B",
+  "ironBrotherImplementation": "0xe6629Ed50d11F921C0717Cb2d9B36C9231e0f7B8",
   "deployTxHash": "0xd94310f048ef4b7bd9458ee42cf37b4fd7e55af96716b5e52da7e630e2cd8514",
   "implementationTxHash": "0x44fc7732d9b9fc45467815c5e7e51e962cb23416708430744fcb6bdfb697248e",
-  "upgradeImplementationTxHash": "0x6fa008db31c7139c70a569375c585310f64ca754e4a98ba41a99ab7021c32dcb",
-  "proxyKind": "uups",
-  "maxBotSettlementBatch": 500,
-  "upgradeBatchLimitTxHash": "0x8c0b1e2e3a6ae1da57201522a235506dac0190f3338cb5416786fe9719ba0793"
+  "upgradeImplementationTxHash": "0xc5a314f4a8c4625ad270c20f035d71e75b75d7e39fce4a9088bcd726ab2caa00",
+  "proxyUpgradeTxHash": "0x812da3b1b194ed4cd9ec9322966095b75cffa4baead8792c360c3cacc2445a48",
+  "proxyKind": "uups"
 }

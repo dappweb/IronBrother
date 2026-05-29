@@ -10,13 +10,14 @@
     "test": "hardhat test",
     "deploy:bsc": "hardhat run scripts/deploy.cjs --network bsc",
     "upgrade:bsc": "hardhat run scripts/upgrade.cjs --network bsc",
-    "upgrade:bsc:batch-limit": "hardhat run scripts/upgrade-batch-limit.cjs --network bsc",
+    "config:test-cycle": "node scripts/configure-test-cycle.cjs",
     "bot:dynamic:settle": "hardhat run scripts/bot-daily-dynamic-settlement.cjs",
     "bot:dynamic:settle:bsc": "hardhat run scripts/bot-daily-dynamic-settlement.cjs --network bsc",
     "bot:dynamic:settle:bsc:daily": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-daily-dynamic-settlement.ps1 -Network bsc",
     "bot:dynamic:schedule:bsc": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-daily-dynamic-settlement-task.ps1 -Network bsc",
     "deploy:pages": "wrangler pages deploy dist --project-name ironbrother",
-    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch main"
+    "deploy:pages:main": "npm run build && wrangler pages deploy dist --project-name ironbrother --branch main",
+    "deploy:keeper": "wrangler deploy -c wrangler.keeper.jsonc"
   },
   "dependencies": {
     "@rainbow-me/rainbowkit": "^2.2.10",

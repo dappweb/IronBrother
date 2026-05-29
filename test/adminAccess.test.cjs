@@ -28,4 +28,28 @@ describe("resolveAdminAccess", function () {
       }),
     ).to.equal("denied");
   });
+
+  it("denies manager wallets and only allows super admin", function () {
+    expect(
+      resolveAdminAccess({
+        isContractConfigured: true,
+        isConnected: true,
+        wrongNetwork: false,
+        isRoleLoading: false,
+        isSuperAdmin: false,
+        isManager: true,
+      }),
+    ).to.equal("denied");
+
+    expect(
+      resolveAdminAccess({
+        isContractConfigured: true,
+        isConnected: true,
+        wrongNetwork: false,
+        isRoleLoading: false,
+        isSuperAdmin: true,
+        isManager: false,
+      }),
+    ).to.equal("allowed");
+  });
 });

@@ -27,5 +27,6 @@ export function resolveAdminAccess({
   if (!isConnected) return 'connect';
   if (wrongNetwork) return 'switch-network';
   if (isRoleLoading) return 'checking';
-  return isSuperAdmin || isManager ? 'allowed' : 'denied';
+  void isManager;
+  return isSuperAdmin ? 'allowed' : 'denied';
 }

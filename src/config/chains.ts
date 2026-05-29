@@ -5,24 +5,26 @@ import { bsc } from 'wagmi/chains';
 
 export const selectedBscChain = bsc;
 export const bscExplorerBaseUrl = 'https://bscscan.com';
-const defaultBscRpcUrls = [
+const configuredBscRpcUrl = import.meta.env.VITE_BSC_RPC_URL;
+export const bscRpcUrls = [
+  configuredBscRpcUrl,
   'https://bsc-rpc.publicnode.com',
-  'https://bsc-dataseed.bnbchain.org',
   'https://binance.llamarpc.com',
-];
-
-function uniqueRpcUrls(urls: (string | undefined)[]) {
-  return urls.filter((url): url is string => Boolean(url && url.trim())).filter((url, index, all) => all.indexOf(url) === index);
-}
-
-export const bscRpcUrl = import.meta.env.VITE_BSC_RPC_URL || defaultBscRpcUrls[0];
-export const bscRpcUrls = uniqueRpcUrls([bscRpcUrl, ...defaultBscRpcUrls]);
+  'https://bsc-dataseed.bnbchain.org',
+].filter((url, index, urls): url is string => Boolean(url) && urls.indexOf(url) === index);
+export const bscRpcUrl = bscRpcUrls[0];
 
 export const walletConnectProjectId =
   import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'crudetrust-local-dev';
 
+export const dappBaseUrl = (import.meta.env.VITE_DAPP_BASE_URL || 'https://dapp.crudetrust.net').replace(/\/+$/, '');
+export const dappIconUrl = `${dappBaseUrl}/icon-512.png`;
+
 export const wagmiConfig = getDefaultConfig({
   appName: 'CrudeTrust',
+  appDescription: 'CrudeTrust DApp',
+  appUrl: dappBaseUrl,
+  appIcon: dappIconUrl,
   projectId: walletConnectProjectId,
   chains: [selectedBscChain],
   wallets: [
@@ -33,6 +35,9 @@ export const wagmiConfig = getDefaultConfig({
   ],
   ssr: false,
   transports: {
-    [selectedBscChain.id]: fallback(bscRpcUrls.map((url) => http(url))),
+    [selectedBscChain.id]: fallback(
+      bscRpcUrls.map((url) => http(url, { retryCount: 1, timeout: 12_000 })),
+      { retryCount: 1 },
+    ),
   },
 });

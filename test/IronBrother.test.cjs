@@ -437,6 +437,30 @@ describe("IronBrother", function () {
     expect(history[1].reward).to.equal(U("2"));
   });
 
+  it("rejects dynamic reward days that are not closed under the current settlement cycle", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setSettlementCycle(120);
+    await ironBrother.setSessionTimes(0, 60, 60, 120);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextCycleSecond(120, 10);
+    const legacyDay = await ironBrother.currentLocalDay();
+    await ironBrother.connect(bob).stake(U("1000"));
+    await ironBrother.connect(alice).stake(U("1000"));
+
+    await setNextCycleSecond(120, 10);
+    await ironBrother.setSettlementCycle(1800);
+    await ironBrother.setSessionTimes(0, 900, 900, 1800);
+
+    await expect(ironBrother.settleDynamicRewardForSourceDays([bob.address], [legacyDay])).to.be.revertedWith(
+      "day not closed"
+    );
+    expect(await ironBrother.dynamicRewardSettled(bob.address, legacyDay)).to.equal(false);
+  });
+
   it("lets a manager bot settle the previous local day in indexed batches", async function () {
     const { owner, alice, bob, ironBrother } = await deployFixture();
 
@@ -544,6 +568,39 @@ describe("IronBrother", function () {
     await ironBrother.connect(alice).register(carol.address);
     expect((await ironBrother.users(alice.address)).referrer).to.equal(bob.address);
     expect((await ironBrother.users(carol.address)).directCount).to.equal(0);
+  });
+
+  it("rejects referrer links that would create a cycle", async function () {
+    const { alice, bob, carol, ironBrother } = await deployFixture();
+
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(bob).register(alice.address);
+    await expect(ironBrother.connect(alice).register(bob.address)).to.be.revertedWith("referrer cycle");
+
+    await ironBrother.connect(carol).register(bob.address);
+    await expect(ironBrother.connect(alice).register(carol.address)).to.be.revertedWith("referrer cycle");
+
+    expect((await ironBrother.users(alice.address)).referrer).to.equal(ethers.ZeroAddress);
+  });
+
+  it("does not treat future dynamic reward days as closed", async function () {
+    const { alice, bob, ironBrother } = await deployFixture();
+
+    await ironBrother.setDefaultReferrer(ethers.ZeroAddress);
+    await ironBrother.connect(alice).register(ethers.ZeroAddress);
+    await ironBrother.connect(alice).deposit(U("1000"), ethers.ZeroAddress);
+    await ironBrother.connect(bob).deposit(U("1000"), alice.address);
+
+    await setNextLocalHour(10);
+    const currentDay = await ironBrother.currentLocalDay();
+    const futureDay = currentDay + 1000n;
+
+    await expect(ironBrother.settleDynamicRewardForUser(bob.address, futureDay)).to.be.revertedWith("day not closed");
+    await expect(ironBrother.settleDynamicRewardForSourceDays([bob.address], [futureDay])).to.be.revertedWith(
+      "day not closed"
+    );
+    await expect(ironBrother.botSettleDailyDynamicRewards(futureDay, 0, 100)).to.be.revertedWith("day not closed");
   });
 
   it("requires admin approval to pay a reward withdrawal with fee", async function () {

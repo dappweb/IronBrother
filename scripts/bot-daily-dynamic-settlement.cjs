@@ -1,4 +1,28 @@
 const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
+
+const STATE_DIR = path.join(__dirname, "..", "logs");
+const STATE_FILE = path.join(STATE_DIR, "dynamic-settlement-state.json");
+
+function loadState() {
+  try {
+    const raw = fs.readFileSync(STATE_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveState(state) {
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  } catch (error) {
+    console.warn("Failed to persist settlement state:", error?.message || error);
+  }
+}
 
 function parsePositiveInt(value, fallback, name) {
   if (!value) return fallback;
@@ -41,7 +65,15 @@ async function main() {
     : currentLocalDay - 1n;
   const batchSize = BigInt(parsePositiveInt(process.env.DYNAMIC_SETTLEMENT_BATCH_SIZE, 50, "DYNAMIC_SETTLEMENT_BATCH_SIZE"));
   const maxBatches = parsePositiveInt(process.env.DYNAMIC_SETTLEMENT_MAX_BATCHES, 10_000, "DYNAMIC_SETTLEMENT_MAX_BATCHES");
-  let cursor = parseNonNegativeBigInt(process.env.DYNAMIC_SETTLEMENT_START_CURSOR, 0n, "DYNAMIC_SETTLEMENT_START_CURSOR");
+
+  const state = loadState();
+  const stateKey = `${proxyAddress.toLowerCase()}:${day.toString()}`;
+  const persistedCursor = state[stateKey]?.nextCursor;
+  let cursor = parseNonNegativeBigInt(
+    process.env.DYNAMIC_SETTLEMENT_START_CURSOR ?? persistedCursor,
+    0n,
+    "DYNAMIC_SETTLEMENT_START_CURSOR",
+  );
 
   if (day >= currentLocalDay) {
     throw new Error(`Dynamic settlement day ${day} is not closed. Current local day is ${currentLocalDay}.`);
@@ -70,6 +102,26 @@ async function main() {
     const nextCursor = preview[3];
     const finished = preview[4];
 
+    if (processed === 0n) {
+      // No work in this slice – skip the on-chain tx to avoid wasting gas.
+      console.log(
+        `Batch ${batch + 1}: skip (no pending users) cursor=${cursor.toString()} next=${nextCursor.toString()} finished=${finished}`,
+      );
+      cursor = nextCursor;
+      state[stateKey] = { nextCursor: cursor.toString(), finished, updatedAt: new Date().toISOString() };
+      saveState(state);
+      if (finished) {
+        console.log("Finished:", {
+          processed: processedTotal.toString(),
+          rewardedUsers: rewardedUsersTotal.toString(),
+          reward: formatToken(rewardTotal),
+          nextCursor: cursor.toString(),
+        });
+        return;
+      }
+      continue;
+    }
+
     const tx = await ironBrother.botSettleDailyDynamicRewards(day, cursor, batchSize);
     await tx.wait();
 
@@ -82,6 +134,8 @@ async function main() {
     );
 
     cursor = nextCursor;
+    state[stateKey] = { nextCursor: cursor.toString(), finished, updatedAt: new Date().toISOString() };
+    saveState(state);
     if (finished) {
       console.log("Finished:", {
         processed: processedTotal.toString(),
@@ -93,6 +147,8 @@ async function main() {
     }
   }
 
+  state[stateKey] = { nextCursor: cursor.toString(), finished: false, updatedAt: new Date().toISOString() };
+  saveState(state);
   throw new Error(`Stopped after DYNAMIC_SETTLEMENT_MAX_BATCHES=${maxBatches}. Resume with DYNAMIC_SETTLEMENT_START_CURSOR=${cursor.toString()}.`);
 }
 

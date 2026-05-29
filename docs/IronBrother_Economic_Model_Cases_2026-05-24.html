@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IronBrother 项目经济模型说明（案例版）</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 13mm 12mm 14mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #17211b;
+      background: #ffffff;
+      font-family: "DengXian", "Microsoft YaHei", "Noto Sans SC", "SimHei", Arial, sans-serif;
+      font-size: 10.5px;
+      line-height: 1.55;
+    }
+
+    .page {
+      width: 100%;
+    }
+
+    .cover {
+      min-height: 255mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 4mm 0 2mm;
+      page-break-after: always;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #24352b;
+      font-size: 10px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .brand img {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+    }
+
+    .title-block {
+      border-top: 3px solid #183c2d;
+      padding-top: 28px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 31px;
+      line-height: 1.18;
+      color: #102419;
+      letter-spacing: 0;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #46584f;
+    }
+
+    .cover-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    .cover-item {
+      border-left: 3px solid #c08f2f;
+      padding: 8px 10px;
+      background: #f7f8f4;
+    }
+
+    .cover-item b {
+      display: block;
+      color: #102419;
+      font-size: 12px;
+      margin-bottom: 2px;
+    }
+
+    .cover-note {
+      color: #5c6b61;
+      font-size: 9.5px;
+      border-top: 1px solid #d9dfd6;
+      padding-top: 12px;
+    }
+
+    .section {
+      page-break-inside: avoid;
+      margin-bottom: 14px;
+    }
+
+    h2 {
+      margin: 18px 0 7px;
+      padding-bottom: 4px;
+      border-bottom: 1.5px solid #183c2d;
+      color: #102419;
+      font-size: 17px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 12px 0 6px;
+      color: #203c2d;
+      font-size: 13px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 5px 0;
+    }
+
+    .lead {
+      font-size: 12px;
+      color: #26372d;
+      line-height: 1.65;
+      background: #f4f7f2;
+      border-left: 4px solid #183c2d;
+      padding: 9px 11px;
+      margin: 0 0 12px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin: 8px 0 10px;
+    }
+
+    .metric {
+      border: 1px solid #d9dfd6;
+      padding: 8px;
+      min-height: 44px;
+      background: #fbfcfa;
+    }
+
+    .metric .label {
+      color: #667268;
+      font-size: 8.8px;
+      margin-bottom: 2px;
+    }
+
+    .metric .value {
+      color: #102419;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 7px 0 10px;
+      table-layout: fixed;
+      page-break-inside: avoid;
+    }
+
+    th,
+    td {
+      border: 1px solid #d9dfd6;
+      padding: 5px 6px;
+      vertical-align: top;
+      word-break: break-word;
+    }
+
+    th {
+      background: #183c2d;
+      color: #ffffff;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    tr:nth-child(even) td {
+      background: #fafbf8;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1.05fr 0.9fr 1fr 1fr;
+      gap: 7px;
+      margin: 9px 0 12px;
+    }
+
+    .flow-step {
+      border: 1px solid #cdd7cf;
+      padding: 8px;
+      background: #ffffff;
+      min-height: 64px;
+      position: relative;
+    }
+
+    .flow-step b {
+      display: block;
+      color: #102419;
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+
+    .flow-step span {
+      color: #607067;
+      font-size: 9px;
+    }
+
+    .case {
+      border: 1px solid #d6ddd8;
+      padding: 9px 10px;
+      margin: 9px 0;
+      page-break-inside: avoid;
+    }
+
+    .case h3 {
+      margin-top: 0;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .case-tag {
+      display: inline-block;
+      min-width: 42px;
+      color: #ffffff;
+      background: #c08f2f;
+      padding: 2px 5px;
+      font-size: 8.5px;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .formula {
+      background: #f6f8f6;
+      border-left: 3px solid #c08f2f;
+      padding: 6px 8px;
+      margin: 6px 0;
+      font-family: "DengXian", "Microsoft YaHei", "Noto Sans SC", "SimHei", Arial, sans-serif;
+      color: #24352b;
+    }
+
+    .note {
+      color: #5d6d63;
+      font-size: 9.4px;
+    }
+
+    .warn {
+      border-left: 4px solid #9b332c;
+      background: #fff8f6;
+      padding: 7px 9px;
+      color: #41211f;
+    }
+
+    .small {
+      font-size: 8.8px;
+      color: #6d7a71;
+    }
+
+    .address {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 8.2px;
+      color: #26372d;
+    }
+
+    .page-break {
+      page-break-before: always;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="cover">
+      <div class="brand">
+        <img src="../public/crudetrust-logo.png" alt="Crudetrust logo" />
+        <div>IronBrother / Crudetrust</div>
+      </div>
+
+      <div class="title-block">
+        <h1>IronBrother 项目经济模型说明<br />案例版</h1>
+        <div class="subtitle">BSC USDT 质押、带单、静态收益、动态奖励与提现模型</div>
+        <div class="cover-grid">
+          <div class="cover-item">
+            <b>当前主网代理</b>
+            <span class="address">0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3</span>
+          </div>
+          <div class="cover-item">
+            <b>数据快照</b>
+            <span>2026-05-24，BSC 区块 100120438</span>
+          </div>
+          <div class="cover-item">
+            <b>结算单位</b>
+            <span>BEP-20 USDT，合约内部按 18 位精度记账</span>
+          </div>
+          <div class="cover-item">
+            <b>文档用途</b>
+            <span>用于团队、运营、测试和对外说明统一口径</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cover-note">
+        本文档基于当前仓库合约、功能测试文档和 BSC 主网实时读取整理。链上配置可由 Super Admin 调整，文档中的“当前值”代表本次生成时快照，不等于永久承诺。
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>1. 核心结论</h2>
+      <p class="lead">
+        IronBrother 是一个 BSC USDT 记账型质押/带单模型。用户入金直接进入 5 个项目收款钱包轮转，合约负责记录本金、订单、推荐关系和收益账本。静态收益、动态奖励和到期赎回本金都会先进入用户的链上收益余额；用户最终拿到钱包里的 USDT，需要通过提现路径由合约奖励池或 Admin 出款钱包完成支付。
+      </p>
+      <div class="metric-grid">
+        <div class="metric"><div class="label">单笔入金</div><div class="value">100U - 1000U</div></div>
+        <div class="metric"><div class="label">本金上限</div><div class="value">1000U / 用户</div></div>
+        <div class="metric"><div class="label">当前静态收益</div><div class="value">1%</div></div>
+        <div class="metric"><div class="label">动态有效门槛</div><div class="value">1000U / 天</div></div>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><b>用户入金</b><span>USDT 从用户钱包转入 5 个项目收款钱包之一，合约记录本金订单。</span></div>
+        <div class="flow-step"><b>本金使用</b><span>用户在上午/下午场用可用本金带单，带单期间占用本金。</span></div>
+        <div class="flow-step"><b>收益记账</b><span>静态收益和动态奖励结算后进入 rewardBalance，不自动打款。</span></div>
+        <div class="flow-step"><b>提现出款</b><span>用户申请提现，扣手续费后由合约池或 Admin 钱包支付 USDT。</span></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. 当前主网参数</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 24%;">项目</th>
+            <th style="width: 25%;">当前主网值</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>入金金额</td>
+            <td>100U 到 1000U</td>
+            <td>单笔入金必须在范围内，小数最多 2 位。</td>
+          </tr>
+          <tr>
+            <td>用户本金上限</td>
+            <td>1000U</td>
+            <td>本金余额加新入金或复投后不能超过上限。</td>
+          </tr>
+          <tr>
+            <td>本金锁仓</td>
+            <td>30 天</td>
+            <td>每笔入金或复投形成独立本金订单，到期后可手动赎回到收益钱包。</td>
+          </tr>
+          <tr>
+            <td>静态收益率</td>
+            <td>当前 1%，可调范围 0.5%-5%</td>
+            <td>用户带单时按当时收益率锁定该笔静态收益。</td>
+          </tr>
+          <tr>
+            <td>带单时间</td>
+            <td>09:00-12:00，14:00-17:00</td>
+            <td>按 UTC+8 计算，每个周期每个场次只能带一次。</td>
+          </tr>
+          <tr>
+            <td>动态有效门槛</td>
+            <td>当天累计带单 1000U</td>
+            <td>达到后当天 isValidOnDay=true，同时会计入上级的有效直推数。</td>
+          </tr>
+          <tr>
+            <td>动态代数比例</td>
+            <td>1 代 0.20%，2 代 0.15%，3 代 0.10%，4-10 代 0.05%，11-40 代 0.02%</td>
+            <td>按下级当天实际带单流水计算，前提是上级当天具备对应代数资格。</td>
+          </tr>
+          <tr>
+            <td>提现手续费</td>
+            <td>10U</td>
+            <td>提现金额必须大于手续费，到账金额 = 申请金额 - 手续费。</td>
+          </tr>
+          <tr>
+            <td>提现审批</td>
+            <td>当前关闭</td>
+            <td>关闭时走合约奖励池自动出款；开启时由 Admin 审批并从 Admin 钱包出款。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">
+        当前手续费接收地址：<span class="address">0x1B5bF04F8C2506c036253309cF2b5115B610166C</span>。
+        当前入金轮转收款地址为部署文件和链上读取到的 5 个项目钱包。
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>3. 账户与资金流</h2>
+      <div class="grid-2">
+        <div>
+          <h3>3.1 用户内部账户</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>账户</th>
+                <th>来源</th>
+                <th>用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>本金余额</td>
+                <td>入金、收益复投</td>
+                <td>用于带单，受本金上限、订单锁仓、到期未赎回限制。</td>
+              </tr>
+              <tr>
+                <td>收益余额</td>
+                <td>静态收益、动态奖励、到期本金赎回</td>
+                <td>可提现，也可复投回本金余额。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h3>3.2 合约奖励池</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>项目</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>入金是否进池</td>
+                <td>不进池。入金直接转到 5 个项目收款钱包。</td>
+              </tr>
+              <tr>
+                <td>奖励池来源</td>
+                <td>通过 fundRewards() 或其他转入给合约补充。</td>
+              </tr>
+              <tr>
+                <td>奖励池用途</td>
+                <td>提现审批关闭时，合约自动从池内打款。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="warn">
+        关键口径：链上显示的 rewardBalance 是用户可申请提现或复投的收益账本，不等于 USDT 已经进入用户钱包。真实出款取决于提现模式、合约奖励池余额或 Admin 出款钱包余额。
+      </p>
+    </section>
+
+    <section class="section page-break">
+      <h2>4. 案例说明</h2>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 1</span>入金 1000U 后上午带单 400U</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">动作</th>
+              <th style="width: 28%;">账本变化</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>用户 A 入金 1000U</td>
+              <td>本金余额 +1000U</td>
+              <td>USDT 直接进入轮转收款钱包，合约生成本金订单。</td>
+            </tr>
+            <tr>
+              <td>A 在上午场带单 400U</td>
+              <td>质押中本金 +400U</td>
+              <td>该场次内 400U 被占用，不影响总本金余额。</td>
+            </tr>
+            <tr>
+              <td>12:00 后结算</td>
+              <td>收益余额 +4U，质押中本金 -400U</td>
+              <td>当前静态收益率 1%，400U * 1% = 4U。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="formula">计算：静态收益 = 带单金额 * 静态收益率 = 400U * 1% = 4U。</div>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 2</span>本金 30 天到期后赎回</h3>
+        <p>用户 A 入金 1000U 后，该本金订单锁仓 30 天。到期后如果 A 不赎回，这笔到期未赎回本金会被视为不可用，不能继续作为可用本金带单。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">动作</th>
+              <th style="width: 30%;">账本结果</th>
+              <th>业务含义</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>30 天到期未赎回</td>
+              <td>本金仍在订单内，但可用本金被扣减</td>
+              <td>用户需要主动赎回，才能把到期本金转入收益余额。</td>
+            </tr>
+            <tr>
+              <td>执行赎回 1000U</td>
+              <td>本金余额 -1000U，收益余额 +1000U</td>
+              <td>赎回不是直接打款，后续可提现或复投。</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 3</span>一代动态奖励</h3>
+        <p>用户 A 推荐用户 B。A 当天自己带单 1000U，达到有效门槛；B 当天带单 1000U，也成为 A 的有效直推。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">条件</th>
+              <th style="width: 26%;">结果</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>A 自己当天有效</td>
+              <td>eligibleGeneration(A)=1</td>
+              <td>A 有 1 个有效直推 B，所以可拿 1 代。</td>
+            </tr>
+            <tr>
+              <td>B 当天流水 1000U</td>
+              <td>A 获得 2U</td>
+              <td>1 代比例 0.20%。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="formula">计算：1000U * 0.20% = 2U，结算后进入 A 的收益余额。</div>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 4</span>二代动态奖励</h3>
+        <p>推荐链路为 A -> B -> C。A 当天自己有效，并且 A 还有 B、D 两个有效直推，所以 A 当天可拿 2 代。B 当天自己有效，C 当天带单 1000U。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 24%;">奖励对象</th>
+              <th style="width: 26%;">代数</th>
+              <th>奖励计算</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>B</td>
+              <td>C 的 1 代上级</td>
+              <td>1000U * 0.20% = 2U</td>
+            </tr>
+            <tr>
+              <td>A</td>
+              <td>C 的 2 代上级</td>
+              <td>1000U * 0.15% = 1.5U</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="note">A 能拿到 C 的二代奖励，不是因为链路存在就自动发放，而是因为 A 当天自己有效且具备至少 2 代资格。</p>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 5</span>下级低额流水也能产生动态奖励</h3>
+        <p>A 当天自己已达到 1000U 有效门槛，并且已有至少 1 代资格。A 的直推 E 当天只带单 400U，E 没有达到有效直推门槛。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">判断项</th>
+              <th style="width: 28%;">结果</th>
+              <th>原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>E 是否计入有效直推</td>
+              <td>不计入</td>
+              <td>E 当天流水未达到 1000U。</td>
+            </tr>
+            <tr>
+              <td>A 是否可拿 E 的动态</td>
+              <td>可以</td>
+              <td>前提是 A 自己当天有效且已有 1 代资格。</td>
+            </tr>
+            <tr>
+              <td>A 获得奖励</td>
+              <td>0.8U</td>
+              <td>400U * 0.20% = 0.8U。</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="note">有效门槛用于判断上级能拿几代、下级是否成为有效直推；动态奖励的计算基数仍然是下级实际带单流水。</p>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 6</span>40 代白名单不是免有效门槛</h3>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 30%;">场景</th>
+              <th style="width: 28%;">eligibleGeneration</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>W 是 40 代白名单，但当天自己未达到 1000U</td>
+              <td>0</td>
+              <td>当前合约先判断自己当天是否有效，无效则直接返回 0。</td>
+            </tr>
+            <tr>
+              <td>W 是 40 代白名单，且当天自己达到 1000U</td>
+              <td>40</td>
+              <td>白名单用户在自己有效后可直接拿满 40 代。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="formula">示例：第 20 代下级当天流水 1000U，W 已具备 40 代资格，则 W 奖励 = 1000U * 0.02% = 0.2U。</div>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 7</span>收益提现 50U</h3>
+        <p>用户 A 的收益余额为 50U，当前提现手续费为 10U。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">提现模式</th>
+              <th style="width: 28%;">到账结果</th>
+              <th>资金来源</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>当前主网：免审批</td>
+              <td>用户到账 40U，手续费地址收到 10U</td>
+              <td>合约奖励池必须至少有 50U。</td>
+            </tr>
+            <tr>
+              <td>如果后台开启审批</td>
+              <td>先生成待审提现单，审批后用户到账 40U</td>
+              <td>Admin/出款钱包授权 USDT 后通过 approveWithdrawal() 支付。</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="formula">计算：提现申请 50U，手续费 10U，用户净到账 = 50U - 10U = 40U。</div>
+      </article>
+
+      <article class="case">
+        <h3><span class="case-tag">案例 8</span>收益复投</h3>
+        <p>用户 A 当前本金余额 800U，收益余额 100U，选择复投 100U。</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 28%;">动作</th>
+              <th style="width: 30%;">账本变化</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>复投 100U</td>
+              <td>收益余额 -100U，本金余额 +100U</td>
+              <td>生成新的本金锁仓订单，锁仓周期按当前配置计算。</td>
+            </tr>
+            <tr>
+              <td>如果本金余额为 950U 时复投 100U</td>
+              <td>交易失败</td>
+              <td>复投后本金会变成 1050U，超过当前 1000U 上限。</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+    </section>
+
+    <section class="section page-break">
+      <h2>5. 运营口径和注意事项</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 28%;">口径</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>静态收益不是自动转账</td>
+            <td>静态收益需要到结算时间后调用 settleStake()/settleStakes()，结算后进入收益余额。</td>
+          </tr>
+          <tr>
+            <td>动态奖励不是每天自动发放</td>
+            <td>合约不能自己在 00:00 执行任务。动态奖励需要用户、Admin 或 bot 对已关闭周期发起结算交易。</td>
+          </tr>
+          <tr>
+            <td>收益余额不等于钱包到账</td>
+            <td>收益余额是链上记账，提现成功后才会变成用户钱包里的 USDT。</td>
+          </tr>
+          <tr>
+            <td>白名单不等于免门槛</td>
+            <td>当前合约中，40 代白名单用户仍需自己当天有效，才能返回 40 代资格。</td>
+          </tr>
+          <tr>
+            <td>参数可配置</td>
+            <td>收益率、金额规则、锁仓周期、提现手续费、有效门槛、场次、代数比例、收款钱包都由 Super Admin 配置。</td>
+          </tr>
+          <tr>
+            <td>出款能力要单独管理</td>
+            <td>免审批提现依赖合约奖励池余额；审批提现依赖 Admin 出款钱包余额和授权。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>6. 当前主网数据快照</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 35%;">指标</th>
+            <th>区块 100120438 读取值</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>总用户数</td><td>149</td></tr>
+          <tr><td>累计入金</td><td>99,900.4U</td></tr>
+          <tr><td>当前本金账本</td><td>99,900.4U</td></tr>
+          <tr><td>当前收益账本</td><td>6,533.005U</td></tr>
+          <tr><td>累计带单流水</td><td>643,400.6U</td></tr>
+          <tr><td>累计静态收益</td><td>5,467.005U</td></tr>
+          <tr><td>累计动态奖励</td><td>1,806.75U</td></tr>
+          <tr><td>累计提现申请额</td><td>740.75U</td></tr>
+        </tbody>
+      </table>
+      <p class="small">快照数据用于理解当前系统状态，不作为实时余额承诺；实际查询应以链上最新区块为准。</p>
+    </section>
+
+    <section class="section">
+      <h2>7. 技术依据</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 32%;">文件或函数</th>
+            <th>对应经济规则</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="address">contracts/IronBrother.sol deposit()</span></td>
+            <td>入金金额校验、5 个收款钱包轮转、用户本金记账。</td>
+          </tr>
+          <tr>
+            <td><span class="address">stake() / settleStake()</span></td>
+            <td>带单场次、静态收益计算、到期结算。</td>
+          </tr>
+          <tr>
+            <td><span class="address">eligibleGeneration()</span></td>
+            <td>当天有效用户、有效直推、40 代白名单和可拿代数。</td>
+          </tr>
+          <tr>
+            <td><span class="address">_settleDynamicRewardForUserUnchecked()</span></td>
+            <td>按推荐链向上逐代计算动态奖励并进入收益余额。</td>
+          </tr>
+          <tr>
+            <td><span class="address">requestWithdrawRewards() / approveWithdrawal()</span></td>
+            <td>提现手续费、免审批自动出款、审批出款。</td>
+          </tr>
+          <tr>
+            <td><span class="address">fundRewards()</span></td>
+            <td>合约奖励池补充，用于免审批提现。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
