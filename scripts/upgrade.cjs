@@ -6,7 +6,7 @@ function parseDepositReceivers(value, fallback) {
   const receivers = value
     ? value.split(",").map((item) => item.trim()).filter(Boolean)
     : [];
-  const resolved = receivers.length > 0 ? receivers : [fallback, fallback, fallback, fallback, fallback];
+  const resolved = receivers.length > 0 ? receivers : fallback;
   if (resolved.length !== 5) {
     throw new Error("DEPOSIT_RECEIVERS must contain exactly 5 comma-separated addresses");
   }
@@ -30,29 +30,71 @@ function parseAddressList(value, name) {
   return addresses;
 }
 
+function deploymentFileForNetwork(networkName) {
+  if (networkName === "bscTestnet") {
+    return {
+      fileName: "bsc-testnet.json",
+      network: "bscTestnet",
+      chainId: 97,
+    };
+  }
+
+  return {
+    fileName: "bsc.json",
+    network: "bsc",
+    chainId: 56,
+  };
+}
+
+async function upgradeProxy(proxyAddress, IronBrother) {
+  try {
+    return await hre.upgrades.upgradeProxy(proxyAddress, IronBrother);
+  } catch (error) {
+    const message = error?.message || "";
+    if (!message.includes("is not registered")) {
+      throw error;
+    }
+
+    console.log("Proxy implementation is missing from the local OpenZeppelin manifest; force importing first.");
+    await hre.upgrades.forceImport(proxyAddress, IronBrother, { kind: "uups" });
+    return hre.upgrades.upgradeProxy(proxyAddress, IronBrother);
+  }
+}
+
 async function main() {
-  const proxyAddress = process.env.IRONBROTHER_PROXY;
+  const deploymentTarget = deploymentFileForNetwork(hre.network.name);
+  const deploymentPath = path.join(__dirname, "..", "deployments", deploymentTarget.fileName);
+  const existingDeployment = fs.existsSync(deploymentPath)
+    ? JSON.parse(fs.readFileSync(deploymentPath, "utf8"))
+    : {};
+  const proxyAddress = process.env.IRONBROTHER_PROXY || existingDeployment.ironBrotherProxy;
   if (!proxyAddress || !hre.ethers.isAddress(proxyAddress)) {
     throw new Error("Set IRONBROTHER_PROXY to the deployed proxy address");
   }
 
   const IronBrother = await hre.ethers.getContractFactory("IronBrother");
-  const upgraded = await hre.upgrades.upgradeProxy(proxyAddress, IronBrother);
+  const upgraded = await upgradeProxy(proxyAddress, IronBrother);
   await upgraded.waitForDeployment();
 
   const [deployer] = await hre.ethers.getSigners();
-  const defaultReferrer = process.env.DEFAULT_REFERRER || deployer.address;
+  const currentDefaultReferrer = await upgraded.defaultReferrer();
+  const defaultReferrer = process.env.DEFAULT_REFERRER || currentDefaultReferrer;
   if (!hre.ethers.isAddress(defaultReferrer)) {
     throw new Error("DEFAULT_REFERRER must be a valid address");
   }
-  const depositReceivers = parseDepositReceivers(process.env.DEPOSIT_RECEIVERS, deployer.address);
-  const currentDefaultReferrer = await upgraded.defaultReferrer();
+  const currentDepositReceivers = await upgraded.getDepositReceivers();
+  const depositReceivers = parseDepositReceivers(process.env.DEPOSIT_RECEIVERS, [...currentDepositReceivers]);
   if (currentDefaultReferrer.toLowerCase() !== defaultReferrer.toLowerCase()) {
     const tx = await upgraded.setDefaultReferrer(defaultReferrer);
     await tx.wait();
   }
-  const receiverTx = await upgraded.setDepositReceivers(depositReceivers);
-  await receiverTx.wait();
+  const receiversChanged = currentDepositReceivers.some(
+    (receiver, index) => receiver.toLowerCase() !== depositReceivers[index].toLowerCase(),
+  );
+  if (receiversChanged) {
+    const receiverTx = await upgraded.setDepositReceivers(depositReceivers);
+    await receiverTx.wait();
+  }
 
   const registeredUsers = parseAddressList(process.env.REGISTERED_USERS, "registered user");
   for (let start = 0; start < registeredUsers.length; start += 100) {
@@ -62,17 +104,18 @@ async function main() {
   }
 
   const implementation = await hre.upgrades.erc1967.getImplementationAddress(proxyAddress);
-  const deploymentPath = path.join(__dirname, "..", "deployments", "bsc.json");
   if (fs.existsSync(deploymentPath)) {
-    const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
     fs.writeFileSync(
       deploymentPath,
       JSON.stringify(
         {
-          ...deployment,
-          network: "bsc",
-          chainId: 56,
+          ...existingDeployment,
+          network: deploymentTarget.network,
+          chainId: deploymentTarget.chainId,
           upgradedAt: new Date().toISOString(),
+          deployer: deployer.address,
+          defaultReferrer,
+          depositReceivers,
           ironBrotherProxy: proxyAddress,
           ironBrotherImplementation: implementation,
           proxyKind: "uups",
@@ -88,7 +131,7 @@ async function main() {
   console.log("Default referrer:", await upgraded.defaultReferrer());
   console.log("Deposit receivers:", (await upgraded.getDepositReceivers()).join(", "));
   console.log("Synced registered users:", registeredUsers.length);
-  console.log("Deployment file:", path.join("deployments", "bsc.json"));
+  console.log("Deployment file:", path.join("deployments", deploymentTarget.fileName));
 }
 
 main().catch((error) => {

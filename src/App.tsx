@@ -1,62 +1,62 @@
 import { ConnectButton, RainbowKitProvider, darkTheme, type Locale as RainbowKitLocale } from '@rainbow-me/rainbowkit';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDownToLine,
-  ArrowUpRight,
-  BarChart3,
-  CheckCircle2,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Coins,
-  Copy,
-  Gift,
-  Landmark,
-  Languages,
-  Link2,
-  LockKeyhole,
-  PauseCircle,
-  Repeat2,
-  Send,
-  Settings,
-  Shield,
-  UserRound,
-  Users,
-  Wallet,
+    ArrowDownToLine,
+    ArrowUpRight,
+    BarChart3,
+    CheckCircle2,
+    ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    Clock3,
+    Coins,
+    Copy,
+    Gift,
+    Landmark,
+    Languages,
+    Link2,
+    LockKeyhole,
+    PauseCircle,
+    Repeat2,
+    Send,
+    Settings,
+    Shield,
+    UserRound,
+    Users,
+    Wallet,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Address, Hash, Hex } from 'viem';
 import { formatUnits, isAddress, zeroAddress } from 'viem';
 import {
-  useAccount,
-  useChainId,
-  useConnect,
-  useDisconnect,
-  usePublicClient,
-  useReadContract,
-  useReadContracts,
-  useSwitchChain,
-  useWriteContract,
+    useAccount,
+    useChainId,
+    useConnect,
+    useDisconnect,
+    usePublicClient,
+    useReadContract,
+    useReadContracts,
+    useSwitchChain,
+    useWriteContract,
 } from 'wagmi';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { erc20Abi, ironBrotherAbi } from './abi/ironBrother';
 import { bscExplorerBaseUrl, selectedBscChain } from './config/chains';
 import { BSC_USDT_ADDRESS, IRONBROTHER_CONTRACT_ADDRESS, isContractConfigured } from './config/contracts';
 import { resolveAdminAccess, type AdminAccessStatus } from './lib/adminAccess';
 import {
-  calculatePendingDynamicRewardRows,
-  sumPendingDynamicRewards,
-  type PendingDynamicRewardEligibility,
-  type PendingDynamicRewardRate,
-  type PendingDynamicRewardRow,
-  type PendingDynamicRewardSource,
+    calculatePendingDynamicRewardRows,
+    sumPendingDynamicRewards,
+    type PendingDynamicRewardEligibility,
+    type PendingDynamicRewardRate,
+    type PendingDynamicRewardRow,
+    type PendingDynamicRewardSource,
 } from './lib/dynamicRewards';
 import { bpsToPercent, dateTime, parseTokenInput, safeAddress, shortAddress, token } from './lib/format';
 import { hasInjectedEthereumProvider, selectDirectWalletConnector } from './lib/walletConnector';
 
 type NavKey = 'home' | 'stake' | 'wallet' | 'bot' | 'team';
-type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'withdrawals' | 'team' | 'config' | 'roles';
+type AdminNavKey = 'dashboard' | 'users' | 'principal' | 'stakes' | 'rewards' | 'withdrawals' | 'team' | 'config' | 'roles' | 'keeper';
 type LocaleKey = 'zh-CN' | 'zh-TW' | 'en' | 'ja' | 'ko' | 'vi' | 'ms';
 type TxStatusValue = 'idle' | 'wallet' | 'pending' | 'confirmed' | 'failed';
 type TxErrorKind = 'userRejected' | 'wallet' | 'network' | 'rpc' | 'contract' | 'allowance' | 'balance' | 'unknown';
@@ -633,13 +633,13 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '链上管理面板': 'On-chain Admin Console',
   '当前钱包是 Manager，只能查看数据，不能修改合约配置。': 'The current wallet is a Manager. It can view data but cannot change contract settings.',
   '无权访问 Admin': 'No Admin access',
-  '当前钱包没有 Admin/Manager 权限，正在返回客户页面。': 'The current wallet does not have Admin/Manager permissions. Returning to the customer page.',
+  '当前钱包没有管理员权限，正在返回客户页面。': 'The current wallet does not have admin permissions. Returning to the customer page.',
   '需要切换网络': 'Network switch required',
   '正在验证权限': 'Verifying permissions',
-  '正在读取当前钱包的 Admin/Manager 链上角色。': 'Reading the current wallet Admin/Manager role on-chain.',
+  '正在读取当前钱包的管理员链上角色。': 'Reading the current wallet admin role on-chain.',
   '请连接管理员钱包': 'Connect an admin wallet',
-  '连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。': 'Connect a wallet with Admin or Manager permissions to enter the console.',
-  '当前钱包没有 Admin/Manager 权限，不能进入后台页面。': 'The current wallet does not have Admin/Manager permissions and cannot enter the console.',
+  '连接拥有管理员权限的钱包后才能进入后台。': 'Connect a wallet with admin permissions to enter the console.',
+  '当前钱包没有管理员权限，不能进入后台页面。': 'The current wallet does not have admin permissions and cannot enter the console.',
   '后台未启用': 'Admin console disabled',
   '合约地址未配置，暂不能进入 Admin 后台。': 'The contract address is not configured, so the Admin console is unavailable.',
   '数据看板': 'Dashboard',
@@ -649,6 +649,41 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '团队关系': 'Team relationships',
   '合约配置': 'Contract settings',
   '权限管理': 'Permissions',
+  '定时任务': 'Scheduled tasks',
+  '动态奖励自动结算': 'Dynamic reward auto settlement',
+  '机器人地址': 'Bot address',
+  '机器人余额': 'Bot balance',
+  '调度计划': 'Cron schedules',
+  '上次结算批次': 'Last settlement batches',
+  '本日待结算预览': 'Today pending preview',
+  '处理预览': 'Settlement preview',
+  '健康检查': 'Health check',
+  '立即触发结算': 'Run settlement now',
+  '触发口令': 'Trigger token',
+  '触发口令未填写，无法手动触发。': 'Trigger token is required to run settlement manually.',
+  '触发口令将仅保存在浏览器本地，不会同步到服务器。': 'The trigger token is stored only in this browser and never synced.',
+  '触发结果': 'Trigger result',
+  '健康检查通过': 'Health check passed',
+  '健康检查失败': 'Health check failed',
+  '机器人 Worker URL 未配置，请在 .env 中设置 VITE_KEEPER_WORKER_URL。': 'Keeper worker URL not configured. Set VITE_KEEPER_WORKER_URL in .env.',
+  '机器人尚未签名 PRIVATE_KEY 或未配置代理地址，请检查 Worker secrets。': 'Worker missing PRIVATE_KEY or proxy address. Check Worker secrets.',
+  '链上预演成功': 'On-chain preview ok',
+  '链上预演失败': 'On-chain preview failed',
+  '已处理人数': 'Users processed',
+  '已奖励人数': 'Users rewarded',
+  '预计发放': 'Estimated reward',
+  '游标': 'Cursor',
+  '已结束': 'Finished',
+  '未结束': 'Pending',
+  '今天': 'Today',
+  '主跑（每日 0:05）': 'Primary (daily 0:05)',
+  '兜底（每 30 分钟）': 'Fallback (every 30 minutes)',
+  '刷新': 'Refresh',
+  '暂无': 'Empty',
+  '已完成': 'Completed',
+  '失败': 'Failed',
+  '合约地址': 'Contract address',
+  '暂无待结算动态奖励。': 'No pending dynamic rewards.',
   '总用户': 'Total users',
   '总入金': 'Total deposits',
   '当前本金': 'Current principal',
@@ -935,6 +970,11 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '由当前钱包发起结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
   '由当前钱包发起累计结算交易，确认后动态收益会进入收益余额，可继续提现或复投。': 'The current wallet submits the accumulated settlement transaction. After confirmation, dynamic rewards enter the reward balance and can be withdrawn or reinvested.',
   '每页显示 10 条，点击本页领取会一次结算当前页；也可以在明细中单条领取。': 'Shows 10 items per page. Claiming the page settles the current page; each row can also be claimed individually.',
+  '系统将在每日结算时间自动结算动态奖励到收益钱包，无需手动操作。': 'The system automatically settles dynamic rewards to the reward balance at the daily settlement time. No manual action is required.',
+  '距离下次自动结算': 'Next auto settlement in',
+  '手动结算（兜底）': 'Manual settle (fallback)',
+  '展开手动结算选项': 'Show manual settle options',
+  '收起手动结算选项': 'Hide manual settle options',
   '正在读取待结算动态收益': 'Reading pending dynamic rewards',
   '正在读取直推关系、已关闭周期流水和动态奖励比例。': 'Reading direct referrals, closed-period volume, and dynamic reward rates.',
   '待结算动态收益读取失败': 'Failed to read pending dynamic rewards',
@@ -3918,6 +3958,19 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
     setVisibleDetailCount(DYNAMIC_REWARD_DETAIL_BATCH_SIZE);
   }, [address]);
 
+  const [showManualFallback, setShowManualFallback] = useState(false);
+  const [nowSeconds, setNowSeconds] = useState(() => currentUnixSeconds());
+  useEffect(() => {
+    const id = setInterval(() => setNowSeconds(currentUnixSeconds()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const nextSettlementAt = useMemo(() => {
+    const cycle = settlementCycle > 0n ? settlementCycle : BigInt(SECONDS_PER_DAY);
+    // Next day boundary in UTC (cf. contract _localDayStartUtc) + 5 minutes Bot delay.
+    return (data.currentLocalDay + 1n) * cycle - BigInt(EAST8_TIMEZONE_SECONDS) + 5n * 60n;
+  }, [data.currentLocalDay, settlementCycle]);
+  const settlementCountdown = formatCountdown(nextSettlementAt, nowSeconds, locale);
+
   function settlementBatchesForRows(rowsToSettle: readonly PendingDynamicRewardRow[]) {
     const sourceDays = new Map<string, { source: Address; day: bigint }>();
     rowsToSettle.forEach((row) => {
@@ -4027,18 +4080,33 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
           />
           <InfoLine label={t('待结算笔数')} value={`${pendingRows.length} ${t('笔')}`} />
           <InfoLine label={t('待结算金额')} value={pendingRewards.isLoading ? '--' : <MoneyAmount value={pendingTotal} prefix={pendingTotal > 0n ? '+' : ''} />} />
-          <InfoLine label={t('本页笔数')} value={`${visiblePendingRows.length} ${t('笔')}`} />
-          <InfoLine label={t('本页金额')} value={pendingRewards.isLoading ? '--' : <MoneyAmount value={visiblePendingTotal} prefix={visiblePendingTotal > 0n ? '+' : ''} />} />
+          <InfoLine label={t('距离下次自动结算')} value={settlementCountdown} />
         </div>
-        <button
-          className="primary-button"
-          type="button"
-          aria-busy={transactionBusy}
-          disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
-          onClick={() => runPendingDynamicSettlement()}
-        >
-          {transactionBusy ? t('正在处理交易') : `${t('领取本页动态收益')} (${visiblePendingRows.length} ${t('笔')})`}
-        </button>
+        <div className="auto-settlement-notice">
+          <p className="helper-line">
+            {t('系统将在每日结算时间自动结算动态奖励到收益钱包，无需手动操作。')}
+          </p>
+          <button
+            className="ghost-button"
+            type="button"
+            onClick={() => setShowManualFallback((value) => !value)}
+          >
+            {showManualFallback ? t('收起手动结算选项') : t('展开手动结算选项')}
+          </button>
+        </div>
+        {showManualFallback && (
+          <button
+            className="primary-button compact"
+            type="button"
+            aria-busy={transactionBusy}
+            disabled={!address || pendingRewards.isLoading || pendingRewards.isError || pendingSettlementBatches.length === 0 || transactionBusy}
+            onClick={() => runPendingDynamicSettlement()}
+          >
+            {transactionBusy
+              ? t('正在处理交易')
+              : `${t('手动结算（兜底）')} (${visiblePendingRows.length} ${t('笔')})`}
+          </button>
+        )}
         <TxStatus tx={runner.tx} />
         <p className="helper-line">
           {t('每页显示 10 条，点击本页领取会一次结算当前页；也可以在明细中单条领取。')}
@@ -4055,6 +4123,7 @@ function BotRewardsScreen({ address, data, locale }: { address?: Address; data: 
                 row={row}
                 settlementCycle={settlementCycle}
                 disabled={!address || transactionBusy}
+                showClaim={showManualFallback}
                 onClaim={() => runPendingDynamicSettlement([row], t('领取单条动态收益'))}
               />
             ))
@@ -4072,11 +4141,13 @@ function PendingDynamicRewardListRow({
   row,
   settlementCycle,
   disabled,
+  showClaim = false,
   onClaim,
 }: {
   row: PendingDynamicRewardRow;
   settlementCycle: bigint;
   disabled: boolean;
+  showClaim?: boolean;
   onClaim: () => void;
 }) {
   const { t } = useI18n();
@@ -4090,9 +4161,11 @@ function PendingDynamicRewardListRow({
       <div className="row-metrics">
         <span>{t('流水')} {token(row.volume)} U</span>
         <span className="amount-positive">+{token(row.reward)} U</span>
-        <button type="button" className="row-action-button" disabled={disabled} onClick={onClaim}>
-          {t('单条领取')}
-        </button>
+        {showClaim && (
+          <button type="button" className="row-action-button" disabled={disabled} onClick={onClaim}>
+            {t('单条领取')}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -4277,6 +4350,7 @@ function AdminConsole() {
     { key: 'team', label: t('团队关系') },
     { key: 'config', label: t('合约配置') },
     { key: 'roles', label: t('权限管理') },
+    { key: 'keeper', label: t('定时任务') },
   ];
 
   if (accessStatus === 'denied') {
@@ -4330,6 +4404,7 @@ function AdminConsole() {
             {nav === 'team' && <AdminTeamPage defaultAddress={address} />}
             {nav === 'config' && <AdminConfigPage canEdit={canEdit} runner={runner} />}
             {nav === 'roles' && <AdminRolesPage canEdit={canEdit} runner={runner} />}
+            {nav === 'keeper' && <AdminKeeperPage />}
           </>
         ) : (
           <AdminAccessGate
@@ -4353,7 +4428,7 @@ function AdminAccessRedirect() {
   return (
     <div className="admin-auth-redirect">
       <section className="admin-panel">
-        <EmptyState title={t('无权访问 Admin')} detail={t('当前钱包没有 Admin/Manager 权限，正在返回客户页面。')} />
+        <EmptyState title={t('无权访问 Admin')} detail={t('当前钱包没有管理员权限，正在返回客户页面。')} />
         <a className="secondary-button full-button" href="/">
           {t('返回客户页面')}
         </a>
@@ -4384,15 +4459,15 @@ function AdminAccessGate({
   const content: Record<Exclude<AdminAccessStatus, 'allowed' | 'switch-network'>, { title: string; detail: string }> = {
     checking: {
       title: t('正在验证权限'),
-      detail: t('正在读取当前钱包的 Admin/Manager 链上角色。'),
+      detail: t('正在读取当前钱包的管理员链上角色。'),
     },
     connect: {
       title: t('请连接管理员钱包'),
-      detail: t('连接拥有 Admin 或 Manager 权限的钱包后才能进入后台。'),
+      detail: t('连接拥有管理员权限的钱包后才能进入后台。'),
     },
     denied: {
       title: t('无权访问 Admin'),
-      detail: t('当前钱包没有 Admin/Manager 权限，不能进入后台页面。'),
+      detail: t('当前钱包没有管理员权限，不能进入后台页面。'),
     },
     unconfigured: {
       title: t('后台未启用'),
@@ -6782,6 +6857,256 @@ function useAdminRole(address?: Address) {
       managerQuery.isLoading
     ),
   };
+}
+
+const KEEPER_WORKER_URL: string = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_KEEPER_WORKER_URL ?? '').replace(/\/+$/, '');
+const KEEPER_TOKEN_STORAGE_KEY = 'ironbrother:keeper-token';
+
+type KeeperStatusResponse = {
+  ok: boolean;
+  error?: string;
+  proxy?: string;
+  operator?: string | null;
+  operatorBalance?: string;
+  currentLocalDay?: string;
+  targetDay?: string;
+  settlementCycle?: string;
+  batchSize?: string;
+  maxBatchSize?: string;
+  schedules?: string[];
+  preview?: {
+    processed?: string;
+    rewardedUsers?: string;
+    totalReward?: string;
+    nextCursor?: string;
+    finished?: boolean;
+    error?: string;
+  } | null;
+};
+
+type KeeperRunResponse = {
+  ok: boolean;
+  error?: string;
+  day?: string;
+  operator?: string;
+  processed?: string;
+  rewardedUsers?: string;
+  totalReward?: string;
+  finished?: boolean;
+  transactions?: Array<{ hash: string; nextCursor: string; processed: string; rewardedUsers: string; totalReward: string }>;
+  note?: string;
+};
+
+function AdminKeeperPage() {
+  const { t } = useI18n();
+  const workerUrl = KEEPER_WORKER_URL;
+  const hasWorker = workerUrl.length > 0;
+  const [status, setStatus] = useState<KeeperStatusResponse | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [healthResult, setHealthResult] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<KeeperRunResponse | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runBusy, setRunBusy] = useState(false);
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem(KEEPER_TOKEN_STORAGE_KEY) ?? '';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage.setItem(KEEPER_TOKEN_STORAGE_KEY, token);
+    else window.localStorage.removeItem(KEEPER_TOKEN_STORAGE_KEY);
+  }, [token]);
+
+  const fetchStatus = async () => {
+    if (!hasWorker) return;
+    setLoadingStatus(true);
+    setStatusError(null);
+    try {
+      const response = await fetch(`${workerUrl}/status`, { method: 'GET' });
+      const body = (await response.json()) as KeeperStatusResponse;
+      setStatus(body);
+      if (!body.ok && body.error) setStatusError(body.error);
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workerUrl]);
+
+  const checkHealth = async () => {
+    if (!hasWorker) return;
+    setHealthResult(null);
+    try {
+      const response = await fetch(`${workerUrl}/health`, { method: 'GET' });
+      const body = (await response.json()) as { ok: boolean; worker?: string; proxy?: string };
+      setHealthResult(body.ok ? t('健康检查通过') : t('健康检查失败'));
+    } catch (error) {
+      setHealthResult(`${t('健康检查失败')}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const triggerRun = async () => {
+    if (!hasWorker) return;
+    if (!token.trim()) {
+      setRunError(t('触发口令未填写，无法手动触发。'));
+      return;
+    }
+    setRunBusy(true);
+    setRunError(null);
+    setRunResult(null);
+    try {
+      const response = await fetch(`${workerUrl}/run?token=${encodeURIComponent(token.trim())}`, { method: 'POST' });
+      const body = (await response.json()) as KeeperRunResponse;
+      setRunResult(body);
+      if (!body.ok && body.error) setRunError(body.error);
+      await fetchStatus();
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunBusy(false);
+    }
+  };
+
+  const operatorBalanceBnb = status?.operatorBalance
+    ? `${formatUnits(BigInt(status.operatorBalance), 18)} BNB`
+    : '--';
+  const previewEmpty = !status?.preview || (!status.preview.error && status.preview.processed === '0');
+  const previewFinished = status?.preview?.finished;
+  const previewLabel = status?.preview?.error
+    ? `${t('链上预演失败')}: ${status.preview.error}`
+    : previewFinished
+      ? `${t('链上预演成功')} · ${t('已结束')}`
+      : `${t('链上预演成功')} · ${t('未结束')}`;
+
+  return (
+    <section className="screen-stack">
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Keeper</p>
+            <h2>{t('动态奖励自动结算')}</h2>
+          </div>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={loadingStatus || !hasWorker}
+            onClick={fetchStatus}
+          >
+            {loadingStatus ? t('读取中') : t('刷新')}
+          </button>
+        </div>
+
+        {!hasWorker && (
+          <p className="helper-line">
+            {t('机器人 Worker URL 未配置，请在 .env 中设置 VITE_KEEPER_WORKER_URL。')}
+          </p>
+        )}
+
+        {statusError && <p className="helper-line">{statusError}</p>}
+
+        <div className="settlement-stats">
+          <InfoLine label={t('机器人地址')} value={status?.operator ?? '--'} />
+          <InfoLine label={t('机器人余额')} value={operatorBalanceBnb} />
+          <InfoLine label={t('合约地址')} value={status?.proxy ?? '--'} />
+          <InfoLine label={t('今天')} value={status?.currentLocalDay ?? '--'} />
+        </div>
+
+        <div className="settlement-stats">
+          <InfoLine label={t('调度计划')} value={t('主跑（每日 0:05）')} />
+          <InfoLine label={t('调度计划')} value={t('兜底（每 30 分钟）')} />
+        </div>
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Preview</p>
+            <h2>{t('本日待结算预览')}</h2>
+          </div>
+        </div>
+        {status?.preview ? (
+          <>
+            <p className="helper-line">{previewLabel}</p>
+            <div className="settlement-stats">
+              <InfoLine label={t('已处理人数')} value={status.preview.processed ?? '--'} />
+              <InfoLine label={t('已奖励人数')} value={status.preview.rewardedUsers ?? '--'} />
+              <InfoLine
+                label={t('预计发放')}
+                value={status.preview.totalReward ? `${formatUnits(BigInt(status.preview.totalReward), 18)} U` : '--'}
+              />
+              <InfoLine label={t('游标')} value={status.preview.nextCursor ?? '--'} />
+            </div>
+            {previewEmpty && !status.preview.error && (
+              <p className="helper-line">{t('暂无待结算动态奖励。')}</p>
+            )}
+          </>
+        ) : (
+          <p className="helper-line">{loadingStatus ? t('读取中') : t('暂无')}</p>
+        )}
+      </section>
+
+      <section className="admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Manual</p>
+            <h2>{t('立即触发结算')}</h2>
+          </div>
+        </div>
+        <p className="helper-line">{t('触发口令将仅保存在浏览器本地，不会同步到服务器。')}</p>
+        <div className="form-grid">
+          <label>
+            {t('触发口令')}
+            <input
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              placeholder="KEEPER_AUTH_TOKEN"
+            />
+          </label>
+        </div>
+        <div className="button-row">
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={!hasWorker}
+            onClick={checkHealth}
+          >
+            {t('健康检查')}
+          </button>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={!hasWorker || runBusy || !token.trim()}
+            onClick={triggerRun}
+          >
+            {runBusy ? t('正在处理交易') : t('立即触发结算')}
+          </button>
+        </div>
+        {healthResult && <p className="helper-line">{healthResult}</p>}
+        {runError && <p className="helper-line">{runError}</p>}
+        {runResult && (
+          <div className="settlement-stats">
+            <InfoLine label={t('触发结果')} value={runResult.ok ? t('已完成') : t('失败')} />
+            <InfoLine label={t('已处理人数')} value={runResult.processed ?? '--'} />
+            <InfoLine label={t('已奖励人数')} value={runResult.rewardedUsers ?? '--'} />
+            <InfoLine
+              label={t('预计发放')}
+              value={runResult.totalReward ? `${formatUnits(BigInt(runResult.totalReward), 18)} U` : '--'}
+            />
+            <InfoLine label={t('上次结算批次')} value={`${runResult.transactions?.length ?? 0}`} />
+          </div>
+        )}
+      </section>
+    </section>
+  );
 }
 
 function isConnectorAlreadyConnectedError(error: unknown) {

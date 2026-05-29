@@ -1,6 +1,11 @@
 {
   "manifestVersion": "3.2",
-  "proxies": [],
+  "proxies": [
+    {
+      "address": "0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3",
+      "kind": "uups"
+    }
+  ],
   "impls": {
     "c9c3abf0a75e1e82914f490496706e7a051cfd04df0dd2cf72585b52dda2a74a": {
       "address": "0x221f5229366E7d6AF46890D1954aA3Ab823e3cDc",
@@ -1941,6 +1946,979 @@
           ]
         }
       }
+    },
+    "1e9a06e6790e12a74ce6d3763ddd4e53478fd6835f224aaa3a25a85af1950f7c": {
+      "address": "0x7dd8bc3bA3Be923dD73c5DF1D2F2cF6961bd4ED6",
+      "layout": {
+        "solcVersion": "0.8.24",
+        "storage": [
+          {
+            "label": "usdt",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IERC20)1636",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:21"
+          },
+          {
+            "label": "minAmount",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:23"
+          },
+          {
+            "label": "maxAmount",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:24"
+          },
+          {
+            "label": "maxPrincipal",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:25"
+          },
+          {
+            "label": "lockPeriod",
+            "offset": 0,
+            "slot": "4",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:26"
+          },
+          {
+            "label": "yieldBps",
+            "offset": 0,
+            "slot": "5",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:27"
+          },
+          {
+            "label": "minYieldBps",
+            "offset": 0,
+            "slot": "6",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:28"
+          },
+          {
+            "label": "maxYieldBps",
+            "offset": 0,
+            "slot": "7",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:29"
+          },
+          {
+            "label": "withdrawFee",
+            "offset": 0,
+            "slot": "8",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:30"
+          },
+          {
+            "label": "validVolumeThreshold",
+            "offset": 0,
+            "slot": "9",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:31"
+          },
+          {
+            "label": "timezoneOffset",
+            "offset": 0,
+            "slot": "10",
+            "type": "t_int256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:33"
+          },
+          {
+            "label": "morningStart",
+            "offset": 0,
+            "slot": "11",
+            "type": "t_uint32",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:34"
+          },
+          {
+            "label": "morningEnd",
+            "offset": 4,
+            "slot": "11",
+            "type": "t_uint32",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:35"
+          },
+          {
+            "label": "afternoonStart",
+            "offset": 8,
+            "slot": "11",
+            "type": "t_uint32",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:36"
+          },
+          {
+            "label": "afternoonEnd",
+            "offset": 12,
+            "slot": "11",
+            "type": "t_uint32",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:37"
+          },
+          {
+            "label": "feeReceiver",
+            "offset": 0,
+            "slot": "12",
+            "type": "t_address",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:39"
+          },
+          {
+            "label": "nextPrincipalOrderId",
+            "offset": 0,
+            "slot": "13",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:40"
+          },
+          {
+            "label": "nextStakeOrderId",
+            "offset": 0,
+            "slot": "14",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:41"
+          },
+          {
+            "label": "totalUsers",
+            "offset": 0,
+            "slot": "15",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:42"
+          },
+          {
+            "label": "totalDepositedAmount",
+            "offset": 0,
+            "slot": "16",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:43"
+          },
+          {
+            "label": "totalPrincipalBalance",
+            "offset": 0,
+            "slot": "17",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:44"
+          },
+          {
+            "label": "totalPrincipalStaked",
+            "offset": 0,
+            "slot": "18",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:45"
+          },
+          {
+            "label": "totalRewardBalance",
+            "offset": 0,
+            "slot": "19",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:46"
+          },
+          {
+            "label": "totalStakedVolume",
+            "offset": 0,
+            "slot": "20",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:47"
+          },
+          {
+            "label": "totalStaticRewardCredited",
+            "offset": 0,
+            "slot": "21",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:48"
+          },
+          {
+            "label": "totalDynamicRewardCredited",
+            "offset": 0,
+            "slot": "22",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:49"
+          },
+          {
+            "label": "totalWithdrawnAmount",
+            "offset": 0,
+            "slot": "23",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:50"
+          },
+          {
+            "label": "_reentrancyStatus",
+            "offset": 0,
+            "slot": "24",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:51"
+          },
+          {
+            "label": "users",
+            "offset": 0,
+            "slot": "25",
+            "type": "t_mapping(t_address,t_struct(UserAccount)2936_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:128"
+          },
+          {
+            "label": "principalOrders",
+            "offset": 0,
+            "slot": "26",
+            "type": "t_mapping(t_uint256,t_struct(PrincipalOrder)2953_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:129"
+          },
+          {
+            "label": "stakeOrders",
+            "offset": 0,
+            "slot": "27",
+            "type": "t_mapping(t_uint256,t_struct(StakeOrder)2974_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:130"
+          },
+          {
+            "label": "userPrincipalOrderIds",
+            "offset": 0,
+            "slot": "28",
+            "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:131"
+          },
+          {
+            "label": "userStakeOrderIds",
+            "offset": 0,
+            "slot": "29",
+            "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:132"
+          },
+          {
+            "label": "directReferrals",
+            "offset": 0,
+            "slot": "30",
+            "type": "t_mapping(t_address,t_array(t_address)dyn_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:133"
+          },
+          {
+            "label": "stakedInSession",
+            "offset": 0,
+            "slot": "31",
+            "type": "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_bool)))",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:135"
+          },
+          {
+            "label": "dailyStakeVolume",
+            "offset": 0,
+            "slot": "32",
+            "type": "t_mapping(t_address,t_mapping(t_uint256,t_uint256))",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:136"
+          },
+          {
+            "label": "isValidOnDay",
+            "offset": 0,
+            "slot": "33",
+            "type": "t_mapping(t_address,t_mapping(t_uint256,t_bool))",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:137"
+          },
+          {
+            "label": "dailyDirectValidCount",
+            "offset": 0,
+            "slot": "34",
+            "type": "t_mapping(t_address,t_mapping(t_uint256,t_uint256))",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:138"
+          },
+          {
+            "label": "dynamicRewardSettled",
+            "offset": 0,
+            "slot": "35",
+            "type": "t_mapping(t_address,t_mapping(t_uint256,t_bool))",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:139"
+          },
+          {
+            "label": "generationRateBps",
+            "offset": 0,
+            "slot": "36",
+            "type": "t_mapping(t_uint8,t_uint16)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:140"
+          },
+          {
+            "label": "defaultReferrer",
+            "offset": 0,
+            "slot": "37",
+            "type": "t_address",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:141"
+          },
+          {
+            "label": "depositReceivers",
+            "offset": 0,
+            "slot": "38",
+            "type": "t_array(t_address)5_storage",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:142"
+          },
+          {
+            "label": "nextDepositReceiverIndex",
+            "offset": 0,
+            "slot": "43",
+            "type": "t_uint8",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:143"
+          },
+          {
+            "label": "nextWithdrawalRequestId",
+            "offset": 0,
+            "slot": "44",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:144"
+          },
+          {
+            "label": "totalPendingWithdrawalAmount",
+            "offset": 0,
+            "slot": "45",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:145"
+          },
+          {
+            "label": "withdrawalRequests",
+            "offset": 0,
+            "slot": "46",
+            "type": "t_mapping(t_uint256,t_struct(WithdrawalRequest)2996_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:146"
+          },
+          {
+            "label": "userWithdrawalRequestIds",
+            "offset": 0,
+            "slot": "47",
+            "type": "t_mapping(t_address,t_array(t_uint256)dyn_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:147"
+          },
+          {
+            "label": "registeredUsers",
+            "offset": 0,
+            "slot": "48",
+            "type": "t_array(t_address)dyn_storage",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:148"
+          },
+          {
+            "label": "registeredUserIndexed",
+            "offset": 0,
+            "slot": "49",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:149"
+          },
+          {
+            "label": "withdrawalApprovalDisabled",
+            "offset": 0,
+            "slot": "50",
+            "type": "t_bool",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:150"
+          },
+          {
+            "label": "_settlementCycle",
+            "offset": 0,
+            "slot": "51",
+            "type": "t_uint256",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:151"
+          },
+          {
+            "label": "dynamicRewardHistories",
+            "offset": 0,
+            "slot": "52",
+            "type": "t_mapping(t_address,t_array(t_struct(DynamicRewardHistory)3007_storage)dyn_storage)",
+            "contract": "IronBrother",
+            "src": "contracts\\IronBrother.sol:152"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_bytes32,t_struct(RoleData)24_storage)": {
+            "label": "mapping(bytes32 => struct AccessControlUpgradeable.RoleData)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(AccessControlStorage)34_storage": {
+            "label": "struct AccessControlUpgradeable.AccessControlStorage",
+            "members": [
+              {
+                "label": "_roles",
+                "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(InitializableStorage)515_storage": {
+            "label": "struct Initializable.InitializableStorage",
+            "members": [
+              {
+                "label": "_initialized",
+                "type": "t_uint64",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "_initializing",
+                "type": "t_bool",
+                "offset": 8,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(PausableStorage)187_storage": {
+            "label": "struct PausableUpgradeable.PausableStorage",
+            "members": [
+              {
+                "label": "_paused",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_struct(RoleData)24_storage": {
+            "label": "struct AccessControlUpgradeable.RoleData",
+            "members": [
+              {
+                "label": "hasRole",
+                "type": "t_mapping(t_address,t_bool)",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "adminRole",
+                "type": "t_bytes32",
+                "offset": 0,
+                "slot": "1"
+              }
+            ],
+            "numberOfBytes": "64"
+          },
+          "t_uint64": {
+            "label": "uint64",
+            "numberOfBytes": "8"
+          },
+          "t_array(t_address)5_storage": {
+            "label": "address[5]",
+            "numberOfBytes": "160"
+          },
+          "t_array(t_address)dyn_storage": {
+            "label": "address[]",
+            "numberOfBytes": "32"
+          },
+          "t_array(t_struct(DynamicRewardHistory)3007_storage)dyn_storage": {
+            "label": "struct IronBrother.DynamicRewardHistory[]",
+            "numberOfBytes": "32"
+          },
+          "t_array(t_uint256)dyn_storage": {
+            "label": "uint256[]",
+            "numberOfBytes": "32"
+          },
+          "t_contract(IERC20)1636": {
+            "label": "contract IERC20",
+            "numberOfBytes": "20"
+          },
+          "t_enum(PrincipalSource)2904": {
+            "label": "enum IronBrother.PrincipalSource",
+            "members": [
+              "Deposit",
+              "Reinvest"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_enum(PrincipalStatus)2907": {
+            "label": "enum IronBrother.PrincipalStatus",
+            "members": [
+              "Locked",
+              "Redeemed"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_enum(WithdrawalStatus)2911": {
+            "label": "enum IronBrother.WithdrawalStatus",
+            "members": [
+              "Pending",
+              "Paid",
+              "Rejected"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_int256": {
+            "label": "int256",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_array(t_address)dyn_storage)": {
+            "label": "mapping(address => address[])",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_array(t_struct(DynamicRewardHistory)3007_storage)dyn_storage)": {
+            "label": "mapping(address => struct IronBrother.DynamicRewardHistory[])",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_array(t_uint256)dyn_storage)": {
+            "label": "mapping(address => uint256[])",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_uint256,t_bool))": {
+            "label": "mapping(address => mapping(uint256 => bool))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_uint256,t_mapping(t_uint8,t_bool)))": {
+            "label": "mapping(address => mapping(uint256 => mapping(uint8 => bool)))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_mapping(t_uint256,t_uint256))": {
+            "label": "mapping(address => mapping(uint256 => uint256))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_address,t_struct(UserAccount)2936_storage)": {
+            "label": "mapping(address => struct IronBrother.UserAccount)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_bool)": {
+            "label": "mapping(uint256 => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_mapping(t_uint8,t_bool))": {
+            "label": "mapping(uint256 => mapping(uint8 => bool))",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(PrincipalOrder)2953_storage)": {
+            "label": "mapping(uint256 => struct IronBrother.PrincipalOrder)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(StakeOrder)2974_storage)": {
+            "label": "mapping(uint256 => struct IronBrother.StakeOrder)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(WithdrawalRequest)2996_storage)": {
+            "label": "mapping(uint256 => struct IronBrother.WithdrawalRequest)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_uint256)": {
+            "label": "mapping(uint256 => uint256)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint8,t_bool)": {
+            "label": "mapping(uint8 => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint8,t_uint16)": {
+            "label": "mapping(uint8 => uint16)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(DynamicRewardHistory)3007_storage": {
+            "label": "struct IronBrother.DynamicRewardHistory",
+            "members": [
+              {
+                "label": "source",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "day",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "generation",
+                "type": "t_uint8",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "volume",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "reward",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              }
+            ],
+            "numberOfBytes": "160"
+          },
+          "t_struct(PrincipalOrder)2953_storage": {
+            "label": "struct IronBrother.PrincipalOrder",
+            "members": [
+              {
+                "label": "id",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "user",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "amount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "createdAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "unlockAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "source",
+                "type": "t_enum(PrincipalSource)2904",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "status",
+                "type": "t_enum(PrincipalStatus)2907",
+                "offset": 1,
+                "slot": "5"
+              }
+            ],
+            "numberOfBytes": "192"
+          },
+          "t_struct(StakeOrder)2974_storage": {
+            "label": "struct IronBrother.StakeOrder",
+            "members": [
+              {
+                "label": "id",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "user",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "amount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "rewardBps",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "reward",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "day",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "session",
+                "type": "t_uint8",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "createdAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "settleAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "8"
+              },
+              {
+                "label": "settled",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "9"
+              }
+            ],
+            "numberOfBytes": "320"
+          },
+          "t_struct(UserAccount)2936_storage": {
+            "label": "struct IronBrother.UserAccount",
+            "members": [
+              {
+                "label": "referrer",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "principalBalance",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "principalStaked",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "rewardBalance",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "totalDeposited",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "totalStaked",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "totalStaticReward",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "totalDynamicReward",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "totalWithdrawn",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "8"
+              },
+              {
+                "label": "directCount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "9"
+              },
+              {
+                "label": "registered",
+                "type": "t_bool",
+                "offset": 0,
+                "slot": "10"
+              },
+              {
+                "label": "whitelist40",
+                "type": "t_bool",
+                "offset": 1,
+                "slot": "10"
+              }
+            ],
+            "numberOfBytes": "352"
+          },
+          "t_struct(WithdrawalRequest)2996_storage": {
+            "label": "struct IronBrother.WithdrawalRequest",
+            "members": [
+              {
+                "label": "id",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "user",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "1"
+              },
+              {
+                "label": "amount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "2"
+              },
+              {
+                "label": "fee",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "3"
+              },
+              {
+                "label": "netAmount",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "4"
+              },
+              {
+                "label": "requestedAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "5"
+              },
+              {
+                "label": "processedAt",
+                "type": "t_uint256",
+                "offset": 0,
+                "slot": "6"
+              },
+              {
+                "label": "status",
+                "type": "t_enum(WithdrawalStatus)2911",
+                "offset": 0,
+                "slot": "7"
+              },
+              {
+                "label": "operator",
+                "type": "t_address",
+                "offset": 1,
+                "slot": "7"
+              },
+              {
+                "label": "payer",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "8"
+              }
+            ],
+            "numberOfBytes": "288"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint32": {
+            "label": "uint32",
+            "numberOfBytes": "4"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          }
+        },
+        "namespaces": {
+          "erc7201:openzeppelin.storage.Pausable": [
+            {
+              "contract": "PausableUpgradeable",
+              "label": "_paused",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts-upgradeable\\utils\\PausableUpgradeable.sol:21",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.AccessControl": [
+            {
+              "contract": "AccessControlUpgradeable",
+              "label": "_roles",
+              "type": "t_mapping(t_bytes32,t_struct(RoleData)24_storage)",
+              "src": "@openzeppelin\\contracts-upgradeable\\access\\AccessControlUpgradeable.sol:61",
+              "offset": 0,
+              "slot": "0"
+            }
+          ],
+          "erc7201:openzeppelin.storage.Initializable": [
+            {
+              "contract": "Initializable",
+              "label": "_initialized",
+              "type": "t_uint64",
+              "src": "@openzeppelin\\contracts\\proxy\\utils\\Initializable.sol:69",
+              "offset": 0,
+              "slot": "0"
+            },
+            {
+              "contract": "Initializable",
+              "label": "_initializing",
+              "type": "t_bool",
+              "src": "@openzeppelin\\contracts\\proxy\\utils\\Initializable.sol:73",
+              "offset": 8,
+              "slot": "0"
+            }
+          ]
+        }
+      },
+      "allAddresses": [
+        "0x7dd8bc3bA3Be923dD73c5DF1D2F2cF6961bd4ED6",
+        "0xe6629Ed50d11F921C0717Cb2d9B36C9231e0f7B8"
+      ]
     }
   }
 }

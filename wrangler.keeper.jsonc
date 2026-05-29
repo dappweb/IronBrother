@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ironbrother-keeper",
+  "main": "workers/keeper.js",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "triggers": {
+    "crons": ["5 16 * * *", "*/30 * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "BSC_RPC_URL": "https://bsc-dataseed.bnbchain.org",
+    "IRONBROTHER_PROXY": "0x25cCc567C5a72Bb164d0e75969ff6141a7d735E3",
+    "DYNAMIC_SETTLEMENT_BATCH_SIZE": "50",
+    "DYNAMIC_SETTLEMENT_MAX_BATCHES": "10000"
+  }
+}
