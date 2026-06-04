@@ -1715,6 +1715,60 @@ input {
   margin: 14px 0;
 }
 
+.bulk-admin-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.bulk-admin-panel .helper-line {
+  margin-top: 0;
+}
+
+.replacement-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.replacement-options label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e2ece6;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.replacement-options input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #111111;
+}
+
+.replacement-options span {
+  color: #1d2723;
+  font-size: var(--text-md);
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.replacement-options small {
+  grid-column: 2;
+  color: #718179;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.danger-text {
+  color: #b42318;
+  font-weight: 800;
+}
+
 .tx-panel .tx-status {
   margin-top: 0;
 }
@@ -1735,7 +1789,8 @@ input {
   }
 
   .admin-grid,
-  .admin-columns {
+  .admin-columns,
+  .replacement-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

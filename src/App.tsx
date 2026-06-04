@@ -905,6 +905,31 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '转移 Owner 权限': 'Transfer Owner permission',
   '转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。': 'After transfer, the new address receives Admin/Manager permissions and the current wallet loses them. If the default referrer still points to the current wallet, it will be synced to the new Owner.',
   '这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。': 'This is a high-risk action. After confirmation, the new address receives Admin/Manager permissions and the current wallet loses management access.',
+  '批量替换旧管理员': 'Bulk replace old admin',
+  '旧管理员地址': 'Old admin address',
+  '新接收地址': 'New recipient address',
+  '当前旧地址角色': 'Current old address roles',
+  '新地址当前角色': 'New address current roles',
+  '替换默认推荐人': 'Replace default referrer',
+  '替换手续费接收地址': 'Replace fee receiver',
+  '替换入金收款钱包': 'Replace deposit receiver wallets',
+  '撤销旧地址 Admin/Manager': 'Revoke old Admin/Manager',
+  '执行完整替换': 'Run full replacement',
+  '批量替换旧管理员配置': 'Bulk replace old admin config',
+  '授予新地址 Admin': 'Grant new Admin',
+  '更新默认推荐人': 'Update default referrer',
+  '更新手续费地址': 'Update fee address',
+  '更新入金钱包': 'Update deposit wallets',
+  '撤销旧管理员': 'Revoke old admin',
+  '旧地址不是当前默认推荐人': 'Old address is not current default referrer',
+  '旧地址不是当前手续费接收地址': 'Old address is not current fee receiver',
+  '入金钱包未包含旧地址': 'Deposit wallets do not include old address',
+  '新地址已拥有 Admin 权限': 'New address already has Admin permission',
+  '旧地址没有 Admin/Manager 权限': 'Old address has no Admin/Manager permission',
+  '旧地址不能与新地址相同。': 'Old and new addresses cannot be the same.',
+  '旧地址不能是当前连接钱包；请使用 Owner 转移流程移除当前钱包自身权限。': 'Old address cannot be the connected wallet; use the Owner transfer flow to remove the current wallet itself.',
+  '没有需要提交的替换交易。': 'There are no replacement transactions to submit.',
+  '将旧地址仍持有的 Admin/Manager、默认推荐人、手续费接收地址和入金钱包配置迁移到新地址。每一步都需要钱包确认。': 'Migrates Admin/Manager, default referrer, fee receiver, and deposit wallet config still held by the old address to the new address. Each step requires wallet confirmation.',
   '当前钱包': 'Current wallet',
   '新 Owner': 'New Owner',
   '如仍指向当前钱包，将同步到新 Owner': 'If it still points to the current wallet, it will be synced to the new Owner',
@@ -5991,10 +6016,47 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
   const { t } = useI18n();
   const { address } = useAccount();
   const [targetAddress, setTargetAddress] = useState('');
+  const [oldAdminAddress, setOldAdminAddress] = useState('0xAC25dA7FdEEEaDf2943EBF505Fa9739CBD111bD8');
+  const [replacementAddress, setReplacementAddress] = useState('');
+  const [replaceDefaultReferrer, setReplaceDefaultReferrer] = useState(true);
+  const [replaceFeeReceiver, setReplaceFeeReceiver] = useState(true);
+  const [replaceDepositReceivers, setReplaceDepositReceivers] = useState(true);
+  const [revokeOldAdmin, setRevokeOldAdmin] = useState(true);
   const [ownerTransferTarget, setOwnerTransferTarget] = useState<Address>();
   const target = isAddress(targetAddress.trim()) ? (targetAddress.trim() as Address) : undefined;
+  const oldAdmin = isAddress(oldAdminAddress.trim()) ? safeAddress(oldAdminAddress.trim()) : undefined;
+  const replacement = isAddress(replacementAddress.trim()) ? safeAddress(replacementAddress.trim()) : undefined;
   const role = useAdminRole(target);
+  const oldAdminRole = useAdminRole(oldAdmin);
+  const replacementRole = useAdminRole(replacement);
+  const config = useContractConfig();
   const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
+  const oldAdminIsConnectedWallet = Boolean(address && oldAdmin && oldAdmin.toLowerCase() === address.toLowerCase());
+  const oldAdminMatchesDefaultReferrer = Boolean(oldAdmin && config.defaultReferrer.toLowerCase() === oldAdmin.toLowerCase());
+  const oldAdminMatchesFeeReceiver = Boolean(oldAdmin && config.feeReceiver.toLowerCase() === oldAdmin.toLowerCase());
+  const oldAdminDepositReceiverIndexes = oldAdmin
+    ? config.depositReceivers
+        .map((receiver, index) => (receiver.toLowerCase() === oldAdmin.toLowerCase() ? index + 1 : 0))
+        .filter(Boolean)
+    : [];
+  const shouldGrantReplacementAdmin = Boolean(replacement && !replacementRole.isSuperAdmin);
+  const shouldReplaceDefaultReferrer = replaceDefaultReferrer && oldAdminMatchesDefaultReferrer;
+  const shouldReplaceFeeReceiver = replaceFeeReceiver && oldAdminMatchesFeeReceiver;
+  const shouldReplaceDepositReceivers = replaceDepositReceivers && oldAdminDepositReceiverIndexes.length > 0;
+  const shouldRevokeOldAdmin = revokeOldAdmin && (oldAdminRole.isSuperAdmin || oldAdminRole.isManager);
+  const bulkReplacementStepCount = [
+    shouldGrantReplacementAdmin,
+    shouldReplaceDefaultReferrer,
+    shouldReplaceFeeReceiver,
+    shouldReplaceDepositReceivers,
+    shouldRevokeOldAdmin,
+  ].filter(Boolean).length;
+  const canRunBulkReplacement =
+    canEdit &&
+    Boolean(oldAdmin && replacement) &&
+    !oldAdminIsConnectedWallet &&
+    Boolean(!oldAdmin || !replacement || oldAdmin.toLowerCase() !== replacement.toLowerCase()) &&
+    bulkReplacementStepCount > 0;
   const userQuery = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: ironBrotherAbi,
@@ -6004,8 +6066,168 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
   });
   const account = userFromTuple(userQuery.data);
 
+  function runBulkAdminReplacement() {
+    if (!oldAdmin || !replacement) return;
+    if (oldAdmin.toLowerCase() === replacement.toLowerCase()) return;
+
+    const steps: TxFlowStep[] = [];
+
+    if (shouldGrantReplacementAdmin) {
+      steps.push({
+        label: t('授予新地址 Admin'),
+        request: () =>
+          runner.writeContractAsync({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            functionName: 'setAdmin',
+            args: [replacement, true],
+          }),
+      });
+    }
+
+    if (shouldReplaceDefaultReferrer) {
+      steps.push({
+        label: t('更新默认推荐人'),
+        request: () =>
+          runner.writeContractAsync({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            functionName: 'setDefaultReferrer',
+            args: [replacement],
+          }),
+      });
+    }
+
+    if (shouldReplaceFeeReceiver) {
+      steps.push({
+        label: t('更新手续费地址'),
+        request: () =>
+          runner.writeContractAsync({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            functionName: 'setFeeReceiver',
+            args: [replacement],
+          }),
+      });
+    }
+
+    if (shouldReplaceDepositReceivers) {
+      const nextDepositReceivers = config.depositReceivers.map((receiver) =>
+        receiver.toLowerCase() === oldAdmin.toLowerCase() ? replacement : receiver,
+      ) as [Address, Address, Address, Address, Address];
+
+      steps.push({
+        label: t('更新入金钱包'),
+        request: () =>
+          runner.writeContractAsync({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            functionName: 'setDepositReceivers',
+            args: [nextDepositReceivers],
+          }),
+      });
+    }
+
+    if (shouldRevokeOldAdmin) {
+      steps.push({
+        label: t('撤销旧管理员'),
+        request: () =>
+          runner.writeContractAsync({
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            functionName: 'setAdmin',
+            args: [oldAdmin, false],
+          }),
+      });
+    }
+
+    if (steps.length === 0) return;
+    runner.runTxFlow(t('批量替换旧管理员配置'), steps);
+  }
+
   return (
     <>
+      <section className="admin-panel bulk-admin-panel">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Bulk Admin Migration</p>
+            <h2>{t('批量替换旧管理员')}</h2>
+          </div>
+          <Shield size={20} />
+        </div>
+        <p className="helper-line">{t('将旧地址仍持有的 Admin/Manager、默认推荐人、手续费接收地址和入金钱包配置迁移到新地址。每一步都需要钱包确认。')}</p>
+        <div className="form-grid">
+          <label>
+            {t('旧管理员地址')}
+            <input value={oldAdminAddress} onChange={(event) => setOldAdminAddress(event.target.value)} placeholder="0x..." />
+          </label>
+          <label>
+            {t('新接收地址')}
+            <input value={replacementAddress} onChange={(event) => setReplacementAddress(event.target.value)} placeholder="0x..." />
+          </label>
+        </div>
+        <div className="admin-grid compact-grid">
+          <AdminCard
+            icon={<Shield />}
+            label={t('当前旧地址角色')}
+            value={`${oldAdminRole.isSuperAdmin ? 'Admin' : '--'} / ${oldAdminRole.isManager ? 'Manager' : '--'}`}
+          />
+          <AdminCard
+            icon={<UserRound />}
+            label={t('新地址当前角色')}
+            value={`${replacementRole.isSuperAdmin ? 'Admin' : '--'} / ${replacementRole.isManager ? 'Manager' : '--'}`}
+          />
+          <AdminCard
+            icon={<Users />}
+            label={t('默认推荐人')}
+            value={oldAdminMatchesDefaultReferrer ? t('是') : t('否')}
+          />
+          <AdminCard
+            icon={<Wallet />}
+            label={t('入金收款钱包')}
+            value={oldAdminDepositReceiverIndexes.length > 0 ? `#${oldAdminDepositReceiverIndexes.join(', #')}` : t('否')}
+          />
+        </div>
+        <div className="replacement-options">
+          <label>
+            <input type="checkbox" checked={replaceDefaultReferrer} onChange={(event) => setReplaceDefaultReferrer(event.target.checked)} />
+            <span>{t('替换默认推荐人')}</span>
+            <small>{oldAdminMatchesDefaultReferrer ? shortAddress(config.defaultReferrer) : t('旧地址不是当前默认推荐人')}</small>
+          </label>
+          <label>
+            <input type="checkbox" checked={replaceFeeReceiver} onChange={(event) => setReplaceFeeReceiver(event.target.checked)} />
+            <span>{t('替换手续费接收地址')}</span>
+            <small>{oldAdminMatchesFeeReceiver ? shortAddress(config.feeReceiver) : t('旧地址不是当前手续费接收地址')}</small>
+          </label>
+          <label>
+            <input type="checkbox" checked={replaceDepositReceivers} onChange={(event) => setReplaceDepositReceivers(event.target.checked)} />
+            <span>{t('替换入金收款钱包')}</span>
+            <small>{oldAdminDepositReceiverIndexes.length > 0 ? `#${oldAdminDepositReceiverIndexes.join(', #')}` : t('入金钱包未包含旧地址')}</small>
+          </label>
+          <label>
+            <input type="checkbox" checked={revokeOldAdmin} onChange={(event) => setRevokeOldAdmin(event.target.checked)} />
+            <span>{t('撤销旧地址 Admin/Manager')}</span>
+            <small>{oldAdminRole.isSuperAdmin || oldAdminRole.isManager ? `${oldAdminRole.isSuperAdmin ? 'Admin' : '--'} / ${oldAdminRole.isManager ? 'Manager' : '--'}` : t('旧地址没有 Admin/Manager 权限')}</small>
+          </label>
+        </div>
+        {oldAdmin && replacement && oldAdmin.toLowerCase() === replacement.toLowerCase() && (
+          <p className="helper-line danger-text">{t('旧地址不能与新地址相同。')}</p>
+        )}
+        {oldAdminIsConnectedWallet && (
+          <p className="helper-line danger-text">{t('旧地址不能是当前连接钱包；请使用 Owner 转移流程移除当前钱包自身权限。')}</p>
+        )}
+        {oldAdmin && replacement && bulkReplacementStepCount === 0 && (
+          <p className="helper-line">{t('没有需要提交的替换交易。')}</p>
+        )}
+        <button
+          className="primary-button full-button"
+          disabled={!canRunBulkReplacement || transactionBusy}
+          onClick={runBulkAdminReplacement}
+        >
+          <Shield size={17} />
+          {t('执行完整替换')}
+        </button>
+      </section>
       <section className="admin-panel">
         <div className="section-title">
           <div>
