@@ -192,6 +192,16 @@ type PrincipalOrderData = {
   unlockAt: bigint;
   source: number;
   status: number;
+  depositRoute?: PrincipalDepositRoute;
+  depositRouteLoading?: boolean;
+};
+
+type PrincipalDepositRoute = {
+  receiver: Address;
+  receiverIndex: number;
+  transactionHash: Hash;
+  blockNumber: bigint;
+  logIndex: number;
 };
 
 type StakeOrderData = {
@@ -604,6 +614,10 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '休息中': 'Closed',
   '复投订单': 'Reinvestment order',
   '入金订单': 'Deposit order',
+  '收款钱包': 'Receiver wallet',
+  '收款钱包读取中': 'Reading receiver wallet',
+  '未找到收款钱包': 'Receiver wallet not found',
+  '收益复投，无外部收款钱包': 'Reward reinvestment; no external receiver wallet',
   '带单订单': 'Stake order',
   '提现申请': 'Withdrawal request',
   '已赎回': 'Redeemed',
@@ -1701,6 +1715,57 @@ function historyNumber(value: unknown) {
   return 0;
 }
 
+function buildPrincipalDepositRouteMap(depositedEvents: ChainEventRecord[], routedEvents: ChainEventRecord[]) {
+  const routesByTx = new Map<string, ChainEventRecord[]>();
+  routedEvents.forEach((event) => {
+    if (event.eventName !== 'DepositRouted') return;
+    const txKey = event.transactionHash.toLowerCase();
+    const routes = routesByTx.get(txKey) ?? [];
+    routes.push(event);
+    routesByTx.set(txKey, routes);
+  });
+  routesByTx.forEach((routes) => routes.sort((left, right) => left.logIndex - right.logIndex));
+
+  const usedRoutes = new Set<string>();
+  const routeMap: Record<string, PrincipalDepositRoute> = {};
+
+  depositedEvents
+    .filter((event) => event.eventName === 'Deposited')
+    .sort((left, right) => {
+      const blockDiff = Number(left.blockNumber - right.blockNumber);
+      return blockDiff === 0 ? left.logIndex - right.logIndex : blockDiff;
+    })
+    .forEach((event) => {
+      const orderId = historyBigInt(event.args.orderId);
+      const user = historyAddress(event.args.user);
+      const amount = historyBigInt(event.args.amount);
+      if (orderId <= 0n || !user || amount <= 0n) return;
+
+      const txKey = event.transactionHash.toLowerCase();
+      const routed = (routesByTx.get(txKey) ?? []).find((candidate) => {
+        const routeKey = `${candidate.transactionHash.toLowerCase()}-${candidate.logIndex}`;
+        if (usedRoutes.has(routeKey)) return false;
+        const routeUser = historyAddress(candidate.args.user);
+        return routeUser?.toLowerCase() === user.toLowerCase() && historyBigInt(candidate.args.amount) === amount;
+      });
+      if (!routed) return;
+
+      const receiver = historyAddress(routed.args.receiver);
+      if (!receiver) return;
+      const routeKey = `${routed.transactionHash.toLowerCase()}-${routed.logIndex}`;
+      usedRoutes.add(routeKey);
+      routeMap[orderId.toString()] = {
+        receiver,
+        receiverIndex: historyNumber(routed.args.receiverIndex),
+        transactionHash: routed.transactionHash,
+        blockNumber: routed.blockNumber,
+        logIndex: routed.logIndex,
+      };
+    });
+
+  return routeMap;
+}
+
 function dynamicRewardDetailFromHistory(row: unknown, upline: Address, historyIndex: number): DynamicRewardDetail | undefined {
   const source = historyAddress(historyValue(row, 'source', 0));
   if (!source) return undefined;
@@ -2164,6 +2229,10 @@ function PaginationControls({
 
 function principalSourceLabel(source: number) {
   return source === 1 ? '复投订单' : '入金订单';
+}
+
+function isReinvestPrincipalOrder(order: Pick<PrincipalOrderData, 'source'>) {
+  return order.source === 1;
 }
 
 function principalStatusLabel(order: PrincipalOrderData) {
@@ -6278,19 +6347,31 @@ function useAdminOrderBook(limit = 40) {
     contracts: stakeOrderContracts as never,
     query: { enabled: stakeOrderContracts.length > 0 },
   });
+  const depositRoutesQuery = usePrincipalDepositRoutes(principalIds.length > 0);
+  const depositRoutes = depositRoutesQuery.data ?? {};
+  const principalOrders = useMemo(
+    () =>
+      (principalOrdersQuery.data ?? [])
+        .map((result) => principalOrderFromTuple(readResult(result, undefined)))
+        .filter((order): order is PrincipalOrderData => Boolean(order))
+        .map((order) => ({
+          ...order,
+          depositRoute: depositRoutes[order.id.toString()],
+          depositRouteLoading: order.source === 0 && depositRoutesQuery.isLoading,
+        }))
+        .sort(comparePrincipalOrderLatest),
+    [depositRoutes, depositRoutesQuery.isLoading, principalOrdersQuery.data],
+  );
 
   return {
     principalOrderTotal,
     stakeOrderTotal,
-    principalOrders: (principalOrdersQuery.data ?? [])
-      .map((result) => principalOrderFromTuple(readResult(result, undefined)))
-      .filter((order): order is PrincipalOrderData => Boolean(order))
-      .sort(comparePrincipalOrderLatest),
+    principalOrders,
     stakeOrders: (stakeOrdersQuery.data ?? [])
       .map((result) => stakeOrderFromTuple(readResult(result, undefined)))
       .filter((order): order is StakeOrderData => Boolean(order))
       .sort(compareStakeOrderLatest),
-    isLoading: nextIdsQuery.isLoading || principalOrdersQuery.isLoading || stakeOrdersQuery.isLoading,
+    isLoading: nextIdsQuery.isLoading || principalOrdersQuery.isLoading || stakeOrdersQuery.isLoading || depositRoutesQuery.isLoading,
   };
 }
 
@@ -6367,6 +6448,49 @@ async function getContractEventsOnceOrChunked(
     }
     return logs;
   }
+}
+
+function usePrincipalDepositRoutes(enabled = true) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['principalDepositRoutes', CONTRACT_ADDRESS],
+    enabled: Boolean(enabled && isContractConfigured && publicClient),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (!publicClient) return {} as Record<string, PrincipalDepositRoute>;
+
+      const client = publicClient as unknown as ChainEventClient;
+      const latest = await client.getBlockNumber();
+      const configuredFromBlock = parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
+      const fromBlock = configuredFromBlock ?? (latest > EVENT_LOOKBACK_BLOCKS ? latest - EVENT_LOOKBACK_BLOCKS : 0n);
+      const [depositedEvents, routedEvents] = await Promise.all([
+        getContractEventsOnceOrChunked(
+          client,
+          {
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            eventName: 'Deposited',
+          },
+          fromBlock,
+          latest,
+        ),
+        getContractEventsOnceOrChunked(
+          client,
+          {
+            address: CONTRACT_ADDRESS,
+            abi: ironBrotherAbi,
+            eventName: 'DepositRouted',
+          },
+          fromBlock,
+          latest,
+        ),
+      ]);
+
+      return buildPrincipalDepositRouteMap(depositedEvents, routedEvents);
+    },
+  });
 }
 
 function useChainEvents(eventNames: readonly string[], enabled = true) {
@@ -7599,12 +7723,34 @@ function AdminPrincipalOrderRow({
     setLockDays(currentLockDays);
   }, [currentLockDays, order.id]);
 
+  const isReinvestOrder = isReinvestPrincipalOrder(order);
+
   return (
-    <div className="admin-list-row principal-admin-row wide">
+    <div className={`admin-list-row principal-admin-row wide${isReinvestOrder ? ' is-reinvest' : ''}`}>
       <div className="row-icon"><Landmark size={17} /></div>
       <div>
-        <strong>{principalSourceLabel(order.source)} #{order.id.toString()}</strong>
+        <strong className="principal-order-title">
+          {principalSourceLabel(order.source)} #{order.id.toString()}
+          {isReinvestOrder && <span className="principal-source-badge">{t('复投')}</span>}
+        </strong>
         <small>{shortAddress(order.user)} / {t('创建')} {dateTime(order.createdAt)}</small>
+        <div className="principal-route-meta">
+          {isReinvestOrder ? (
+            <span className="principal-route-muted">{t('收益复投，无外部收款钱包')}</span>
+          ) : order.depositRoute ? (
+            <>
+              <span className="principal-wallet-badge">#{order.depositRoute.receiverIndex + 1}</span>
+              <span>{t('收款钱包')}</span>
+              <span className="principal-wallet-address" title={order.depositRoute.receiver}>
+                {order.depositRoute.receiver}
+              </span>
+            </>
+          ) : (
+            <span className="principal-route-muted">
+              {order.depositRouteLoading ? t('收款钱包读取中') : t('未找到收款钱包')}
+            </span>
+          )}
+        </div>
       </div>
       <div className="row-metrics">
         <span>{token(order.amount)} U</span>
