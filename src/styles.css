@@ -834,6 +834,62 @@ a {
   grid-template-columns: auto minmax(0, 1fr) minmax(260px, auto) minmax(210px, auto);
 }
 
+.principal-admin-row.is-reinvest {
+  background: #f2fbf5;
+  box-shadow: inset 3px 0 0 #1f9d55;
+}
+
+.admin-list-row .principal-order-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.principal-source-badge,
+.principal-wallet-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #dff4e7;
+  color: #0f6b3a;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.principal-wallet-badge {
+  background: #111111;
+  color: #ffffff;
+}
+
+.principal-route-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+  color: #50645b;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.principal-wallet-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color: #111111;
+  overflow-wrap: anywhere;
+}
+
+.principal-route-muted {
+  color: #73847b;
+}
+
 .principal-cycle-editor {
   display: flex;
   align-items: end;
