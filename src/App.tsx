@@ -239,6 +239,14 @@ type AdminUserRow = {
   registeredIndex?: number;
 };
 
+type PermissionAccountRow = {
+  address: Address;
+  isSuperAdmin: boolean;
+  isManager: boolean;
+  source: 'known' | 'event';
+  blockNumber?: bigint;
+};
+
 type UserTreeNode = AdminUserRow & {
   children: UserTreeNode[];
 };
@@ -325,6 +333,7 @@ type PublicContractClient = NonNullable<ReturnType<typeof usePublicClient>>;
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}` as Hex;
 const CONTRACT_ADDRESS = IRONBROTHER_CONTRACT_ADDRESS ?? zeroAddress;
 const EVENT_LOOKBACK_BLOCKS = 200_000n;
+const ROLE_EVENT_LOOKBACK_BLOCKS = 1_000_000n;
 const EVENT_CHUNK_BLOCKS = 20_000n;
 const SESSION_STATUS_REFETCH_MS = 30_000;
 const PENDING_DYNAMIC_LOOKBACK_PERIODS = 5;
@@ -902,6 +911,20 @@ const EN_TRANSLATIONS: Record<string, string> = {
   '撤销 Manager 权限': 'Revoke Manager permission',
   '授予 Admin 权限': 'Grant Admin permission',
   '撤销 Admin 权限': 'Revoke Admin permission',
+  '当前操作账号': 'Current target account',
+  '权限状态': 'Permission status',
+  '注册状态': 'Registration status',
+  '未选择有效账号': 'No valid account selected',
+  '增减权限会作用于该地址，请核对后再确认钱包交易。': 'Permission changes will apply to this address. Review it before confirming in your wallet.',
+  '请输入有效地址后查看权限状态。': 'Enter a valid address to view permission status.',
+  '有权限账号': 'Permission accounts',
+  '当前仍持有 Admin 或 Manager 的账号会显示在这里，可直接填入操作、设为替换旧地址或撤销权限。': 'Accounts that currently hold Admin or Manager appear here. You can fill them into the editor, set them as the old replacement address, or revoke permissions.',
+  '正在扫描权限账号...': 'Scanning permission accounts...',
+  '未发现有权限账号': 'No permission accounts found',
+  '填入操作': 'Fill target',
+  '设为替换旧地址': 'Set as old replacement address',
+  '事件发现': 'Found by events',
+  '页面已知': 'Known on page',
   '转移 Owner 权限': 'Transfer Owner permission',
   '转移后，新地址获得 Admin/Manager 权限；当前钱包会失去这些权限。默认推荐人如果仍是当前钱包，会同步到新 Owner。': 'After transfer, the new address receives Admin/Manager permissions and the current wallet loses them. If the default referrer still points to the current wallet, it will be synced to the new Owner.',
   '这是一项高风险操作。确认后，新地址将获得 Admin/Manager 权限，当前钱包会失去管理权限。': 'This is a high-risk action. After confirmation, the new address receives Admin/Manager permissions and the current wallet loses management access.',
@@ -6023,13 +6046,27 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
   const [replaceDepositReceivers, setReplaceDepositReceivers] = useState(true);
   const [revokeOldAdmin, setRevokeOldAdmin] = useState(true);
   const [ownerTransferTarget, setOwnerTransferTarget] = useState<Address>();
-  const target = isAddress(targetAddress.trim()) ? (targetAddress.trim() as Address) : undefined;
+  const target = isAddress(targetAddress.trim()) ? safeAddress(targetAddress.trim()) : undefined;
   const oldAdmin = isAddress(oldAdminAddress.trim()) ? safeAddress(oldAdminAddress.trim()) : undefined;
   const replacement = isAddress(replacementAddress.trim()) ? safeAddress(replacementAddress.trim()) : undefined;
   const role = useAdminRole(target);
   const oldAdminRole = useAdminRole(oldAdmin);
   const replacementRole = useAdminRole(replacement);
   const config = useContractConfig();
+  const permissionCandidateAddresses = useMemo(
+    () =>
+      uniqueAddresses([
+        address,
+        target,
+        oldAdmin,
+        replacement,
+        config.defaultReferrer,
+        config.feeReceiver,
+        ...config.depositReceivers,
+      ]),
+    [address, config.defaultReferrer, config.depositReceivers, config.feeReceiver, oldAdmin, replacement, target],
+  );
+  const permissionAccounts = usePermissionAccounts(permissionCandidateAddresses);
   const transactionBusy = runner.tx.status === 'wallet' || runner.tx.status === 'pending';
   const oldAdminIsConnectedWallet = Boolean(address && oldAdmin && oldAdmin.toLowerCase() === address.toLowerCase());
   const oldAdminMatchesDefaultReferrer = Boolean(oldAdmin && config.defaultReferrer.toLowerCase() === oldAdmin.toLowerCase());
@@ -6065,6 +6102,9 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
     query: { enabled: Boolean(isContractConfigured && target) },
   });
   const account = userFromTuple(userQuery.data);
+  const targetRoleSummary = `${role.isSuperAdmin ? 'Admin' : '--'} / ${role.isManager ? 'Manager' : '--'}`;
+  const targetAccountStatus = account.whitelist40 ? t('40 代白名单') : account.registered ? t('已注册') : t('未注册');
+  const targetTxSuffix = target ? `: ${shortAddress(target)}` : '';
 
   function runBulkAdminReplacement() {
     if (!oldAdmin || !replacement) return;
@@ -6240,6 +6280,100 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
           {t('钱包地址')}
           <input value={targetAddress} onChange={(event) => setTargetAddress(event.target.value)} placeholder="0x..." />
         </label>
+        <div className={`role-target-preview ${target ? '' : 'empty'}`}>
+          <div className="role-target-main">
+            <span>{t('当前操作账号')}</span>
+            <strong>{target ?? t('未选择有效账号')}</strong>
+          </div>
+          <div className="role-target-meta">
+            <span>
+              <Shield size={15} />
+              {t('权限状态')}: {target ? targetRoleSummary : '--'}
+            </span>
+            <span>
+              <UserRound size={15} />
+              {t('注册状态')}: {target ? targetAccountStatus : '--'}
+            </span>
+          </div>
+          <p>{target ? t('增减权限会作用于该地址，请核对后再确认钱包交易。') : t('请输入有效地址后查看权限状态。')}</p>
+        </div>
+        <div className="permission-account-list">
+          <div className="permission-account-header">
+            <div>
+              <strong>{t('有权限账号')}</strong>
+              <span>{t('当前仍持有 Admin 或 Manager 的账号会显示在这里，可直接填入操作、设为替换旧地址或撤销权限。')}</span>
+            </div>
+            {permissionAccounts.isLoading && <small>{t('正在扫描权限账号...')}</small>}
+          </div>
+          {permissionAccounts.rows.length === 0 && !permissionAccounts.isLoading ? (
+            <p className="helper-line">{t('未发现有权限账号')}</p>
+          ) : (
+            permissionAccounts.rows.map((row) => {
+              const rowTxSuffix = `: ${shortAddress(row.address)}`;
+              const isConnectedAccount = Boolean(address && row.address.toLowerCase() === address.toLowerCase());
+
+              return (
+                <div className="permission-account-row" key={row.address}>
+                  <div className="permission-account-identity">
+                    <strong>{shortAddress(row.address)}</strong>
+                    <small>{row.address}</small>
+                  </div>
+                  <div className="permission-role-badges">
+                    {row.isSuperAdmin && <span>Admin</span>}
+                    {row.isManager && <span>Manager</span>}
+                    <small>{row.source === 'known' ? t('页面已知') : t('事件发现')}</small>
+                  </div>
+                  <div className="permission-row-actions">
+                    <button className="secondary-button" type="button" onClick={() => setTargetAddress(row.address)}>
+                      {t('填入操作')}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={() => setOldAdminAddress(row.address)}>
+                      {t('设为替换旧地址')}
+                    </button>
+                    {row.isManager && (
+                      <button
+                        className="secondary-button danger-button"
+                        type="button"
+                        disabled={!canEdit || transactionBusy}
+                        onClick={() =>
+                          runner.runTx(`${t('撤销 Manager 权限')}${rowTxSuffix}`, () =>
+                            runner.writeContractAsync({
+                              address: CONTRACT_ADDRESS,
+                              abi: ironBrotherAbi,
+                              functionName: 'setManager',
+                              args: [row.address, false],
+                            }),
+                          )
+                        }
+                      >
+                        {t('撤销 Manager 权限')}
+                      </button>
+                    )}
+                    {row.isSuperAdmin && (
+                      <button
+                        className="secondary-button danger-button"
+                        type="button"
+                        disabled={!canEdit || transactionBusy || isConnectedAccount}
+                        onClick={() =>
+                          runner.runTx(`${t('撤销 Admin 权限')}${rowTxSuffix}`, () =>
+                            runner.writeContractAsync({
+                              address: CONTRACT_ADDRESS,
+                              abi: ironBrotherAbi,
+                              functionName: 'setAdmin',
+                              args: [row.address, false],
+                            }),
+                          )
+                        }
+                      >
+                        {t('撤销 Admin 权限')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
         <div className="admin-grid compact-grid">
           <AdminCard icon={<Shield />} label={t('Admin 权限')} value={role.isSuperAdmin ? t('是') : t('否')} />
           <AdminCard icon={<Settings />} label={t('Manager 权限')} value={role.isManager ? t('是') : t('否')} />
@@ -6251,7 +6385,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('开启 40 代白名单'), () =>
+              runner.runTx(`${t('开启 40 代白名单')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6267,7 +6401,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('关闭 40 代白名单'), () =>
+              runner.runTx(`${t('关闭 40 代白名单')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6283,7 +6417,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('授予 Manager 权限'), () =>
+              runner.runTx(`${t('授予 Manager 权限')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6299,7 +6433,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('撤销 Manager 权限'), () =>
+              runner.runTx(`${t('撤销 Manager 权限')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6315,7 +6449,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('授予 Admin 权限'), () =>
+              runner.runTx(`${t('授予 Admin 权限')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6331,7 +6465,7 @@ function AdminRolesPage({ canEdit, runner }: { canEdit: boolean; runner: ReturnT
             className="secondary-button danger-button"
             disabled={!canEdit || !target}
             onClick={() =>
-              runner.runTx(t('撤销 Admin 权限'), () =>
+              runner.runTx(`${t('撤销 Admin 权限')}${targetTxSuffix}`, () =>
                 runner.writeContractAsync({
                   address: CONTRACT_ADDRESS,
                   abi: ironBrotherAbi,
@@ -6771,6 +6905,48 @@ function useChainEvents(eventNames: readonly string[], enabled = true) {
   });
 }
 
+function useRoleEvents(enabled = true) {
+  const publicClient = usePublicClient();
+
+  return useQuery({
+    queryKey: ['ironBrotherRoleEvents', CONTRACT_ADDRESS],
+    enabled: Boolean(enabled && isContractConfigured && publicClient),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      if (!publicClient) return [] as ChainEventRecord[];
+
+      const client = publicClient as unknown as ChainEventClient;
+      const latest = await client.getBlockNumber();
+      const configuredFromBlock =
+        parseBlockEnv(import.meta.env.VITE_IRONBROTHER_ROLE_EVENT_FROM_BLOCK) ??
+        parseBlockEnv(import.meta.env.VITE_IRONBROTHER_EVENT_FROM_BLOCK);
+      const fromBlock = configuredFromBlock ?? (latest > ROLE_EVENT_LOOKBACK_BLOCKS ? latest - ROLE_EVENT_LOOKBACK_BLOCKS : 0n);
+      const logs: ChainEventRecord[] = [];
+
+      for (const eventName of ['RoleGranted', 'RoleRevoked']) {
+        logs.push(
+          ...(await getContractEventsOnceOrChunked(
+            client,
+            {
+              address: CONTRACT_ADDRESS,
+              abi: ironBrotherAbi,
+              eventName,
+            },
+            fromBlock,
+            latest,
+          )),
+        );
+      }
+
+      return logs.sort((a, b) => {
+        const blockDiff = Number(b.blockNumber - a.blockNumber);
+        return blockDiff === 0 ? Number(b.logIndex - a.logIndex) : blockDiff;
+      });
+    },
+  });
+}
+
 function useDynamicRewardDetails(upline?: Address) {
   const publicClient = usePublicClient();
   const historyQuery = useReadContract({
@@ -7062,6 +7238,103 @@ function useAdminUsers(extraAddress?: Address | readonly Address[]) {
     eventCount: shouldReadUserEvents ? events.data?.length ?? 0 : 0,
     eventError: shouldReadUserEvents && events.isError,
     isLoading: indexedUsersQuery.isLoading || (shouldReadUserEvents && events.isLoading) || usersQuery.isLoading,
+  };
+}
+
+function usePermissionAccounts(extraAddresses: readonly (Address | undefined)[]) {
+  const managerRoleQuery = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: ironBrotherAbi,
+    functionName: 'MANAGER_ROLE',
+    query: { enabled: isContractConfigured },
+  });
+  const managerRole = (managerRoleQuery.data as Hex | undefined) ?? DEFAULT_ADMIN_ROLE;
+  const events = useRoleEvents();
+  const knownAddresses = useMemo(() => uniqueAddresses(extraAddresses), [extraAddresses]);
+  const eventAddresses = useMemo(
+    () =>
+      uniqueAddresses(
+        ((events.data as ChainEventRecord[] | undefined) ?? []).flatMap((event) => {
+          const role = event.args.role as Hex | undefined;
+          const account = event.args.account as Address | undefined;
+          if (!role || !account || !isAddress(account)) return [];
+
+          const normalizedRole = role.toLowerCase();
+          return normalizedRole === DEFAULT_ADMIN_ROLE.toLowerCase() || normalizedRole === managerRole.toLowerCase()
+            ? [account]
+            : [];
+        }),
+      ),
+    [events.data, managerRole],
+  );
+  const addresses = useMemo(() => uniqueAddresses([...knownAddresses, ...eventAddresses]), [eventAddresses, knownAddresses]);
+  const eventMeta = useMemo(() => {
+    const meta = new Map<string, bigint>();
+    ((events.data as ChainEventRecord[] | undefined) ?? []).forEach((event) => {
+      const account = event.args.account as Address | undefined;
+      if (!account || !isAddress(account)) return;
+      const role = event.args.role as Hex | undefined;
+      if (!role) return;
+      const normalizedRole = role.toLowerCase();
+      if (normalizedRole !== DEFAULT_ADMIN_ROLE.toLowerCase() && normalizedRole !== managerRole.toLowerCase()) return;
+
+      const key = account.toLowerCase();
+      const currentBlock = meta.get(key);
+      if (currentBlock === undefined || event.blockNumber > currentBlock) {
+        meta.set(key, event.blockNumber);
+      }
+    });
+    return meta;
+  }, [events.data, managerRole]);
+  const knownAddressSet = useMemo(() => new Set(knownAddresses.map((item) => item.toLowerCase())), [knownAddresses]);
+  const roleContracts = useMemo(
+    () =>
+      addresses.flatMap((account) => [
+        {
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'hasRole',
+          args: [DEFAULT_ADMIN_ROLE, account],
+        },
+        {
+          address: CONTRACT_ADDRESS,
+          abi: ironBrotherAbi,
+          functionName: 'hasRole',
+          args: [managerRole, account],
+        },
+      ]),
+    [addresses, managerRole],
+  );
+  const roleQuery = useReadContracts({
+    contracts: roleContracts as never,
+    query: { enabled: Boolean(isContractConfigured && addresses.length > 0) },
+  });
+  const rows = useMemo(
+    () =>
+      addresses
+        .map((account, index): PermissionAccountRow => {
+          const base = index * 2;
+          return {
+            address: account,
+            isSuperAdmin: readResult(roleQuery.data?.[base], false),
+            isManager: readResult(roleQuery.data?.[base + 1], false),
+            source: knownAddressSet.has(account.toLowerCase()) ? 'known' : 'event',
+            blockNumber: eventMeta.get(account.toLowerCase()),
+          };
+        })
+        .filter((row) => row.isSuperAdmin || row.isManager)
+        .sort((left, right) => {
+          if (left.isSuperAdmin !== right.isSuperAdmin) return left.isSuperAdmin ? -1 : 1;
+          if (left.isManager !== right.isManager) return left.isManager ? -1 : 1;
+          return left.address.localeCompare(right.address);
+        }),
+    [addresses, eventMeta, knownAddressSet, roleQuery.data],
+  );
+
+  return {
+    rows,
+    isLoading: managerRoleQuery.isLoading || events.isLoading || roleQuery.isLoading,
+    isError: events.isError || roleQuery.isError,
   };
 }
 

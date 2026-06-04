@@ -1,6 +1,24 @@
 export const ironBrotherAbi = [
   {
     type: 'event',
+    name: 'RoleGranted',
+    inputs: [
+      { name: 'role', type: 'bytes32', indexed: true },
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'sender', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'RoleRevoked',
+    inputs: [
+      { name: 'role', type: 'bytes32', indexed: true },
+      { name: 'account', type: 'address', indexed: true },
+      { name: 'sender', type: 'address', indexed: true },
+    ],
+  },
+  {
+    type: 'event',
     name: 'UserRegistered',
     inputs: [
       { name: 'user', type: 'address', indexed: true },
